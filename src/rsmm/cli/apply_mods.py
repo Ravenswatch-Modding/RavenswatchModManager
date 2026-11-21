@@ -452,6 +452,9 @@ class Mod:
         except Exception as e:  # noqa: BLE001 — surfaced, never fatal
             print(f"  [warn] {self.id}: content discovery failed: {e}",
                   file=sys.stderr)
+        if _req.uses_bleed_duration(self.content_blocks):
+            self.requires["loader"] = max(
+                self.requires.get("loader", 0), _req.BLEED_DURATION_MIN_LOADER)
 
     def files(self) -> list[tuple[Path, str]]:
         out: list[tuple[Path, str]] = []

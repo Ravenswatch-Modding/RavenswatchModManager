@@ -132,12 +132,21 @@ def lint_one(entry: Path) -> tuple[int, int]:
     warns += _lint_store_metadata(mod_s, m)
     warns += _report_unknown(mod_s, "[mod]", m, MS.MOD_FIELDS, warn=True)
     warns += _report_unknown(mod_s, "top level", t, MS.TOP_LEVEL, warn=True)
-    from rsmm.engine.mod_requires import parse_min_loader, parse_requires
+    from rsmm.engine.mod_requires import (
+        BLEED_DURATION_MIN_LOADER,
+        parse_requires,
+        uses_bleed_duration,
+        with_min_loader,
+    )
+    reqs: dict[str, int] = {}
     try:
-        parse_requires(t.get("requires"))
-        parse_min_loader(m.get("min_loader"))
+        reqs = with_min_loader(parse_requires(t.get("requires")), m.get("min_loader"))
     except ValueError as e:
         print(f"  {_T_FAIL} {mod_s}: {e}")
+        errs += 1
+    if uses_bleed_duration(t.get("content")) and reqs.get("loader", 0) < BLEED_DURATION_MIN_LOADER:
+        print(f"  {_T_FAIL} {mod_s}: stat 'bleed duration' needs the loader's bleed hook "
+              f"(declare [requires] loader = {BLEED_DURATION_MIN_LOADER})")
         errs += 1
     scope = m.get("multiplayer_scope")
     if scope is not None and scope not in {"cosmetic", "deterministic-shared",

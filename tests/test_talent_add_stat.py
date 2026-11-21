@@ -819,21 +819,26 @@ def test_more_bleed_damage_stacks_additively_and_scales_bleeds(wukong):
 
 def test_bleed_duration_validation(wukong):
     with pytest.raises(TA.AddStatError, match="above the 5s"):
-        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=1.0, percent=False)
+        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=1.0)
     with pytest.raises(TA.AddStatError, match="above 0s"):
-        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=-5.0, percent=False)
+        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=-5.0)
 
 
 def test_bleed_duration_offsets_and_scales_hero_and_projectiles(wukong):
     from rsmm.engine import entity_graph_edit as GE
     from rsmm.engine import talent_writer as TW
 
+    # percent defaults to True, but bleed duration must force non-percent card formatting.
     out, a1 = TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration",
-                          values=[-2.0, -2.0, -2.0, -2.0], percent=False)
+                          values=[-2.0, -2.0, -2.0, -2.0])
     out, a2 = TA.add_stat(out, talent="Trait Fire", stat="more bleed damage",
                           values=[0.50, 0.60, 0.70, 0.80])
     assert a1.modifier == ""
     assert a2.modifier == ""
+
+    card = comp(out, "Skill String Desc Trait Fire")
+    slot = GE.EntityFile(out)._format_slots(card)[0][a1.slot]
+    assert struct.unpack_from("<I", card.body, slot.offset + slot.size - 8)[0] == 0
 
     dur_op = comp(out, "Bleed Duration Operation", "ValueOperationsSettings")
     assert not TA._is_multiply_op(dur_op)
@@ -847,10 +852,24 @@ def test_bleed_duration_offsets_and_scales_hero_and_projectiles(wukong):
     hval = hw.add(TW._VALUE, "Test Hero Bleed Value",
                   {"value": TW.P.Num.f32(50.0), "flag": 0}, flags=0x101)
     hw.modifier("Test Hero Bleed Modifier", TA._BLEED_STAT, hval)
-    hef.set_value("Test Hero Bleed Modifier", "duration", -1.0)
+    hef.set_value("Test Hero Bleed Modifier", "duration", 5.0)
+
+    ival = hw.add(TW._VALUE, "Test Infinite Bleed Value",
+                  {"value": TW.P.Num.f32(30.0), "flag": 0}, flags=0x101)
+    hw.modifier("Test Infinite Bleed Modifier", TA._BLEED_STAT, ival)
+    hef.set_value("Test Infinite Bleed Modifier", "duration", -1.0)
+
     zval = hw.add(TW._VALUE, "Test Zero Bleed Value",
                   {"value": TW.P.Num.f32(25.0), "flag": 0}, flags=0x101)
     hw.modifier("Test Zero Bleed Modifier", TA._BLEED_STAT, zval)
+
+    sdur = hw.add(TW._VALUE, "Test Sourced Dur Value",
+                  {"value": TW.P.Num.f32(4.0), "flag": 0}, flags=0x101)
+    sval = hw.add(TW._VALUE, "Test Sourced Bleed Value",
+                  {"value": TW.P.Num.f32(40.0), "flag": 0}, flags=0x101)
+    hw.modifier("Test Sourced Bleed Modifier", TA._BLEED_STAT, sval)
+    assert sdur is not None
+    hef.source_value("Test Sourced Bleed Modifier", 0, "Test Sourced Dur Value")
 
     pef = GE.EntityFile(wukong, "Hero_SunWukong_Bomb")
     pw = TW.TalentWriter(pef, "test:bomb-bleed-dur", "Base")
@@ -889,9 +908,19 @@ def test_bleed_duration_offsets_and_scales_hero_and_projectiles(wukong):
         "Test Hero Bleed Modifier Bleed Duration",
         "Test Hero Bleed Modifier Bleed Inv Base Dur",
     }
+
+    imod = comp(scaled_hero, "Test Infinite Bleed Modifier")
+    assert [r.path.rsplit("\\", 1)[-1] for r in imod.refs] == [
+        "Test Infinite Bleed Modifier Bleed Scaled",
+    ]
     zmod = comp(scaled_hero, "Test Zero Bleed Modifier")
     assert [r.path.rsplit("\\", 1)[-1] for r in zmod.refs] == [
         "Test Zero Bleed Modifier Bleed Scaled",
+    ]
+    smod = comp(scaled_hero, "Test Sourced Bleed Modifier")
+    assert [r.path.rsplit("\\", 1)[-1] for r in smod.refs] == [
+        "Test Sourced Dur Value",
+        "Test Sourced Bleed Modifier Bleed Scaled",
     ]
 
     bomb = scaled_proj["Heroes/Hero_Common/Hero_SunWukong_Bomb.entity.ot"]

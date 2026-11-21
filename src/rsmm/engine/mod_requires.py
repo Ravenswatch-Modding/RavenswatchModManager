@@ -13,6 +13,39 @@ from __future__ import annotations
 from pathlib import Path
 
 KEYS = ("cli", "loader")
+BLEED_DURATION_MIN_LOADER = 64
+
+
+def _entries_use_bleed_duration(entries) -> bool:
+    return isinstance(entries, list) and any(
+        isinstance(e, dict)
+        and isinstance(e.get("stat"), str)
+        and e["stat"].strip().lower() == "bleed duration"
+        for e in entries
+    )
+
+
+def uses_bleed_duration(content_blocks) -> bool:
+    """Return True if any ``[[content]]`` block grants ``stat = "bleed duration"``."""
+    if not isinstance(content_blocks, list):
+        return False
+    for b in content_blocks:
+        if not isinstance(b, dict):
+            continue
+        if _entries_use_bleed_duration(b.get("add_stats")):
+            return True
+        frame = b.get("frame")
+        if not isinstance(frame, dict):
+            continue
+        for t in frame.get("talents") or []:
+            if isinstance(t, dict) and _entries_use_bleed_duration(t.get("add_stats")):
+                return True
+        ults = frame.get("ultimates")
+        if isinstance(ults, dict):
+            for u in ults.values():
+                if isinstance(u, dict) and _entries_use_bleed_duration(u.get("add_stats")):
+                    return True
+    return False
 
 
 def parse_requires(value) -> dict[str, int]:

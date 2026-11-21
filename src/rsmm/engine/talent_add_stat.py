@@ -613,6 +613,7 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
               file=sys.stderr)
     elif bleed_dur:
         key = None
+        percent = False
         amounts = normalise_values(values)
         if any(v > 0.0 for v in amounts.values()):
             raise AddStatError(
@@ -1126,13 +1127,15 @@ def _scale_bleed_modifiers(
 def _offset_bleed_durations(
     ef: GE.EntityFile, delta_name: str, *, seed: str = "",
 ) -> list[tuple[str, str | None, list[str]]]:
-    """Offset every non-zero Bleed modifier's ``duration`` (slot 0) by ``delta_name``,
-    and scale its ``amount`` (slot 1) by ``duration / base`` so per-tick DPS is preserved.
+    """Offset every finite literal Bleed modifier's ``duration`` (slot 0) by
+    ``delta_name``, and scale its ``amount`` (slot 1) by ``duration / base`` so
+    per-tick DPS is preserved.
 
+    Infinite (``duration <= 0``) and sourced durations are left untouched so
+    permanent bleeds stay permanent and runtime durations cannot invert.
     Returns ``[(mod_name, fallback_op_name, [nodes_to_activate_in_order])]``.
     """
     activated: list[tuple[str, str | None, list[str]]] = []
-    by_guid = ef.graph().by_guid()
     delta_comp = ef.component(delta_name)
     delta_acc = ef.F32_ACCESSOR[delta_comp.cls]
     delta_link = TW.link_to(ef, delta_name)
@@ -1147,31 +1150,18 @@ def _offset_bleed_durations(
         u0 = p.find(union, at0)
         if u0 < 0:
             continue
+        if any(r.guid in p[at0:u0] for r in c.refs):
+            continue
+        lit = struct.unpack_from("<f", p, u0 + 16)[0]
+        if lit <= 0.0:
+            continue
         dur_name = f"{c.name} Bleed Duration"
         ratio_name = f"{c.name} Bleed Dur Ratio"
         inv_name = f"{c.name} Bleed Inv Base Dur"
-        src_guid = next((r.guid for r in c.refs if r.guid in p[at0:u0]), None)
-        lit = struct.unpack_from("<f", p, u0 + 16)[0]
-        if src_guid is not None:
-            src_comp = by_guid.get(src_guid)
-            if src_comp is None or src_comp.name == dur_name:
-                continue
-            src_acc = ef.F32_ACCESSOR.get(src_comp.cls)
-            if src_acc is None:
-                continue
-            base = lit if lit > 0.0 else _DEFAULT_BLEED_DUR
-            w = TW.TalentWriter(ef, f"{seed}:bleed-dur:{c.name}", c.group)
-            dur_link = w.sum_op(dur_name, 0.0,
-                                [(TW.link_to(ef, src_comp.name), src_acc),
-                                 (delta_link, delta_acc)], group=c.group)
-        else:
-            if lit == 0.0:
-                continue
-            base = lit if lit > 0.0 else _DEFAULT_BLEED_DUR
-            w = TW.TalentWriter(ef, f"{seed}:bleed-dur:{c.name}", c.group)
-            dur_link = w.sum_op(dur_name, base, [(delta_link, delta_acc)], group=c.group)
+        w = TW.TalentWriter(ef, f"{seed}:bleed-dur:{c.name}", c.group)
+        dur_link = w.sum_op(dur_name, lit, [(delta_link, delta_acc)], group=c.group)
         inv_link = w.add(TW._VALUE, inv_name,
-                         {"value": P.Num.f32(1.0 / base), "flag": 0}, flags=0x101)
+                         {"value": P.Num.f32(1.0 / lit), "flag": 0}, flags=0x101)
         w.multiply(ratio_name, dur_link, ops_acc, inv_link, TW.READ_VALUE, group=c.group)
         ef.source_value(c.name, 0, dur_name)
         # source_value mutates ef.objects[c.index - 1] and shifts slot 1's offsets.

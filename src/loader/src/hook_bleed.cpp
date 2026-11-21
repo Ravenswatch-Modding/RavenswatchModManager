@@ -18,6 +18,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
+#include <unordered_set>
 
 #include "hook_util.h"
 #include "loader.h"
@@ -44,12 +46,14 @@ using OnModFn     = void (*)(void* target, void* store, std::uint32_t stat_key);
 using GetHolderFn = void* (*)(void* store, std::uint32_t stat_key);
 using SetObsFn    = void (*)(void* observable, float value);
 
-OnModFn        g_orig_add       = nullptr;
-OnModFn        g_orig_remove    = nullptr;
-GetHolderFn    g_get_holder     = nullptr;
-SetObsFn       g_set_observable = nullptr;
-std::uintptr_t g_add_va         = 0;
-std::uintptr_t g_rem_va         = 0;
+OnModFn                   g_orig_add       = nullptr;
+OnModFn                   g_orig_remove    = nullptr;
+GetHolderFn                 g_get_holder     = nullptr;
+SetObsFn                    g_set_observable = nullptr;
+std::uintptr_t              g_add_va         = 0;
+std::uintptr_t              g_rem_va         = 0;
+std::mutex                  g_redistributed_mu;
+std::unordered_set<void*>   g_redistributed_targets;
 
 float latest_bleed_duration(void* store) {
     if (!g_get_holder || !store) return -1.0f;
@@ -144,6 +148,13 @@ void detour_on_modifier_added(void* target, void* store, std::uint32_t stat_key)
     if (g_set_observable && mem_writable(base + kObservableOffset, kObservableSize)) {
         g_set_observable(base + kObservableOffset, sum);
     }
+    {
+        std::lock_guard<std::mutex> lock(g_redistributed_mu);
+        if (g_redistributed_targets.size() > 4096) {
+            g_redistributed_targets.clear();
+        }
+        g_redistributed_targets.insert(target);
+    }
 }
 
 void detour_on_modifier_removed(void* target, void* store, std::uint32_t stat_key) {
@@ -159,6 +170,12 @@ void detour_on_modifier_removed(void* target, void* store, std::uint32_t stat_ke
     std::uint8_t bleeding = 1;
     if (!mem_load(base + kIsBleedingOffset, &bleeding) || bleeding != 0) {
         return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_redistributed_mu);
+        if (g_redistributed_targets.erase(target) == 0) {
+            return;
+        }
     }
 
     auto* slots = reinterpret_cast<float*>(base + kSlotsOffset);
@@ -235,6 +252,10 @@ void remove_bleed_hooks() {
     g_orig_remove = nullptr;
     g_get_holder = nullptr;
     g_set_observable = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_redistributed_mu);
+        g_redistributed_targets.clear();
+    }
 }
 
 } // namespace rsmm

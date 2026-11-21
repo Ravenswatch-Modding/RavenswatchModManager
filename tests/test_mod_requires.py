@@ -273,3 +273,41 @@ def test_an_unreadable_min_loader_warns_at_apply_and_errors_in_lint(tmp_path, ca
     assert "min_loader" in capsys.readouterr().err
     errs, _ = lint.lint_one(root)
     assert errs >= 1 and "min_loader" in capsys.readouterr().out
+
+
+def test_bleed_duration_auto_requires_loader_and_lint_enforces_it(tmp_path, capsys):
+    from rsmm.cli import lint
+
+    body = (
+        'name = "M"\nversion = "1.0.0"\n'
+        '[[content]]\nkind = "talent"\nid = "t"\nhero = "Beowulf"\n'
+        'add_stats = [{ talent = "Attack Fire Cone", stat = "bleed duration", '
+        'values = [-2.0, -2.0, -2.0, -2.0] }]\n'
+    )
+    missing = _write(tmp_path, body, "no_loader")
+    assert A.Mod(missing).requires["loader"] == R.BLEED_DURATION_MIN_LOADER
+    errs, _ = lint.lint_one(missing)
+    out = capsys.readouterr().out
+    assert errs >= 1 and "bleed duration" in out
+
+    declared = _write(
+        tmp_path,
+        body + f"\n[requires]\nloader = {R.BLEED_DURATION_MIN_LOADER}\n",
+        "with_loader",
+    )
+    assert A.Mod(declared).requires["loader"] == R.BLEED_DURATION_MIN_LOADER
+    errs_ok, _ = lint.lint_one(declared)
+    assert errs_ok == 0 and "bleed duration" not in capsys.readouterr().out
+
+    hero_blocks = [{
+        "kind": "hero",
+        "id": "H",
+        "frame": {
+            "talents": [{
+                "name": "Passive Hemorrhage",
+                "add_stats": [{"stat": "Bleed Duration", "values": [-2.0]}],
+            }],
+        },
+    }]
+    assert R.uses_bleed_duration(hero_blocks) is True
+    assert R.uses_bleed_duration([{"kind": "hero", "id": "H", "frame": {"talents": []}}]) is False
