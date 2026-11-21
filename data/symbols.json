@@ -1299,6 +1299,22 @@
    }
   },
   {
+   "name": "EntityValueStore_GetModifierHolder",
+   "kind": "function",
+   "category": "entity",
+   "raw": "FUN_1407491d0",
+   "status": "ok",
+   "signature": "void*(void* store, uint32_t statKey)",
+   "cabi": {
+    "ret": "void*",
+    "params": [
+     "void*",
+     "uint32_t"
+    ]
+   },
+   "note": "Look up the oCEntityValueModifierHolder for statKey in store+0x88 (SwissTable). Returns holder* (+0x20 = oCEntityValueModifier** items, +0x28 = uint32_t count; each mod has float duration @+0x3c and float start_time @+0x40). Calls abort/assert helper FUN_1401c1860 if statKey is absent from store+0x88, so only call when the key is known present (e.g. bIsBleeding != 0). Verified on 2a88a3bd5647 (0x1407491d0..0x140749229)."
+  },
+  {
    "name": "EntityValueStore_InitBaseValues",
    "kind": "function",
    "category": "entity",
@@ -1867,6 +1883,22 @@
    "signature": "bool(void** outHandle, const char* path, int* mode)",
    "note": "oCFileBinaryStream::Open. Takes a NARROW path, runs two string replacements and a separator collapse over it, widens it and **prepends the `\\\\?\\` long-path prefix** before CreateFileW. ⚠ That prefix disables Win32 path normalisation, so forward slashes STOP being separators: a path handed to Object_SaveToFile must use backslashes or the open fails and the whole save returns 0 with no other signal (hit in-game 2026-08-23). `mode` is a 3-int struct: [0] 0=read/1=write/2=append maps to CreationDisposition, [1] selects DesiredAccess (1 = GENERIC_WRITE, 2 = GENERIC_READ|WRITE) and ShareMode. [2026-10-16 b9c3642884a8: relocated to 0x140539bc0 — CreateFileW with the \\\\?\\ long-path prefix; BinDiff. Static evidence; not yet seen in game.]",
    "refs": []
+  },
+  {
+   "name": "FloatObservable_Set",
+   "kind": "function",
+   "category": "entity",
+   "raw": "FUN_1402e9e70",
+   "status": "ok",
+   "signature": "void(void* observable, float value)",
+   "cabi": {
+    "ret": "void",
+    "params": [
+     "void*",
+     "float"
+    ]
+   },
+   "note": "Notify subscribers of a float observable (e.g. oCDtRemoteDamageTarget+0x1d0, Remaining Bleed Damage Value shown on the enemy HP bar) with a new float value in XMM1. Verified on 2a88a3bd5647 (0x1402e9e70..0x1402e9f61)."
   },
   {
    "name": "Format_String",
@@ -4111,6 +4143,40 @@
    "refs": [
     "docs/_re"
    ]
+  },
+  {
+   "name": "RemoteDamageTarget_OnModifierAdded",
+   "kind": "function",
+   "category": "combat",
+   "raw": "FUN_1403d4a20",
+   "status": "ok",
+   "signature": "void(void* target, void* store, uint32_t statKey)",
+   "cabi": {
+    "ret": "void",
+    "params": [
+     "void*",
+     "void*",
+     "uint32_t"
+    ]
+   },
+   "note": "oCDtRemoteDamageTarget modifier-added handler. For Bleed (statKey == 0x173fcdac), resolves RemoteDamageOwner (+0xf0), sets bIsBleeding (+0x90 = 1), computes delta = new_bleed_stat - prev_bleed_stat (+0xa4), and calls FUN_1403d6210(target, delta, store), which divides scaled delta by a hardcoded 10.0f and adds it to all 10 ring-buffer slots (+0x68..+0x8c, 10 x 0.5s = 5.0s) before updating Remaining Bleed Damage Value (+0x1d0) via FloatObservable_Set. Hooked by hook_bleed.cpp to redistribute shortened (<5.0s) Bleed modifiers across round(dur/0.5) slots. Verified on 2a88a3bd5647 (0x1403d4a20..0x1403d51f1)."
+  },
+  {
+   "name": "RemoteDamageTarget_OnModifierRemoved",
+   "kind": "function",
+   "category": "combat",
+   "raw": "FUN_1403d52b0",
+   "status": "ok",
+   "signature": "void(void* target, void* store, uint32_t statKey)",
+   "cabi": {
+    "ret": "void",
+    "params": [
+     "void*",
+     "void*",
+     "uint32_t"
+    ]
+   },
+   "note": "oCDtRemoteDamageTarget modifier-removed handler. For Bleed (statKey == 0x173fcdac), updates prev_bleed_stat (+0xa4) or, when the last Bleed modifier expires, clears bIsBleeding (+0x90), prev_bleed_stat (+0xa4), and RemoteDamageOwner (+0xf0) without zeroing ring-buffer slots (+0x68..+0x8c) or Remaining Bleed Damage Value (+0x1d0). Hooked by hook_bleed.cpp to zero leftover slots and +0x1d0 when bIsBleeding drops to 0. Verified on 2a88a3bd5647 (0x1403d52b0..0x1403d5840)."
   },
   {
    "name": "ResourceCache_Parse",

@@ -817,6 +817,107 @@ def test_more_bleed_damage_stacks_additively_and_scales_bleeds(wukong):
     assert init_refs.index("Test Bomb Bleed Modifier Bleed Scaled") < mod_idx
 
 
+def test_bleed_duration_validation(wukong):
+    with pytest.raises(TA.AddStatError, match="above the 5s"):
+        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=1.0, percent=False)
+    with pytest.raises(TA.AddStatError, match="above 0s"):
+        TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration", values=-5.0, percent=False)
+
+
+def test_bleed_duration_offsets_and_scales_hero_and_projectiles(wukong):
+    from rsmm.engine import entity_graph_edit as GE
+    from rsmm.engine import talent_writer as TW
+
+    out, a1 = TA.add_stat(wukong, talent="Trait Fire", stat="bleed duration",
+                          values=[-2.0, -2.0, -2.0, -2.0], percent=False)
+    out, a2 = TA.add_stat(out, talent="Trait Fire", stat="more bleed damage",
+                          values=[0.50, 0.60, 0.70, 0.80])
+    assert a1.modifier == ""
+    assert a2.modifier == ""
+
+    dur_op = comp(out, "Bleed Duration Operation", "ValueOperationsSettings")
+    assert not TA._is_multiply_op(dur_op)
+    assert {r.path.rsplit("\\", 1)[-1] for r in dur_op.refs} == {
+        "Skill Trait Fire Added Bleed Duration Bonus",
+    }
+    assert EC.check(out, wukong, name="Hero_SunWukong") == []
+
+    hef = GE.EntityFile(out, "Hero_SunWukong")
+    hw = TW.TalentWriter(hef, "test:bleed-dur", "Base")
+    hval = hw.add(TW._VALUE, "Test Hero Bleed Value",
+                  {"value": TW.P.Num.f32(50.0), "flag": 0}, flags=0x101)
+    hw.modifier("Test Hero Bleed Modifier", TA._BLEED_STAT, hval)
+    hef.set_value("Test Hero Bleed Modifier", "duration", -1.0)
+    zval = hw.add(TW._VALUE, "Test Zero Bleed Value",
+                  {"value": TW.P.Num.f32(25.0), "flag": 0}, flags=0x101)
+    hw.modifier("Test Zero Bleed Modifier", TA._BLEED_STAT, zval)
+
+    pef = GE.EntityFile(wukong, "Hero_SunWukong_Bomb")
+    pw = TW.TalentWriter(pef, "test:bomb-bleed-dur", "Base")
+    pval = pw.add(TW._VALUE, "Test Bomb Bleed Value",
+                  {"value": TW.P.Num.f32(100.0), "flag": 0}, flags=0x101)
+    pw.modifier("Test Bomb Bleed Modifier", TA._BLEED_STAT, pval)
+    pef.set_value("Test Bomb Bleed Modifier", "duration", 5.0)
+    pef.add_ref("Child Event Initialize", "activates", "Test Bomb Bleed Modifier")
+
+    scaled_hero, scaled_proj = TA.scale_hero_bleeds(
+        hef.to_bytes(),
+        {"Heroes/Hero_Common/Hero_SunWukong_Bomb.entity.ot": pef.to_bytes()},
+        "Heroes\\Hero_SunWukong\\Hero_SunWukong.entity.ot",
+        scope="Hero_SunWukong",
+        seed="test-dur",
+    )
+
+    hmod = comp(scaled_hero, "Test Hero Bleed Modifier")
+    assert [r.path.rsplit("\\", 1)[-1] for r in hmod.refs] == [
+        "Test Hero Bleed Modifier Bleed Duration",
+        "Test Hero Bleed Modifier Bleed Dur Scaled",
+    ]
+    hop = comp(scaled_hero, "Test Hero Bleed Modifier Bleed Dur Scaled")
+    assert TA._is_multiply_op(hop)
+    assert {r.path.rsplit("\\", 1)[-1] for r in hop.refs} == {
+        "Test Hero Bleed Value",
+        "Test Hero Bleed Modifier Bleed Dur Ratio",
+        "Bleed Damage Multiplier Operation",
+    }
+    hdur = comp(scaled_hero, "Test Hero Bleed Modifier Bleed Duration")
+    assert not TA._is_multiply_op(hdur)
+    assert {r.path.rsplit("\\", 1)[-1] for r in hdur.refs} == {"Bleed Duration Operation"}
+    hratio = comp(scaled_hero, "Test Hero Bleed Modifier Bleed Dur Ratio")
+    assert TA._is_multiply_op(hratio)
+    assert {r.path.rsplit("\\", 1)[-1] for r in hratio.refs} == {
+        "Test Hero Bleed Modifier Bleed Duration",
+        "Test Hero Bleed Modifier Bleed Inv Base Dur",
+    }
+    zmod = comp(scaled_hero, "Test Zero Bleed Modifier")
+    assert [r.path.rsplit("\\", 1)[-1] for r in zmod.refs] == [
+        "Test Zero Bleed Modifier Bleed Scaled",
+    ]
+
+    bomb = scaled_proj["Heroes/Hero_Common/Hero_SunWukong_Bomb.entity.ot"]
+    bmod = comp(bomb, "Test Bomb Bleed Modifier")
+    assert [r.path.rsplit("\\", 1)[-1] for r in bmod.refs] == [
+        "Test Bomb Bleed Modifier Bleed Duration",
+        "Test Bomb Bleed Modifier Bleed Dur Scaled",
+    ]
+    bop = comp(bomb, "Test Bomb Bleed Modifier Bleed Dur Scaled")
+    assert {r.path.rsplit("\\", 1)[-1] for r in bop.refs} == {
+        "Test Bomb Bleed Value",
+        "Test Bomb Bleed Modifier Bleed Dur Ratio",
+        "Hero Bleed Damage Multiplier Reader",
+    }
+    init_refs = _refs(bomb, "Child Event Initialize", "activates")
+    mod_idx = init_refs.index("Test Bomb Bleed Modifier")
+    assert init_refs.index("Hero Bleed Duration Delta Reader") < mod_idx
+    assert init_refs.index("Hero Bleed Damage Multiplier Reader") < mod_idx
+    assert (
+        init_refs.index("Test Bomb Bleed Modifier Bleed Duration")
+        < init_refs.index("Test Bomb Bleed Modifier Bleed Dur Ratio")
+        < init_refs.index("Test Bomb Bleed Modifier Bleed Dur Scaled")
+        < mod_idx
+    )
+
+
 def test_convert_crit_into_damage_stat(wukong):
     out, added = TA.add_stat(wukong, talent="Trait Fire", stat="Convert crit into damage",
                              values=1.0)

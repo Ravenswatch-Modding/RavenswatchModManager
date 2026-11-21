@@ -250,6 +250,13 @@ inline EntityValueStore_ApplyModifierEvent_fn EntityValueStore_ApplyModifierEven
     return reinterpret_cast<EntityValueStore_ApplyModifierEvent_fn>(rsmm::fn_resolve(Sym::EntityValueStore_ApplyModifierEvent_Pattern));
 }
 
+// EntityValueStore_GetModifierHolder  (EntityValueStore_GetModifierHolder)
+//   void*(void* store, uint32_t statKey)
+using EntityValueStore_GetModifierHolder_fn = void*(*)(void*, uint32_t);
+inline EntityValueStore_GetModifierHolder_fn EntityValueStore_GetModifierHolder() {
+    return reinterpret_cast<EntityValueStore_GetModifierHolder_fn>(rsmm::fn_resolve(Sym::EntityValueStore_GetModifierHolder_Pattern));
+}
+
 // EntityValueStore_InitBaseValues  (EntityValueStore_InitBaseValues)
 //   void(void* store)
 using EntityValueStore_InitBaseValues_fn = void(*)(void*);
@@ -379,6 +386,13 @@ inline Event_LevelUp_fn Event_LevelUp() {
 using Event_RunEnd_fn = void*(*)(void*, void*);
 inline Event_RunEnd_fn Event_RunEnd() {
     return reinterpret_cast<Event_RunEnd_fn>(rsmm::fn_resolve(Sym::Event_RunEnd_Pattern));
+}
+
+// FloatObservable_Set  (FloatObservable_Set)
+//   void(void* observable, float value)
+using FloatObservable_Set_fn = void(*)(void*, float);
+inline FloatObservable_Set_fn FloatObservable_Set() {
+    return reinterpret_cast<FloatObservable_Set_fn>(rsmm::fn_resolve(Sym::FloatObservable_Set_Pattern));
 }
 
 // GameModeDefaultDef_PostLoad  (GameModeDefaultDef_PostLoad)
@@ -915,6 +929,20 @@ inline Registry_EnumInstances_fn Registry_EnumInstances() {
 using Registry_UnregisterInstance_fn = void(*)(void*);
 inline Registry_UnregisterInstance_fn Registry_UnregisterInstance() {
     return reinterpret_cast<Registry_UnregisterInstance_fn>(rsmm::fn_resolve(Sym::Registry_UnregisterInstance_Pattern));
+}
+
+// RemoteDamageTarget_OnModifierAdded  (RemoteDamageTarget_OnModifierAdded)
+//   void(void* target, void* store, uint32_t statKey)
+using RemoteDamageTarget_OnModifierAdded_fn = void(*)(void*, void*, uint32_t);
+inline RemoteDamageTarget_OnModifierAdded_fn RemoteDamageTarget_OnModifierAdded() {
+    return reinterpret_cast<RemoteDamageTarget_OnModifierAdded_fn>(rsmm::fn_resolve(Sym::RemoteDamageTarget_OnModifierAdded_Pattern));
+}
+
+// RemoteDamageTarget_OnModifierRemoved  (RemoteDamageTarget_OnModifierRemoved)
+//   void(void* target, void* store, uint32_t statKey)
+using RemoteDamageTarget_OnModifierRemoved_fn = void(*)(void*, void*, uint32_t);
+inline RemoteDamageTarget_OnModifierRemoved_fn RemoteDamageTarget_OnModifierRemoved() {
+    return reinterpret_cast<RemoteDamageTarget_OnModifierRemoved_fn>(rsmm::fn_resolve(Sym::RemoteDamageTarget_OnModifierRemoved_Pattern));
 }
 
 // ResourceRef_Resolve  (ResourceRef_Resolve)

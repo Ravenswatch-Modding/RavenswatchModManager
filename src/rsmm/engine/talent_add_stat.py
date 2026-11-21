@@ -232,11 +232,16 @@ def _trait_charge_senders(raw: bytes) -> list[tuple[bytes, str]] | None:
 _HERO_COMMON = "Hero_Common.entity.ot.EntitySettingsResource.gen"
 _LISTENER = "oCEntityCpntModifierListenerSettings"
 _MORE_BLEED = "more bleed damage"
+_BLEED_DUR = "bleed duration"
 _CRIT_TO_DAMAGE = "convert crit into damage"
 _BLEED_STAT = 0x173FCDAC
 _BLEED_MULT_OP = "Bleed Damage Multiplier Operation"
 _BLEED_MULT_VAL = "Bleed Damage Multiplier"
 _BLEED_READER = "Hero Bleed Damage Multiplier Reader"
+_BLEED_DUR_OP = "Bleed Duration Operation"
+_BLEED_DUR_VAL = "Bleed Duration Delta"
+_BLEED_DUR_READER = "Hero Bleed Duration Delta Reader"
+_DEFAULT_BLEED_DUR = 5.0
 _CRIT_CHANCE_VAL = P.Link(
     bytes.fromhex("42ab8de41f72f24ca877eacd8b3f2aac"),
     r"[Value] Hero_Common\Base\Crit Chance Modifier Value",
@@ -588,6 +593,7 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
     invulnerable = held is not None
     norm_stat = stat.strip().lower() if isinstance(stat, str) else ""
     more_bleed = norm_stat == _MORE_BLEED
+    bleed_dur = norm_stat == _BLEED_DUR
     crit_to_damage = norm_stat == _CRIT_TO_DAMAGE
     trait_charge = False
     points_on_card = False          # a points stat: stored /100, its card shown x100
@@ -604,6 +610,19 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
         amounts = normalise_values(values)
         import sys
         print(f"  talent {talent}: {SA.describe('More bleed damage', amounts, percent)}",
+              file=sys.stderr)
+    elif bleed_dur:
+        key = None
+        amounts = normalise_values(values)
+        if any(v > 0.0 for v in amounts.values()):
+            raise AddStatError(
+                "bleed duration cannot be increased above the 5s (10-tick) engine ring buffer")
+        if any(v <= -_DEFAULT_BLEED_DUR for v in amounts.values()):
+            raise AddStatError(
+                f"bleed duration reduction must leave duration above 0s "
+                f"(got {list(amounts.values())})")
+        import sys
+        print(f"  talent {talent}: {SA.describe('Bleed duration', amounts, percent)}",
               file=sys.stderr)
     elif crit_to_damage:
         key = None
@@ -669,6 +688,7 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
         ctl, state, fmt = card_parts(graph, talent, flat=len(set(amounts.values())) == 1)
 
     tag = (held if invulnerable else "More Bleed Damage" if more_bleed
+           else "Bleed Duration" if bleed_dur
            else "Crit To Damage" if crit_to_damage else f"{key:08x}")
     cond_state = None
     hook = None
@@ -762,7 +782,7 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
             cond_state = win
         elif cond_state is not None:
             cond_state = TW.link_to(ef, cond_state.name)
-        if cond_state is not None and not invulnerable and not more_bleed:
+        if cond_state is not None and not invulnerable and not more_bleed and not bleed_dur:
             amount = w.when(new_cond, cond_state, number)      # else 0
         if invulnerable:
             new_mod = f"Skill {talent} Added {tag} Holder"
@@ -776,6 +796,15 @@ def add_stat(raw: bytes, *, talent: str, stat: str | int, values=None, percent: 
             else:
                 w.when(bonus_name, owned_link, number)
             _register_bleed_bonus(ef, bonus_name, seed=seed)
+            new_mod = ""
+        elif bleed_dur:
+            owned_link = TW.link_to(ef, state.name)
+            bonus_name = f"Skill {talent} Added {tag} Bonus"
+            if cond_state is not None:
+                w.when_all(bonus_name, owned_link, cond_state, number)
+            else:
+                w.when(bonus_name, owned_link, number)
+            _register_bleed_duration(ef, bonus_name, seed=seed)
             new_mod = ""
         elif crit_to_damage:
             _build_crit_to_damage(w, ef, state.name, tag, talent, amount, new_mod,
@@ -923,17 +952,32 @@ def stat_key_bytes(stat: str | int) -> bytes:
     return struct.pack("<I", resolve_stat(stat))
 
 
-def _register_bleed_bonus(ef: GE.EntityFile, bonus_name: str, *, seed: str = "") -> None:
-    """Ensure ``_BLEED_MULT_OP`` (1.0 + sum of bonuses) and ``_BLEED_MULT_VAL`` exist on ``ef``."""
-    if not any(c.name == _BLEED_MULT_OP for c in ef.graph().components):
-        w = TW.TalentWriter(ef, f"{seed or 'hero'}:bleed-mult", "Base")
-        op_link = w.sum_op(_BLEED_MULT_OP, 1.0, group="Base")
+def _register_bleed_channel(
+    ef: GE.EntityFile, op_name: str, val_name: str, base: float,
+    bonus_name: str, *, tag: str, seed: str = "",
+) -> None:
+    """Ensure ``op_name`` (``base`` + sum of bonuses) and ``val_name`` exist on ``ef``."""
+    if not any(c.name == op_name for c in ef.graph().components):
+        w = TW.TalentWriter(ef, f"{seed or 'hero'}:{tag}", "Base")
+        op_link = w.sum_op(op_name, base, group="Base")
         acc = ef.F32_ACCESSOR["oCEntityCpntValueOperationsSettings"]
-        w.add(TW._VALUE, _BLEED_MULT_VAL, {
-            "value": P.Num(P.F32, struct.pack("<f", 1.0), 0, source=op_link, key=acc),
+        w.add(TW._VALUE, val_name, {
+            "value": P.Num(P.F32, struct.pack("<f", base), 0, source=op_link, key=acc),
             "flag": 0,
         }, flags=0x101, group="Base")
-    ef.append_operand(_BLEED_MULT_OP, bonus_name)
+    ef.append_operand(op_name, bonus_name)
+
+
+def _register_bleed_bonus(ef: GE.EntityFile, bonus_name: str, *, seed: str = "") -> None:
+    """Ensure ``_BLEED_MULT_OP`` (1.0 + sum of bonuses) and ``_BLEED_MULT_VAL`` exist on ``ef``."""
+    _register_bleed_channel(ef, _BLEED_MULT_OP, _BLEED_MULT_VAL, 1.0, bonus_name,
+                            tag="bleed-mult", seed=seed)
+
+
+def _register_bleed_duration(ef: GE.EntityFile, bonus_name: str, *, seed: str = "") -> None:
+    """Ensure ``_BLEED_DUR_OP`` (0.0 + sum of deltas) and ``_BLEED_DUR_VAL`` exist on ``ef``."""
+    _register_bleed_channel(ef, _BLEED_DUR_OP, _BLEED_DUR_VAL, 0.0, bonus_name,
+                            tag="bleed-dur", seed=seed)
 
 
 def _build_crit_to_damage(
@@ -1012,56 +1056,132 @@ def _bleed_modifiers(ef: GE.EntityFile) -> list[EG.Component]:
     return out
 
 
+def _multiply_bleed_amount(
+    ef: GE.EntityFile, c: EG.Component, mult_name: str, *,
+    scaled_suffix: str, base_suffix: str, seed: str,
+) -> tuple[list[tuple[str, str]], str | None]:
+    """Multiply Bleed modifier ``c``'s non-zero ``amount`` (slot 1) by ``mult_name``.
+
+    Returns ``(created, appended_op_name)`` where ``created`` is
+    ``[(mod_name, scaled_name)]`` if a new multiply op was wired, and
+    ``appended_op_name`` is the existing multiply op that gained ``mult_name``
+    as a new operand.
+    """
+    vps = ef._value_pickers(c)
+    if len(vps) < 2:
+        return [], None
+    by_guid = ef.graph().by_guid()
+    mult_comp = ef.component(mult_name)
+    mult_acc = ef.F32_ACCESSOR[mult_comp.cls]
+    union = GE._B + struct.pack("<I", ef._class_index("oCEntityValueUnion"))
+    p = ef.objects[c.index - 1]
+    at = len(p) - len(c.body) + vps[1].offset + 8
+    u = p.find(union, at)
+    if u < 0:
+        return [], None
+    scaled_name = f"{c.name} {scaled_suffix}"
+    src_guid = next((r.guid for r in c.refs if r.guid in p[at:u]), None)
+    if src_guid is not None:
+        src_comp = by_guid.get(src_guid)
+        if src_comp is None or src_comp.name == scaled_name:
+            return [], None
+        if src_comp.cls.endswith("ValueOperationsSettings") and _is_multiply_op(src_comp):
+            if mult_comp.guid not in {r.guid for r in src_comp.refs}:
+                ef.append_operand(src_comp.name, mult_name)
+                return [], src_comp.name
+            return [], None
+        src_acc = ef.F32_ACCESSOR.get(src_comp.cls)
+        if src_acc is None:
+            return [], None
+        w = TW.TalentWriter(ef, f"{seed}:bleed:{c.name}", c.group)
+        w.multiply(scaled_name, TW.link_to(ef, src_comp.name), src_acc,
+                   TW.link_to(ef, mult_name), mult_acc, group=c.group)
+        ef.source_value(c.name, 1, scaled_name)
+        return [(c.name, scaled_name)], None
+    lit = struct.unpack_from("<f", p, u + 16)[0]
+    if lit == 0.0:
+        return [], None
+    base_name = f"{c.name} {base_suffix}"
+    w = TW.TalentWriter(ef, f"{seed}:bleed:{c.name}", c.group)
+    base_link = w.add(TW._VALUE, base_name,
+                      {"value": P.Num.f32(lit), "flag": 0}, flags=0x101)
+    w.multiply(scaled_name, base_link, TW.READ_VALUE,
+               TW.link_to(ef, mult_name), mult_acc, group=c.group)
+    ef.source_value(c.name, 1, scaled_name)
+    return [(c.name, scaled_name)], None
+
+
 def _scale_bleed_modifiers(
     ef: GE.EntityFile, mult_name: str, *, seed: str = "",
 ) -> list[tuple[str, str]]:
     """Multiply every non-zero Bleed modifier's ``amount`` on ``ef`` by ``mult_name``."""
     created: list[tuple[str, str]] = []
-    graph = ef.graph()
-    by_guid = graph.by_guid()
-    mult_comp = ef.component(mult_name)
-    mult_acc = ef.F32_ACCESSOR[mult_comp.cls]
+    for c in _bleed_modifiers(ef):
+        pairs, _appended = _multiply_bleed_amount(
+            ef, c, mult_name, scaled_suffix="Bleed Scaled", base_suffix="Bleed Base", seed=seed)
+        created.extend(pairs)
+    return created
+
+
+def _offset_bleed_durations(
+    ef: GE.EntityFile, delta_name: str, *, seed: str = "",
+) -> list[tuple[str, str | None, list[str]]]:
+    """Offset every non-zero Bleed modifier's ``duration`` (slot 0) by ``delta_name``,
+    and scale its ``amount`` (slot 1) by ``duration / base`` so per-tick DPS is preserved.
+
+    Returns ``[(mod_name, fallback_op_name, [nodes_to_activate_in_order])]``.
+    """
+    activated: list[tuple[str, str | None, list[str]]] = []
+    by_guid = ef.graph().by_guid()
+    delta_comp = ef.component(delta_name)
+    delta_acc = ef.F32_ACCESSOR[delta_comp.cls]
+    delta_link = TW.link_to(ef, delta_name)
+    ops_acc = ef.F32_ACCESSOR["oCEntityCpntValueOperationsSettings"]
     union = GE._B + struct.pack("<I", ef._class_index("oCEntityValueUnion"))
     for c in _bleed_modifiers(ef):
         vps = ef._value_pickers(c)
         if len(vps) < 2:
             continue
         p = ef.objects[c.index - 1]
-        at = len(p) - len(c.body) + vps[1].offset + 8
-        u = p.find(union, at)
-        if u < 0:
+        at0 = len(p) - len(c.body) + vps[0].offset + 8
+        u0 = p.find(union, at0)
+        if u0 < 0:
             continue
-        scaled_name = f"{c.name} Bleed Scaled"
-        src_guid = next((r.guid for r in c.refs if r.guid in p[at:u]), None)
+        dur_name = f"{c.name} Bleed Duration"
+        ratio_name = f"{c.name} Bleed Dur Ratio"
+        inv_name = f"{c.name} Bleed Inv Base Dur"
+        src_guid = next((r.guid for r in c.refs if r.guid in p[at0:u0]), None)
+        lit = struct.unpack_from("<f", p, u0 + 16)[0]
         if src_guid is not None:
             src_comp = by_guid.get(src_guid)
-            if src_comp is None or src_comp.name == scaled_name:
-                continue
-            if src_comp.cls.endswith("ValueOperationsSettings") and _is_multiply_op(src_comp):
-                if mult_comp.guid not in {r.guid for r in src_comp.refs}:
-                    ef.append_operand(src_comp.name, mult_name)
+            if src_comp is None or src_comp.name == dur_name:
                 continue
             src_acc = ef.F32_ACCESSOR.get(src_comp.cls)
             if src_acc is None:
                 continue
-            w = TW.TalentWriter(ef, f"{seed}:bleed:{c.name}", c.group)
-            w.multiply(scaled_name, TW.link_to(ef, src_comp.name), src_acc,
-                       TW.link_to(ef, mult_name), mult_acc, group=c.group)
-            ef.source_value(c.name, 1, scaled_name)
-            created.append((c.name, scaled_name))
+            base = lit if lit > 0.0 else _DEFAULT_BLEED_DUR
+            w = TW.TalentWriter(ef, f"{seed}:bleed-dur:{c.name}", c.group)
+            dur_link = w.sum_op(dur_name, 0.0,
+                                [(TW.link_to(ef, src_comp.name), src_acc),
+                                 (delta_link, delta_acc)], group=c.group)
         else:
-            lit = struct.unpack_from("<f", p, u + 16)[0]
             if lit == 0.0:
                 continue
-            base_name = f"{c.name} Bleed Base"
-            w = TW.TalentWriter(ef, f"{seed}:bleed:{c.name}", c.group)
-            base_link = w.add(TW._VALUE, base_name,
-                              {"value": P.Num.f32(lit), "flag": 0}, flags=0x101)
-            w.multiply(scaled_name, base_link, TW.READ_VALUE,
-                       TW.link_to(ef, mult_name), mult_acc, group=c.group)
-            ef.source_value(c.name, 1, scaled_name)
-            created.append((c.name, scaled_name))
-    return created
+            base = lit if lit > 0.0 else _DEFAULT_BLEED_DUR
+            w = TW.TalentWriter(ef, f"{seed}:bleed-dur:{c.name}", c.group)
+            dur_link = w.sum_op(dur_name, base, [(delta_link, delta_acc)], group=c.group)
+        inv_link = w.add(TW._VALUE, inv_name,
+                         {"value": P.Num.f32(1.0 / base), "flag": 0}, flags=0x101)
+        w.multiply(ratio_name, dur_link, ops_acc, inv_link, TW.READ_VALUE, group=c.group)
+        ef.source_value(c.name, 0, dur_name)
+        # source_value mutates ef.objects[c.index - 1] and shifts slot 1's offsets.
+        c = ef.component(c.name)
+        pairs, appended_op = _multiply_bleed_amount(
+            ef, c, ratio_name, scaled_suffix="Bleed Dur Scaled", base_suffix="Bleed Base",
+            seed=f"{seed}:dur")
+        nodes = [dur_name, ratio_name, *(s for _, s in pairs)]
+        activated.append((c.name, appended_op, nodes))
+    return activated
 
 
 def _startup_state(ef: GE.EntityFile) -> str | None:
@@ -1075,32 +1195,69 @@ def _startup_state(ef: GE.EntityFile) -> str | None:
                  if c.cls.endswith("StateSettings") and "Initialize" in c.name), None)
 
 
+def _ensure_projectile_reader(
+    pef: GE.EntityFile, reader_name: str, hero_ot_path: str,
+    val_link: P.Link, *, seed: str,
+) -> None:
+    if any(c.name == reader_name for c in pef.graph().components):
+        return
+    TW.TalentWriter(pef, seed, "").reader(
+        reader_name, hero_ot_path, val_link, owners=(0,), walk_owners=True)
+    startup = _startup_state(pef)
+    if startup is not None:
+        pef.insert_ref(startup, "activates", 0, reader_name)
+
+
+def _activate_nodes(
+    pef: GE.EntityFile, target: str, nodes: list[str],
+    fallback_target: str | None = None,
+) -> None:
+    from . import talent_range as TR
+    if not nodes:
+        return
+    if TR._activate_before(pef, target, nodes) > 0:
+        return
+    if fallback_target and TR._activate_before(pef, fallback_target, nodes) > 0:
+        return
+    startup = _startup_state(pef)
+    if startup is not None:
+        for node in nodes:
+            pef.add_ref(startup, "activates", node)
+
+
 def scale_hero_bleeds(hero_raw: bytes, own_projectiles: dict[str, bytes], hero_ot_path: str, *,
                       scope: str = "", seed: str = "") -> tuple[bytes, dict[str, bytes]]:
-    """Scale every Bleed modifier on the hero and its owned entities by ``_BLEED_MULT_OP``."""
+    """Scale Bleed modifiers on the hero and its owned entities by
+    ``_BLEED_MULT_OP`` and/or offset their durations by ``_BLEED_DUR_OP``."""
     hero_ef = GE.EntityFile(hero_raw, scope)
-    if not any(c.name == _BLEED_MULT_OP for c in hero_ef.graph().components):
+    names = {c.name for c in hero_ef.graph().components}
+    has_mult = _BLEED_MULT_OP in names
+    has_dur = _BLEED_DUR_OP in names
+    if not has_mult and not has_dur:
         return hero_raw, own_projectiles
-    from . import talent_range as TR
-    _scale_bleed_modifiers(hero_ef, _BLEED_MULT_OP, seed=seed)
-    mult_link = TW.link_to(hero_ef, _BLEED_MULT_VAL)
+    if has_dur:
+        _offset_bleed_durations(hero_ef, _BLEED_DUR_OP, seed=seed)
+    if has_mult:
+        _scale_bleed_modifiers(hero_ef, _BLEED_MULT_OP, seed=seed)
+    dur_link = TW.link_to(hero_ef, _BLEED_DUR_VAL) if has_dur else None
+    mult_link = TW.link_to(hero_ef, _BLEED_MULT_VAL) if has_mult else None
     out_proj: dict[str, bytes] = {}
     for ref, blob in own_projectiles.items():
         pef = GE.EntityFile(blob)
         if not _bleed_modifiers(pef):
             out_proj[ref] = blob
             continue
-        if not any(c.name == _BLEED_READER for c in pef.graph().components):
-            TW.TalentWriter(pef, f"{seed}:{ref}:bleed", "").reader(
-                _BLEED_READER, hero_ot_path, mult_link, owners=(0,), walk_owners=True)
-            startup = _startup_state(pef)
-            if startup is not None:
-                pef.insert_ref(startup, "activates", 0, _BLEED_READER)
-        created = _scale_bleed_modifiers(pef, _BLEED_READER, seed=f"{seed}:{ref}")
-        for mod_name, scaled_name in created:
-            if TR._activate_before(pef, mod_name, [scaled_name]) == 0:
-                startup = _startup_state(pef)
-                if startup is not None:
-                    pef.add_ref(startup, "activates", scaled_name)
+        if has_dur and dur_link is not None:
+            _ensure_projectile_reader(
+                pef, _BLEED_DUR_READER, hero_ot_path, dur_link, seed=f"{seed}:{ref}:bleed-dur")
+            for mod_name, fallback_op, nodes in _offset_bleed_durations(
+                    pef, _BLEED_DUR_READER, seed=f"{seed}:{ref}"):
+                _activate_nodes(pef, mod_name, nodes, fallback_target=fallback_op)
+        if has_mult and mult_link is not None:
+            _ensure_projectile_reader(
+                pef, _BLEED_READER, hero_ot_path, mult_link, seed=f"{seed}:{ref}:bleed")
+            for mod_name, scaled_name in _scale_bleed_modifiers(
+                    pef, _BLEED_READER, seed=f"{seed}:{ref}"):
+                _activate_nodes(pef, mod_name, [scaled_name])
         out_proj[ref] = pef.to_bytes()
     return hero_ef.to_bytes(), out_proj

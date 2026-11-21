@@ -25,7 +25,7 @@ corpus (survives game updates); **va** = base-relative absolute (data globals);
 Functions tagged `callable` have a typed C++ accessor in `engine::` and a Lua
 resolver entry. See [CLAUDE.md] for the workflow.
 
-Total: **409** symbols across 29 categories.
+Total: **413** symbols across 29 categories.
 
 ## analytics
 
@@ -64,6 +64,8 @@ Total: **409** symbols across 29 categories.
 | `HeroStats_OnDamageDealt` | `0x1403a3900` | ✅ ok |  | void(oCDtEntityCpntHeroController* hero, oCEntity* victim, oCDtProcessedDamage* payload… |
 | `HeroStats_OnDamageTaken` | `0x1403a9330` | ✅ ok |  | void(void* hero, void* payload) |
 | `ProjectileAttack_BeginAttack` | `0x14083d1e0` | ✅ ok | ✔ | void(void* projectile_attack_cpnt) |
+| `RemoteDamageTarget_OnModifierAdded` | `0x1403d4a20` | ✅ ok | ✔ | void(void* target, void* store, uint32_t statKey) |
+| `RemoteDamageTarget_OnModifierRemoved` | `0x1403d52b0` | ✅ ok | ✔ | void(void* target, void* store, uint32_t statKey) |
 
 ## enemies
 
@@ -139,6 +141,7 @@ Total: **409** symbols across 29 categories.
 | `EntityValueEntry_Ctor` | `0x1407469c0` | ✅ ok | ✔ | void(void*, void*) |
 | `EntityValueOverride_Alloc` | `0x14076e5e0` | ✅ ok | ✔ | void*(void*, uint32_t, uint32_t) |
 | `EntityValueStore_ApplyModifierEvent` | `0x14074ab90` | ✅ ok | ✔ | void(void* store, void* modifierEvent, void* a3, void* a4) |
+| `EntityValueStore_GetModifierHolder` | `0x1407491d0` | ✅ ok | ✔ | void*(void* store, uint32_t statKey) |
 | `EntityValueStore_InitBaseValues` | `0x1407477c0` | ✅ ok | ✔ | void(void* store) |
 | `EntityValueStore_Recompute` | `0x140749330` | ✅ ok | ✔ | void(void* store, void* valueDef) |
 | `EntityValueUnion_Compare` | `0x14082b4c0` | ✅ ok | ✔ | uint32_t(void*, void*) |
@@ -156,6 +159,7 @@ Total: **409** symbols across 29 categories.
 | `Entity_GetComponentByTester` | `0x1406e1fd0` | ✅ ok | ✔ | void*(void*, void*) |
 | `Entity_GetComponentFast` | `0x1406e1f60` | ✅ ok | ✔ | void*(void*, void*, uint32_t) |
 | `Entity_ResolveAttackHits` | `0x1403d5c60` | ✅ ok | ✔ | float(void* attacker, uint hitDefIndex, TargetList* targets, float damageMul, float bas… |
+| `FloatObservable_Set` | `0x1402e9e70` | ✅ ok | ✔ | void(void* observable, float value) |
 | `HeroController_Ctor` | `0x140397540` | ✅ ok | ✔ | oCDtEntityCpntHeroController*(oCDtEntityCpntHeroController* self) |
 | `HeroController_HudMirror_Ctor` | `0x140400920` | ✅ ok |  | Builds the hero's HUD HP-mirror object whose pointer is stored at hero+0x1d80 by HeroCo… |
 | `Hero_ModifyDreamShards` | `0x1403a2d30` | ✅ ok | ✔ | void(oCDtEntityCpntHeroController* hero, float delta, oCCustomFlagList* sourceTags) |

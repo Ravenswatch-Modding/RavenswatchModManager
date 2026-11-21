@@ -73,6 +73,7 @@ set(LOADER_SRC
     src/hook_online_gate.cpp
     src/hook_backend.cpp
     src/hook_audio.cpp
+    src/hook_bleed.cpp
     src/hook_lua.cpp
     src/script_lua.cpp
     src/hook_util.cpp

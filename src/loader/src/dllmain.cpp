@@ -48,6 +48,7 @@
 #include "hook_online_gate.h"
 #include "hook_backend.h"
 #include "hook_audio.h"
+#include "hook_bleed.h"
 #include "script_lua.h"
 
 namespace fs = std::filesystem;
@@ -196,6 +197,7 @@ static void loader_thread_cxx() {
         install_guarded("online-gate",  rsmm::install_online_gate);
         install_guarded("backend",      rsmm::install_backend_redirect);
         install_guarded("audio",        rsmm::install_audio_hooks);
+        install_guarded("bleed",        rsmm::install_bleed_hooks);
 
         // Ground-truth symbol dump (opt-in, dev/RE). Force-resolves every
         // semantic pattern against the live exe and writes
@@ -351,6 +353,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved) {
         rsmm::input_look_shutdown();   // lock byte 0 before the detour is unmapped
         // Every detour lives in this DLL's .text, which is about to be
         // unmapped — retire them all, not just the two that used to be here.
+        rsmm::remove_bleed_hooks();
         rsmm::remove_event_hooks();
         rsmm::remove_engine_hooks();
         rsmm::remove_io_hooks();
