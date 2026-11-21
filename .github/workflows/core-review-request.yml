@@ -1,0 +1,55 @@
+name: Request core review
+
+# Asks the owners to review a pull request that touches core paths, so the
+# `core review` check in ci.yml has someone to wait for.
+#
+# pull_request_target runs from the base branch with a write token, so this
+# file never checks out or runs the PR's code: the default checkout is the base
+# ref, and the PR's files are read through the API. GitHub runs
+# pull_request_target only from the default branch's copy of this file, so it
+# does nothing until it has reached main.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request:
+    name: request owner review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      # Base ref only (the default for this event): core-paths.txt, CODEOWNERS
+      # and core_review.py all come from the base, not from the PR.
+      - uses: actions/checkout@v5
+
+      - name: Request review from the owners
+        run: |
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/files.txt"
+          python3 scripts/core_review.py match --files-from "$RUNNER_TEMP/files.txt" > "$RUNNER_TEMP/core.txt"
+          if [ ! -s "$RUNNER_TEMP/core.txt" ]; then
+            echo "No core paths changed; no review requested."
+            exit 0
+          fi
+          echo "Core paths changed:"
+          cat "$RUNNER_TEMP/core.txt"
+          python3 scripts/core_review.py owners --exclude "$PR_AUTHOR" > "$RUNNER_TEMP/owners.txt"
+          if [ ! -s "$RUNNER_TEMP/owners.txt" ]; then
+            echo "No owner other than the author to request."
+            exit 0
+          fi
+          args=()
+          while read -r login; do
+            args+=(-f "reviewers[]=$login")
+          done < "$RUNNER_TEMP/owners.txt"
+          gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/requested_reviewers" "${args[@]}"

@@ -1,0 +1,43 @@
+# Core paths: a pull request that changes these by more than 2 lines in total
+# (added + removed, all paths together) needs an owner's approval of its
+# current head. The `core review` job in ci.yml reads this file through
+# scripts/core_review.py. A breaking change to a pinned contract
+# (scripts/contract_pins.py breaking) needs the review whatever its size.
+#
+# Glob semantics, one pattern per line, paths relative to the repo root with
+# forward slashes (gitignore style):
+#   #            starts a comment line; blank lines are ignored
+#   *            any characters except "/"
+#   ?            one character except "/"
+#   **           any characters including "/"; "**/" also matches no directory
+#   no "/"       a pattern with no slash matches that name at any depth
+#   leading "/"  anchors the pattern to the repo root (a pattern with a slash
+#                inside is anchored already)
+#   trailing "/" the directory and everything under it
+#   a pattern that matches a directory matches every file under it
+# "!" negation is not supported; a line starting with it is an error.
+#
+# Ring 1 (trust chain) is gated by CODEOWNERS with no exemption and is not
+# listed here. The pin snapshots data/contracts/*.txt are not core: additive
+# SDK work regenerates them, and a removal is caught by the contract check.
+
+# R.* SDK: entry, generated tables, submodules
+src/loader/lib/**
+src/loader/lua/**
+
+# Native code and symbols
+src/loader/src/**
+src/loader/include/**
+src/loader/exports/**
+data/symbols.json
+
+# Manifest spec, json_bridge and the commands around it
+src/rsmm/sdk/manifest_spec.py
+src/rsmm/cli/json_bridge.py
+src/rsmm/cli/_dispatch.py
+src/rsmm/cli/apply_mods.py
+src/rsmm/cli/lint.py
+packages/schemas/src/mod.ts
+
+# Deprecated aliases excuse removals from the pins
+data/contracts/deprecated.txt

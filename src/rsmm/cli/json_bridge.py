@@ -2111,10 +2111,14 @@ def cmd_item_bans_set(items_json: str) -> int:
                   "items": item_bans.read_bans(), "path": str(path)})
 
 
-def main(argv: list[str] | None = None) -> int:
-    if (sys.argv[1:] if argv is None else argv)[:1] == ["serve"]:
-        from rsmm.cli.json_serve import serve
-        return serve()
+#: Version of the json_bridge command surface (the subcommands and arguments the
+#: desktop app calls). Bump it when a command or argument is removed or renamed;
+#: `scripts/contract_pins.py` refuses to drop a line from the pin otherwise.
+#: Separate from the loader bundle's `SUPPORTED_ABI`.
+BRIDGE_ABI = 1
+
+
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="rsmm json",
         description="Machine-readable JSON bridge for the desktop / web UI.",
@@ -2235,7 +2239,14 @@ def main(argv: list[str] | None = None) -> int:
         "changelog", help="read release notes from the rolling changelog channel")
     p_changelog.add_argument("--refresh", action="store_true",
                              help="re-fetch even if the cached copy is fresh")
+    return ap
 
+
+def main(argv: list[str] | None = None) -> int:
+    if (sys.argv[1:] if argv is None else argv)[:1] == ["serve"]:
+        from rsmm.cli.json_serve import serve
+        return serve()
+    ap = build_parser()
     args = ap.parse_args(argv)
     if args.cmd == "list":
         return cmd_list()

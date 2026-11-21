@@ -1,0 +1,5 @@
+# Deprecated aliases, kept for one loader release.
+# Format: <pin> <old> -> <new> until-loader <N>
+# <pin> is r_surface, manifest_ops or json_bridge. A pinned name may only leave
+# its snapshot while it is listed here. An entry expires once
+# data/loader_version.json passes <N>; remove it then.

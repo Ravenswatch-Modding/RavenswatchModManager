@@ -1,0 +1,81 @@
+abi 1
+active-overrides
+apply
+apply --dry-run
+apply --enabled-json
+apply --for-launch
+apply --force
+apply --no-merge
+backend
+backend get
+backend get --check-server
+backend off
+backend set
+backend set url
+build
+changelog
+changelog --refresh
+config
+config get
+config get mod_id
+config set
+config set --live
+config set --merge
+config set mod_id
+config set values_json
+conflicts
+doctor
+doctor --fix
+doctor --force
+game-status
+install-mod
+install-mod slug
+install-mod-version
+install-mod-version slug
+install-mod-version version
+item-bans
+item-bans get
+item-bans set
+item-bans set items_json
+item-catalog
+item-catalog --icons
+item-catalog --lang
+list
+list-profiles
+list-profiles ids
+loader-flags
+loader-flags get
+loader-flags set
+loader-flags set names_json
+loader-health
+loader-health-reset
+loader-health-reset mod_id
+loader-log
+loader-log --all
+loader-log --lines
+loader-log --prev
+loader-log --run
+loader-perf
+loader-runs
+overlays
+pack-mod
+pack-mod mod_id
+restart-game
+restore-all
+run
+run --vanilla
+self-heal
+uninstall-mod
+uninstall-mod --run-hook
+uninstall-mod --skip-hook
+uninstall-mod mod_id
+update-cli
+update-cli --check
+update-cli --dest
+update-data
+update-data --check
+update-loader
+update-loader --check
+upload-bytes
+upload-bytes path
+upload-bytes url

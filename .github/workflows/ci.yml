@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # An owner's review reruns the whole workflow so the `core review` job sees
+  # it. The run is a full one (see `changes`), so the newest `ci ok` on a head
+  # always reflects every check, never just the review. This event has no
+  # `branches` filter, so it also runs for PRs into other branches (stacks).
+  pull_request_review:
+    types: [submitted, dismissed]
   # Run everything, whatever changed.
   workflow_dispatch:
 
@@ -25,15 +31,15 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      python: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python }}
-      sidecar: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.sidecar }}
-      ts: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.ts }}
-      loader: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.loader }}
-      docs_links: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.docs_links }}
+      python: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || steps.filter.outputs.python }}
+      sidecar: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || steps.inputs.outputs.sidecar }}
+      ts: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || steps.inputs.outputs.ts }}
+      loader: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || steps.inputs.outputs.loader }}
+      docs_links: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_review' || steps.inputs.outputs.docs_links }}
     steps:
       - uses: actions/checkout@v5
       - id: filter
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'pull_request_review'
         uses: dorny/paths-filter@v4
         with:
           # `python` lists what it may SKIP for ("every" pattern must match):
@@ -53,7 +59,7 @@ jobs:
               - '!turbo.json'
           # The other filters list their inputs ("some" is enough).
       - id: inputs
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'pull_request_review'
         uses: dorny/paths-filter@v4
         with:
           filters: |
@@ -80,6 +86,9 @@ jobs:
               - 'tests/lua/**'
               - 'data/symbols.json'
               - 'scripts/validate_loader_dll.py'
+              - 'data/contracts/r_surface.txt'
+              - 'data/contracts/deprecated.txt'
+              - 'scripts/contract_pins.py'
               - '.github/workflows/ci.yml'
             docs_links:
               - 'apps/docs/src/content/**'
@@ -99,6 +108,48 @@ jobs:
           fetch-depth: 0
       - name: Report drift in the job summary
         run: python3 src/rsmm/dev/channel_drift.py --markdown >> "$GITHUB_STEP_SUMMARY" || true
+
+  # Owner review of core changes (.github/core-paths.txt, pinned contracts).
+  # Fails on a PR until an owner other than the author approves the current
+  # head; reruns on every review event and push. See scripts/core_review.py.
+  core-review:
+    name: core review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: No pull request, nothing to review
+        if: github.event.pull_request == null
+        run: echo "core review applies to pull requests; this $EVENT run passes."
+        env:
+          EVENT: ${{ github.event_name }}
+
+      # Full history: the diff is merge-base...head. The checkout is the merge
+      # commit and the head is its second parent, so the next step checks out
+      # the head itself and compares the PR's own contracts, not the PR merged
+      # into a newer main.
+      - uses: actions/checkout@v5
+        if: github.event.pull_request != null
+        with:
+          fetch-depth: 0
+
+      - name: Is owner review required?
+        id: required
+        if: github.event.pull_request != null
+        run: |
+          git checkout --detach "$HEAD_SHA"
+          python3 scripts/core_review.py required --base "$BASE_SHA" --head "$HEAD_SHA"
+
+      - name: Has an owner approved this head?
+        if: steps.required.outputs.required == 'true'
+        run: python3 scripts/core_review.py approved --repo "$REPO" --pr "$PR_NUMBER" --head "$HEAD_SHA"
 
   python:
     name: python ${{ matrix.os }}
@@ -133,6 +184,13 @@ jobs:
 
       - name: ruff
         run: ruff check src/ tests/ scripts/
+
+      # Published names (R.* API, manifest ops, json_bridge commands) are
+      # pinned in data/contracts/. A removal or rename fails here unless
+      # deprecated.txt lists it. The R surface is checked in the loader job,
+      # which has lua5.4.
+      - name: contract pins (manifest ops + json_bridge)
+        run: python scripts/contract_pins.py check
 
       - name: pytest
         run: python -m pytest -q -n auto
@@ -255,6 +313,13 @@ jobs:
       - name: Loader SDK Lua unit tests
         run: lua5.4 tests/lua/rsmm_spec.lua src/loader/lib
 
+      # The R.* surface pin: the spec's --dump-surface walk against
+      # data/contracts/r_surface.txt.
+      - name: Contract pin (R.* surface)
+        run: |
+          lua5.4 tests/lua/rsmm_spec.lua src/loader/lib --dump-surface > "$RUNNER_TEMP/surface.txt"
+          python3 scripts/contract_pins.py check --surface "$RUNNER_TEMP/surface.txt"
+
       - name: Build loader DLL
         run: bash src/loader/build.sh
 
@@ -318,7 +383,7 @@ jobs:
   # cannot be required directly; this job rolls them up instead.
   ci-ok:
     name: ci ok
-    needs: [changes, python, sidecar, ts, loader-linux-mingw]
+    needs: [changes, python, sidecar, ts, loader-linux-mingw, core-review]
     if: always()
     runs-on: ubuntu-latest
     steps:
