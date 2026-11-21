@@ -3,7 +3,7 @@ name: Core review audit
 # Opens an issue, assigned to the owners other than the author, for a PR that
 # merged into main needing owner review (scripts/core_review.py `required`)
 # without an owner's approval of its head: a `core-bypass` merge, or anything
-# else that got past the check. It reads the merged diff, not the label.
+# else that got past the check. It reads the PR's diff, not the label.
 #
 # pull_request_target runs from the base branch with a write token. The only
 # checkout is the merge commit, which is already on main, so nothing from an
@@ -28,14 +28,23 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
+      # Scripts run from the merge commit, which is already on main; the PR
+      # head is only fetched as git objects to diff, never checked out.
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
 
-      # The merge commit's first parent is main before the merge, so the diff
-      # is what the PR brought in, squashed or not.
+      # Diff the PR's own head from where it forked, exactly what `core review`
+      # assessed. The merge commit's first parent is not main-before-merge on a
+      # rebase merge (it is the PR's second-to-last rebased commit), so diffing
+      # merge_commit_sha^1 would audit only the last commit. refs/pull/N/head
+      # outlives a deleted branch.
+      - name: Fetch the PR head
+        run: git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+
       - name: Open an issue if this merged without the review it needed
-        run: python3 scripts/core_review.py audit --repo "$REPO" --pr "$PR_NUMBER" --base "$MERGE_SHA^1" --head "$MERGE_SHA"
+        run: python3 scripts/core_review.py audit --repo "$REPO" --pr "$PR_NUMBER" --base "$BASE_SHA" --head "$HEAD_SHA"
