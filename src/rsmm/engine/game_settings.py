@@ -36,20 +36,26 @@ def unknown_options(names) -> list[str]:
 
 
 def clear_options(game_dir: Path, names) -> int:
-    """Remove the ``<name>=`` lines of ``names`` from GameSettings.ini, in any
-    section; return how many went. A missing file, or no such line, is 0."""
+    """Remove the ``<name>=`` lines of ``names`` from GameSettings.ini and its
+    ``GameSettings_Temp.ini`` twin (the game writes both, so a line left in
+    either can come back), in any section; return how many went. A missing
+    file, or no such line, is 0."""
     names = [n for n in names if n in OPTION_NAMES]
-    ini = settings_ini(game_dir)
-    if not names or not ini.is_file():
+    if not names:
         return 0
     # Bytes, not text: the file is the player's, and decoding it would change
     # non-UTF-8 bytes and line endings in lines this never meant to touch.
     alts = [re.escape(n.encode("ascii")).replace(rb"\ ", rb"\s+") for n in names]
     key = re.compile(rb"^\s*(?:" + b"|".join(alts) + rb")\s*=", re.IGNORECASE)
-    lines = ini.read_bytes().splitlines(keepends=True)
-    kept = [ln for ln in lines if not key.match(ln)]
-    if len(kept) == len(lines):
-        return 0
     from .safeio import atomic_write_bytes
-    atomic_write_bytes(ini, b"".join(kept))
-    return len(lines) - len(kept)
+    main = settings_ini(game_dir)
+    removed = 0
+    for ini in (main, main.with_name("GameSettings_Temp.ini")):
+        if not ini.is_file():
+            continue
+        lines = ini.read_bytes().splitlines(keepends=True)
+        kept = [ln for ln in lines if not key.match(ln)]
+        if len(kept) != len(lines):
+            atomic_write_bytes(ini, b"".join(kept))
+            removed += len(lines) - len(kept)
+    return removed

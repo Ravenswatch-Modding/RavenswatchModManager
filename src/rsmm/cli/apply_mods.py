@@ -3195,6 +3195,16 @@ def cmd_restore_all(args, repo: Path, cooking: Path, game_dir: Path) -> int:
     else:
         restore_usedrsclist(game_dir, args.dry_run)
 
+    # Options the applied mods pinned (a forced seed and the Dev flag it needs)
+    # are saved by the game to GameSettings.ini and would outlive this restore:
+    # every plain Steam launch after a seeded-runs session kept the same map.
+    # The mods re-pin them on their next modded launch, so clearing is safe.
+    try:
+        for mod in discover_mods(repo):
+            restore_mod_options(mod.root, mod.id, game_dir, state, args.dry_run)
+    except (OSError, ValueError) as e:
+        print(f"  [warn] could not clear mod-pinned game options: {e}", file=sys.stderr)
+
     runtime_cleared = clear_runtime_mods(game_dir, args.dry_run)
     if not runtime_cleared:
         print("Failed to clear runtime mods directory.", file=sys.stderr)

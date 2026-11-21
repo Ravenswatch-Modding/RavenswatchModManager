@@ -176,3 +176,35 @@ def test_a_queued_restore_is_dropped_once_its_mod_is_enabled_again(tmp_path, mon
     assert apply_mods.restore_flipped_options([apply_mods.Mod(mod)], state2, game) == []
     assert "Forced seed=12345" in _ini(game)
     assert not state2.pending_option_restores
+
+
+def test_clear_options_also_strips_the_temp_twin(tmp_path):
+    """The game writes GameSettings_Temp.ini beside the real file; a seed left
+    in either can come back."""
+    game, _c, _m = _install(tmp_path)
+    temp = GS.settings_ini(game).with_name("GameSettings_Temp.ini")
+    temp.write_text(INI, encoding="utf-8")
+    assert GS.clear_options(game, ["Forced seed", "Dev"]) == 4
+    assert "Forced seed" not in temp.read_text(encoding="utf-8")
+
+
+def test_restore_clears_options_an_applied_mod_pinned(tmp_path, monkeypatch, capsys):
+    """Restore runs after every modded launch: a seed left in the ini made every
+    plain Steam launch afterwards generate the same map."""
+    import json
+    from types import SimpleNamespace
+
+    import rsmm.engine.find_iyg as find_iyg
+    game, cooking, mod = _install(tmp_path)
+    repo = tmp_path
+    asset_map = repo / "asset_map.json"
+    asset_map.write_text(json.dumps({}), encoding="utf-8")
+    monkeypatch.setattr(apply_mods, "MODS_DIR", mod.parent)
+    monkeypatch.setattr(apply_mods, "ASSET_MAP_JSON", asset_map)
+    monkeypatch.setattr(find_iyg, "main", lambda *a, **k: 0)
+    state = apply_mods.State(cooking)
+    state.set_enabled_mods(["seedy"])
+    state.save()
+    apply_mods.cmd_restore_all(SimpleNamespace(dry_run=False), repo, cooking, game)
+    assert "Forced seed" not in _ini(game) and "Dev=" not in _ini(game)
+    assert "Test=0" in _ini(game)

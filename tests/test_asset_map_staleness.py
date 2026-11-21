@@ -163,7 +163,7 @@ def test_restore_with_residue_still_clears_game_mods_and_loader(game, monkeypatc
     bak.write_bytes(b"VANILLA A")
     src = tmp_path / "src-a"
     src.write_bytes(b"MOD BYTES")
-    mod = SimpleNamespace(id="m", enabled=True, files=lambda: [(src, "Old/a")])
+    mod = SimpleNamespace(id="m", enabled=True, root=g / "m", files=lambda: [(src, "Old/a")])
     monkeypatch.setattr(A, "discover_mods", lambda _repo: [mod])
     _runtime(g)
     bak.chmod(0)                       # the backup cannot be read back
