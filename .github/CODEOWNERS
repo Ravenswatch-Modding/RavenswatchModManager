@@ -1,0 +1,38 @@
+# Ring 1: changes here need a code owner's review (hardening proposal, #202).
+# Everything else goes through the `core review` check instead.
+
+# Update and signing path
+/src/rsmm/engine/loader_update.py          @Ovilli @Skigim
+/src/rsmm/engine/cli_update.py             @Ovilli @Skigim
+/src/rsmm/engine/minisign.py               @Ovilli @Skigim
+/src/rsmm/sdk/archive.py                   @Ovilli @Skigim
+/src/rsmm/sdk/repo.py                      @Ovilli @Skigim
+/apps/desktop/src-tauri/src/cli_channel.rs @Ovilli @Skigim
+/apps/desktop/src-tauri/tauri.conf.json    @Ovilli @Skigim
+
+# Release and publish
+/.github/workflows/publish-cli.yml         @Ovilli @Skigim
+/.github/workflows/publish-loader.yml      @Ovilli @Skigim
+/.github/workflows/release.yml             @Ovilli @Skigim
+/scripts/publish_*                         @Ovilli @Skigim
+/scripts/build-sidecar.py                  @Ovilli @Skigim
+
+# Review machinery and contract pins. The pin snapshots themselves stay
+# open so additive SDK changes need no owner; removals go through
+# `core review`, and an alias that excuses one goes through here.
+/.github/CODEOWNERS                        @Ovilli @Skigim
+/.github/core-paths.txt                    @Ovilli @Skigim
+/.github/workflows/core-review-request.yml @Ovilli @Skigim
+/.github/workflows/ci.yml                  @Ovilli @Skigim
+/data/contracts/deprecated.txt             @Ovilli @Skigim
+/scripts/contract_pins.py                  @Ovilli @Skigim
+/scripts/core_review.py                    @Ovilli @Skigim
+/tests/test_contract_pins.py               @Ovilli @Skigim
+/tests/test_core_review.py                 @Ovilli @Skigim
+/tests/test_schema_drift.py                @Ovilli @Skigim
+
+# Tests guarding the above
+/tests/conftest.py                         @Ovilli @Skigim
+/tests/test_loader_hook_hygiene.py         @Ovilli @Skigim
+/tests/test_loader_update.py               @Ovilli @Skigim
+/tests/test_repo_signatures.py             @Ovilli @Skigim

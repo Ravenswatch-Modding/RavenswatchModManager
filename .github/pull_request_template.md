@@ -20,3 +20,4 @@ For PRs with no UX impact, remove this section. -->
 - [ ] `ruff check .` and `pnpm test:python:fast` pass
 - [ ] `rsmm symbols gen` run if `data/symbols.json` changed
 - [ ] No game files, no hardcoded engine addresses, nothing that unlocks paid content
+- [ ] Adds `R.*` surface or a manifest op? Name the mod that consumes it
