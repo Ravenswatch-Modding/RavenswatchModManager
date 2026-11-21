@@ -957,3 +957,26 @@ def test_bridge_caches_instead_of_planting_into_a_vanilla_game(tmp_path, channel
     json_bridge.cmd_update_loader(False)
     assert json.loads(capsys.readouterr().out)["status"] == "updated"
     assert (game / "winhttp.dll").read_bytes() == PAYLOAD["winhttp.dll"]
+
+
+def test_cache_update_reuses_a_verified_cache(tmp_path, channel, monkeypatch):
+    """Nothing planted keeps check() at update_available; the app asks at start,
+    on focus and before every modded launch. The bundle is fetched once."""
+    game, use = channel
+    use(_publish(tmp_path, version=2))
+    (game / "winhttp.dll").unlink()
+    lu.cache_update(game, lu.check(game))
+
+    fetched = []
+    real = lu._fetch
+    monkeypatch.setattr(lu, "_fetch", lambda url, *a, **k: (
+        fetched.append(url), real(url, *a, **k))[1])
+    out = lu.cache_update(game, lu.check(game))
+    assert out["status"] == "cached" and out["cached_version"] == 2
+    assert not any(u.endswith(lu.BUNDLE_NAME) for u in fetched)
+
+    # A damaged cache is downloaded again.
+    victim = next(p for p in (lu.cache_dir(game) / "payload").rglob("*") if p.is_file())
+    victim.write_bytes(b"tampered")
+    lu.cache_update(game, lu.check(game))
+    assert any(u.endswith(lu.BUNDLE_NAME) for u in fetched)

@@ -101,6 +101,27 @@ def test_restore_drops_an_added_file_a_crashed_apply_left_behind(install, capsys
     assert not added.exists(), "orphaned added file should be dropped by restore"
 
 
+def test_restore_after_a_game_update_never_reinstates_old_backups(install, capsys):
+    """Restore is the update repair (desktop banner, doctor --fix). Skipping the
+    pre-update backups is not enough: it also recorded the new version, so the
+    NEXT restore saw matching versions and copied the old bytes back over the
+    patched file. The backups and their state must go with the first restore."""
+    args = SimpleNamespace(dry_run=False)
+    cooking, game = install.cooking, install.game_dir
+    dest = cooking / "a" / "b.bin"
+    assert apply_mods.cmd_apply(args, install.repo, cooking, game) == 0
+    assert dest.read_bytes() == b"MOD CONTENT"
+
+    (game / "Ravenswatch.exe").write_bytes(b"new build")   # Steam patch...
+    dest.write_bytes(b"VANILLA FROM THE UPDATE")           # ...rewrote the file
+
+    for _ in range(2):
+        assert apply_mods.cmd_restore_all(args, install.repo, cooking, game) == 0
+        assert dest.read_bytes() == b"VANILLA FROM THE UPDATE"
+    capsys.readouterr()
+    assert not list(cooking.rglob("*" + apply_mods.BACKUP_SUFFIX))
+
+
 def test_journal_survives_a_torn_final_line(install):
     cooking = install.cooking
     journal = apply_mods.Journal(cooking)

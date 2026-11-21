@@ -755,6 +755,14 @@ def cache_update(game_dir: Path, state: dict,
     so the new version still reaches the next modded session.
     """
     manifest = state.get("_manifest") or fetch_manifest(state["remote_base"])
+    out = {k: v for k, v in state.items() if not k.startswith("_")}
+    out["status"] = "cached"
+    out["cached_version"] = int(manifest["loader_version"])
+    # Nothing planted means check() keeps answering update_available, and the
+    # app asks at start, on focus and before every modded launch: without this
+    # each of those re-downloaded a bundle already sitting in the cache.
+    if _cache_holds(game_dir, manifest):
+        return out
     raw = _fetch(f"{state['remote_base']}/{BUNDLE_NAME}", limit=_MAX_BUNDLE_BYTES,
                  on_progress=on_progress)
     if _sha256(raw) != manifest["bundle_sha256"]:
@@ -765,10 +773,29 @@ def cache_update(game_dir: Path, state: dict,
         payload = Path(td) / "payload"
         _extract_bundle(raw, manifest, payload)
         _cache_bundle(game_dir, manifest, payload)
-    out = {k: v for k, v in state.items() if not k.startswith("_")}
-    out["status"] = "cached"
-    out["cached_version"] = int(manifest["loader_version"])
     return out
+
+
+def _cache_holds(game_dir: Path, manifest: dict) -> bool:
+    """True when the cache already holds exactly this signed manifest and a
+    payload whose every file matches it. The manifest bytes are compared, not
+    re-verified: they equal ones just fetched and verified from the channel."""
+    cache = cache_dir(game_dir)
+    try:
+        if (cache / MANIFEST_NAME).read_bytes() != manifest["_raw"]:
+            return False
+        if (cache / SIGNATURE_NAME).read_text(encoding="utf-8") != manifest["_signature"]:
+            return False
+        for f in manifest["files"]:
+            src = cache.joinpath("payload", *resolve_destination(f["path"]))
+            size = f.get("size")
+            if isinstance(size, int) and src.stat().st_size != size:
+                return False
+            if _sha256(src.read_bytes()) != f["sha256"]:
+                return False
+    except (OSError, LoaderUpdateError):
+        return False
+    return True
 
 
 def repair_plant(game_dir: Path, state: dict,

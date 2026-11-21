@@ -2918,6 +2918,12 @@ def cmd_apply(args, repo: Path, cooking: Path, game_dir: Path) -> int:
     return 0
 
 
+def _old_backups(cooking: Path, game_dir: Path) -> bool:
+    manifest = game_dir / USEDRSCLIST_REL
+    return (manifest.with_name(manifest.name + BACKUP_SUFFIX).exists()
+            or next(cooking.rglob(f"*{BACKUP_SUFFIX}"), None) is not None)
+
+
 def cmd_restore_all(args, repo: Path, cooking: Path, game_dir: Path) -> int:
     # Before anything is dropped: with a stale map, "mod-added" includes game
     # files, and restore deletes those.
@@ -2974,7 +2980,18 @@ def cmd_restore_all(args, repo: Path, cooking: Path, game_dir: Path) -> int:
                     state.save()
                 except OSError as e:
                     print(f"  [warn] failed to write state: {e}", file=sys.stderr)
-        save_fingerprint(game_dir, current_fp)
+        if args.dry_run:
+            pass
+        elif stored_fp is not None and (state.active or _old_backups(cooking, game_dir)):
+            # The skipped backups must not outlive this restore: saving the new
+            # fingerprint next to them would make the NEXT restore see matching
+            # versions and copy the pre-update bytes over the patched files.
+            # Apply's update recovery is the cleanup (and records the version).
+            # Only for a KNOWN older version: with none recorded, the backups
+            # may well be this build's, and deleting them is not undoable.
+            _recover_game_update(cooking, game_dir)
+        else:
+            save_fingerprint(game_dir, current_fp)
     else:
         # Phase 1: Recover orphaned backups that have no state entry.
         # Backed-up files tracked in state.active are handled by Phase 2.

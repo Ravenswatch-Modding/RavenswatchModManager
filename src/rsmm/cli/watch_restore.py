@@ -166,8 +166,15 @@ def _run_restore() -> tuple[bool, str]:
     return proc.returncode == 0, tail
 
 
-def _wait_for_session(*, interval: float, start_timeout: float, exit_probes: int) -> None:
-    """Wait for the game to appear (up to `start_timeout`), then for it to exit."""
+def _wait_for_session(*, interval: float, start_timeout: float, exit_probes: int,
+                      generation: str = "") -> str:
+    """Wait for the game to appear (up to `start_timeout`), then for it to exit.
+
+    Returns the launch generation this wait has observed: a newer modded
+    launch whose game came back (Restart game) while we were still counting
+    exit probes has had its whole session watched here, so the caller must not
+    treat it as unobserved and wait for it a second time.
+    """
     deadline = time.monotonic() + start_timeout
     seen = False
     while True:
@@ -181,16 +188,35 @@ def _wait_for_session(*, interval: float, start_timeout: float, exit_probes: int
     if not seen:
         _log(f"never saw the game within {start_timeout:g}s; restoring anyway")
         if not game_proc.is_game_running():
-            return
+            return generation
         # It came up on the last probe: let it finish normally.
     _log("game seen; waiting for it to exit")
     # is_game_running() fails open: a probe timeout reads as "not
     # running". Only consecutive misses count as the game having exited.
     misses = 0
+    # Misses seen since a newer generation was first read. Restart game bumps
+    # BEFORE closing the old game, so a newer generation alone does not mean
+    # the running game is the relaunch; only a game that comes back after at
+    # least two consecutive misses under that generation is adopted as it.
+    # One miss could be a failed probe of the OLD game (is_game_running fails
+    # open), and adopting that would restore under the relaunch. A relaunch
+    # back after a single miss is not adopted: the caller then waits for it
+    # again, which is slow but safe.
+    pending_misses = 0
     while misses < exit_probes:
         time.sleep(interval)
-        misses = 0 if game_proc.is_game_running() else misses + 1
+        now = read_launch_generation()
+        if game_proc.is_game_running():
+            if now != generation and pending_misses >= 2:
+                generation = now
+                _log("the game came back under a newer modded launch; "
+                     "watching it as that launch's session")
+            misses = pending_misses = 0
+        else:
+            misses += 1
+            pending_misses = pending_misses + 1 if now != generation else 0
     _log("game exited")
+    return generation
 
 
 def watch(*, interval: float, start_timeout: float, exit_probes: int,
@@ -198,8 +224,8 @@ def watch(*, interval: float, start_timeout: float, exit_probes: int,
     """The watch loop. 0 once restored, 1 when every restore attempt failed."""
     generation = read_launch_generation()
     while True:
-        _wait_for_session(interval=interval, start_timeout=start_timeout,
-                          exit_probes=exit_probes)
+        generation = _wait_for_session(interval=interval, start_timeout=start_timeout,
+                                       exit_probes=exit_probes, generation=generation)
         attempt = 0
         superseded = False
         while attempt < restore_attempts:

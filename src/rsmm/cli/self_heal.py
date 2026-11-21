@@ -81,6 +81,9 @@ def heal(game_dir: Path, *, probes: int = 3, probe_interval: float = 1.0,
                      f"{applied_for or 'unrecorded'}); leaving them as the player set them")
     if W.watcher_alive():
         return _skip("watcher", "a restore watcher is running and will restore")
+    # Snapshot BEFORE the age check and probes: a launch that bumps it while
+    # they run must be seen as a change under the lock, not as the baseline.
+    generation = W.read_launch_generation()
     age = W.launch_generation_age()
     if age is not None and age < recent_launch_s:
         return _skip("recent-launch", f"a modded launch started {age:.0f}s ago")
@@ -103,7 +106,6 @@ def heal(game_dir: Path, *, probes: int = 3, probe_interval: float = 1.0,
                          f"-> {steam.buildid}) since the mods were applied; the "
                          "update repair handles this")
 
-    generation = W.read_launch_generation()
     try:
         with install_lock(cooking, "self-heal", timeout=0):
             if W.read_launch_generation() != generation:

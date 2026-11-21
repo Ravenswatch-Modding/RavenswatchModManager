@@ -145,10 +145,41 @@ def test_relaunch_during_restore_retries_stops_retrying(monkeypatch):
     # Restore fails once (files still locked), then a relaunch is recorded
     # before the second attempt: watch the new session instead.
     _probe(monkeypatch, [True, False, False, False, True])
-    _generations(monkeypatch, ["g1", "g1", "g2", "g2"])
+    # start + three exit probes + the first attempt read g1; the second, g2
+    _generations(monkeypatch, ["g1"] * 5 + ["g2"])
     calls = _restore(monkeypatch, [False, True])
     assert _watch() == 0
     assert len(calls) == 2           # one failed try, then one after session 2
+
+
+def test_restart_seen_during_exit_probes_is_not_waited_for_again(monkeypatch):
+    """Restart game brings the game back before the three exit probes finish:
+    that session is watched to its end here, so after it exits the watcher
+    restores instead of starting a second full wait for an 'unseen' launch."""
+    probes = [True, False, False, True,      # s1 gone two probes, relaunch back
+              False, False, False]           # the relaunch exits
+    _probe(monkeypatch, probes)
+    _generations(monkeypatch, ["g1", "g2"])
+    calls = _restore(monkeypatch, [True])
+    assert _watch() == 0
+    assert len(calls) == 1
+    log = wr._log_path().read_text(encoding="utf-8")
+    assert "came back under a newer modded launch" in log
+    assert log.count("game exited") == 1 and "newer modded launch started" not in log
+
+
+def test_one_miss_does_not_adopt_a_newer_generation(monkeypatch):
+    """Restart bumps BEFORE closing the old game: a single failed probe of the
+    old game followed by it still running must not count as the relaunch."""
+    probes = [True, False, True,             # one blip of the OLD game
+              False, False, False]           # it exits
+    _probe(monkeypatch, probes)
+    _generations(monkeypatch, ["g1", "g2"])
+    calls = _restore(monkeypatch, [True])
+    assert _watch(start_timeout=0) == 0
+    log = wr._log_path().read_text(encoding="utf-8")
+    assert "newer modded launch started" in log  # superseded, waited again
+    assert len(calls) == 1
 
 
 def test_bump_changes_the_generation(tmp_path):

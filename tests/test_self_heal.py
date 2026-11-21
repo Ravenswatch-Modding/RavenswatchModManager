@@ -148,6 +148,15 @@ def test_a_launch_that_starts_during_the_checks_wins(env, monkeypatch):
     assert _heal(env)["reason"] == "recent-launch" and env["restores"] == []
 
 
+def test_a_launch_during_the_probe_loop_is_not_the_baseline(env, monkeypatch, tmp_path):
+    """The snapshot is taken before the probes: a launch bumping the generation
+    while they sleep must be seen under the lock, not adopted as the baseline."""
+    monkeypatch.setenv("RSMM_DATA_DIR", str(tmp_path / "data"))
+    W.bump_launch_generation()
+    monkeypatch.setattr(SH.time, "sleep", lambda _s: W.bump_launch_generation())
+    assert _heal(env)["reason"] == "recent-launch" and env["restores"] == []
+
+
 def test_the_game_starting_during_the_checks_wins(env, monkeypatch):
     seq = iter([False, False, False, True])      # three checks, then inside the lock
     monkeypatch.setattr(game_proc, "probe_game", lambda: next(seq))
