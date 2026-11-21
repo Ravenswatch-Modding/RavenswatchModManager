@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 import struct
+import sys
 import uuid
 
 from . import cooked
@@ -402,6 +403,10 @@ def relabel_base_links(ef: EntityFile, filled: dict[bytes, tuple[str, str]], sco
     n = 0
     for c in ef.graph().components:
         for r in c.refs:
+            # A null GUID names no slot: shipped data links by label alone
+            # (Carmilla's Blood Drain timer -> its Night Blood Drain state).
+            if r.guid == bytes(16):
+                continue
             if r.guid in filled and not r.path.startswith(f"[{filled[r.guid][0]}] {scope}\\"):
                 kind, path = filled[r.guid]
                 n += ef.retarget_external(c.name, r.guid, r.guid, f"[{kind}] {scope}\\{path}")
@@ -700,14 +705,17 @@ def add_weapon(ef: EntityFile, donor: EntityFile, character_common: EntityFile, 
         d = donor.component(WEAPON_SLOT)
         ef.clone([d.path], seed=f"{seed}:weapon", source=donor)
         body = character_common.component("Character Mesh")
-        parent = next(r for r in d.refs if r.path.startswith("[3d graphic object]")
-                      and "Weapons" not in r.path)
-        ef.retarget_external(WEAPON_SLOT, parent.guid, body.guid,
-                             f"[3d graphic object] {character_common.name}\\{body.path}")
+        # Most hang off the donor's body mesh; Geppetto's has no such link and
+        # hangs off the skeleton alone, which is copied as shipped.
+        parent = next((r for r in d.refs if r.path.startswith("[3d graphic object]")
+                       and "Weapons" not in r.path), None)
+        if parent is not None:
+            ef.retarget_external(WEAPON_SLOT, parent.guid, body.guid,
+                                 f"[3d graphic object] {character_common.name}\\{body.path}")
         own = {c.guid: c for c in donor.graph().components}
         base_by_name = {c.name: c for c in character_common.graph().components}
         for r in d.refs:
-            if r.guid == parent.guid:
+            if parent is not None and r.guid == parent.guid:
                 continue
             t = own.get(r.guid)
             if t is not None and t.override is not None:
@@ -721,7 +729,19 @@ def add_weapon(ef: EntityFile, donor: EntityFile, character_common: EntityFile, 
                 # hero inherits too -- else a link into a file the hero never
                 # loads, and the weapon draws nothing.
                 name = r.path.rsplit("\\", 1)[-1]
-                b = base_by_name.get(name) or base_by_name.get(name.removeprefix("Weapons "))
+                # Heroes prefix their weapon's copy: Aladdin "Weapons ", Romeo "WPN ".
+                b = (base_by_name.get(name) or base_by_name.get(name.removeprefix("Weapons "))
+                     or base_by_name.get(name.removeprefix("WPN ")))
+                if b is None and r.path.startswith("[Shader Param]"):
+                    # A tint only the donor drives (Juliet "WPN Emissive Mul",
+                    # Wukong "Staff Fresnel", Geppetto "Fresnel R Weapon"):
+                    # dropped, so the weapon draws with the material's own
+                    # values. Left in, it links a file the hero never loads
+                    # and the weapon draws nothing.
+                    ef.set_ref(WEAPON_SLOT, _ref_field(ef, WEAPON_SLOT, r.path), None)
+                    print(f"note: weapon: {donor.name}'s {name!r} is its own; "
+                          "left out (the weapon keeps its material's look)", file=sys.stderr)
+                    continue
                 if b is None:
                     raise FrameError(f"weapon links {r.path}, which the hero cannot reach")
                 kind = r.path.split("] ", 1)[0]
@@ -755,6 +775,15 @@ def add_weapon(ef: EntityFile, donor: EntityFile, character_common: EntityFile, 
     except (EntityEditError, StopIteration) as e:
         raise FrameError(f"weapon: {e}") from e
     return WEAPON_SLOT
+
+
+def _ref_field(ef: EntityFile, comp: str, path: str) -> str:
+    """The single-reference field of ``comp`` that links ``path``."""
+    from . import entity_fields as EF
+    for f in EF.fields(ef.component(comp)):
+        if f.kind == "ref" and f.text == f"<- {path}":
+            return f.name
+    raise FrameError(f"{comp}: no single link to {path}")
 
 
 def _donor_weapon_material(donor: EntityFile) -> str:

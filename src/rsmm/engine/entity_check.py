@@ -35,6 +35,7 @@ Warnings are reported and do not block:
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
@@ -116,15 +117,75 @@ def _class_tags(ef: EntityFile) -> list[Issue]:
             for i in bad]
 
 
+#: The one class a lent button leaves an inert copy of (see _ownership).
+_COMBO_STEP = "oCDtAttackComboStepSettings"
+
+
+@cache
+def _shipped_pairs() -> frozenset[tuple[str, str]]:
+    """(owner class, sub-object class) for every sub-object a shipped hero file
+    owns unambiguously: which classes the engine ever lets own which. One file
+    may hold no second example to judge by (a scratch hero's single spawn
+    entry), and its id may be a common number (#768 = 0x300 read as data in 50
+    places). ~2 s over the 333 hero files; empty without a corpus (then
+    nothing changes: the check stays closed)."""
+    from . import corpus
+    pairs: set[tuple[str, str]] = set()
+    try:
+        rels = [r for r in corpus.rels("EntitySettings/Heroes/")
+                if r.endswith(".entity.ot.EntitySettingsResource.gen")]
+    except OSError:
+        return frozenset()
+    for rel in rels:
+        raw = corpus.read(rel)
+        if not raw:
+            continue
+        try:
+            ef = EntityFile(raw, rel)
+            owned, _ = ef.pointers()
+        except (EntityEditError, ValueError, IndexError, struct.error):
+            continue
+        pairs |= {(ef._owner_class(p.owner), ef._class(x)) for x, p in owned.items()}
+    return frozenset(pairs)
+
+
 def _ownership(ef: EntityFile, before: EntityFile | None) -> list[Issue]:
-    _owned, ambiguous = ef.pointers()
+    owned, ambiguous = ef.pointers()
     was = set(before.pointers()[1]) if before else set()
     out = []
+    owned_bytes = None
     for x, cands in ambiguous.items():
         if x in was:
             continue
         what = f"sub-object #{x} ({ef._class(x)})"
+        if cands:
+            # Only an owner of a class the shipped game lets own this class
+            # can be the owner; the rest spell its id as data.
+            pairs = _shipped_pairs()
+            fit = [p for p in cands if (ef._owner_class(p.owner), ef._class(x)) in pairs]
+            if len(fit) > 1:
+                # One owner per sub-object: the same number in the SAME field
+                # of several objects of a class is that field's value, not a
+                # pointer (8 cine blocs hold #768 = 0x300 at +12; the 9th owns
+                # it at +150).
+                field = Counter((ef._owner_class(p.owner), p.offset) for p in fit)
+                fit = [p for p in fit if field[(ef._owner_class(p.owner), p.offset)] == 1]
+            if len(fit) == 1:
+                continue
+            if pairs and not fit:
+                cands = []          # every candidate is data: owned by nothing
         if not cands:
+            if owned_bytes is None:
+                owned_bytes = {bytes(ef.objects[o]) for o in owned if o < len(ef.objects)}
+            if ef._class(x) == _COMBO_STEP and bytes(ef.objects[x]) in owned_bytes:
+                # An exact copy of an owned combo step: the inert placeholder a
+                # lent button leaves when a combo step is dropped (ids cannot
+                # shift; ability_template._drop_empty_combo_steps). Never
+                # instantiated, so not an error -- a real orphan is new
+                # content missing from the vector, not a copy of a live object.
+                out.append(Issue(False, "", f"{what} is owned by nothing "
+                                            "(a copy of an owned object, left inert)"))
+                continue
             out.append(Issue(True, "", f"{what} is owned by nothing"))
         else:
             out.append(Issue(True, "", f"{what} has {len(cands)} possible owners"))

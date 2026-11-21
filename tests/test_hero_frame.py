@@ -518,6 +518,42 @@ def test_a_hand_weapon_links_nothing_of_its_donor():
 
 
 @needs_corpus
+@pytest.mark.parametrize("hero", ["Geppetto", "Juliet", "SunWukong"])
+def test_every_hand_weapon_is_lent(hero):
+    """Geppetto's weapon hangs off the skeleton with no body-mesh link; Juliet's
+    and Wukong's link tints of their own ("WPN Emissive Mul", "Staff Fresnel")
+    that no shared base has: dropped, never a link into the donor's file."""
+    import re
+
+    from rsmm.engine.entity_graph_edit import EntityFile
+    ef = _hero("Hero_T")
+    cc = HF.common(_read, "Character_Common")
+    donor = EntityFile(_read(f"Heroes\\Hero_{hero}\\Hero_{hero}.entity.ot"), f"Hero_{hero}")
+    HF.add_weapon(ef, donor, cc, seed="t")
+    assert not re.findall(rb"\] Hero_" + hero.encode() + rb"\\", ef.to_bytes())
+
+
+@needs_corpus
+def test_romeos_hand_weapon_is_lent():
+    """Romeo's weapon links his body mesh by label with a NULL guid, beside two
+    unset pickers (null guid, no label): re-pointing that link must leave the
+    unset ones alone, and his "WPN Emissive Mix" shader param is the shared
+    base's "Emissive Mix" (Puss in Boots mod, 2026-11-21)."""
+    import re
+
+    from rsmm.engine import entity_fields as EF
+    from rsmm.engine.entity_graph_edit import EntityFile
+    ef = _hero("Hero_T")
+    cc = HF.common(_read, "Character_Common")
+    rom = EntityFile(_read("Heroes\\Hero_Romeo\\Hero_Romeo.entity.ot"), "Hero_Romeo")
+    HF.add_weapon(ef, rom, cc, seed="t")
+    out = ef.to_bytes()
+    assert not re.findall(rb"\] Hero_Romeo\\", out)
+    w = {f.name: f.text for f in EF.fields(ef.component(HF.WEAPON_SLOT))}
+    assert any("Character_Common\\Base\\Character Mesh" in v for v in w.values())
+
+
+@needs_corpus
 @needs_install
 def test_an_ability_plays_its_own_sound():
     """``sound`` copies a shipped FMod event part into the hero as its own

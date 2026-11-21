@@ -883,6 +883,47 @@ def test_a_frame_hero_holds_no_other_heros_parts(tmp_path):
 
 @needs_corpus
 @needs_install
+def _puss(tmp_path, abilities, weapon="Romeo"):
+    """The Puss in Boots mod's shape (built with the editor only, 2026-11-21):
+    Wukong rig, a lent hand weapon, lent buttons."""
+    frame = {"rig": "Hero_Sun_Wukong", "mesh": "Characters\\Heroes\\Wukong\\Wukong_GEO.fbx",
+             "material": "Characters\\Heroes\\Wukong\\Textures\\M_Wukong.mat.ot",
+             "talents": [{"name": "Attack One", "title": "One"}],
+             "abilities": {s: {"template": t, "cooldown": 5} for s, t in abilities.items()}}
+    if weapon:
+        frame["weapon"] = {"from": weapon}
+    return heros.emit("m", ContentDef(kind="hero", id="Puss", fields={"name": "Puss",
+                                                                      "frame": frame}),
+                      tmp_path / "assets")
+
+
+@needs_corpus
+def test_the_puss_in_boots_hero_builds(tmp_path):
+    """It failed twice over: Romeo's weapon links his body by label with a null
+    GUID, and Romeo's lent attack drops his Kick, leaving an inert copy of a
+    combo step that the wiring check called an orphan."""
+    files = _puss(tmp_path, {"attack": "Romeo: Basic Attack", "power": "Red: Primary",
+                             "special": "Beowulf: Secondary", "defense": "Aladdin: Defensive"})
+    assert any(p.name == "Hero_Puss.entity.ot.EntitySettingsResource.gen" for p in files)
+
+
+@needs_corpus
+@pytest.mark.slow
+@pytest.mark.parametrize("abilities", [
+    {"trait": "Carmilla: Trait"},                 # a label-only (null GUID) link
+    {"trait": "Kintaro: Trait"},                  # a number read as a node's owner
+    {"trait": "SunWukong: Trait"},
+    {"ultimate": "Kintaro: Ultimate Power 2"},    # #768 = 0x300, one spawn entry
+    {"ultimate": "Red: Alt Ultimate Power 2"},    # the inert step, spelled as data
+    {"attack": "Romeo: Basic Attack",             # a copy the scan could not place
+     "ultimate": "Romeo: Ultimate Power 2"},
+], ids=lambda a: " + ".join(a.values()))
+def test_every_offered_template_builds(tmp_path, abilities):
+    """The templates the editor offered that failed the build (audit 2026-11-21:
+    every option swept through herobuilder.build_check)."""
+    _puss(tmp_path, {"attack": "Romeo: Basic Attack", **abilities}, weapon=None)
+
+
 def test_a_hero_with_no_base_copies_no_hero(tmp_path):
     """`frame` without `base`: entities, buttons and roster record written from
     data; the rig lends assets only (no hero entity file is written but its own)."""

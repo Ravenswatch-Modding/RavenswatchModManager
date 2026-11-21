@@ -223,3 +223,16 @@ def test_every_shipped_button_can_be_lent():
         except Exception as x:  # noqa: BLE001 — collect every failure
             failed.append(f"{e.hero}: {e.button}: {x}")
     assert failed == []
+
+
+@needs_corpus
+def test_a_dropped_combo_step_passes_the_wiring_check():
+    """Romeo's Kick is cut from his lent basic attack; its object (ids cannot
+    shift) becomes an inert copy of a kept step, owned by nothing. The scratch
+    hero's wiring check must accept that copy, not fail the whole hero
+    (Puss in Boots mod, 2026-11-21)."""
+    from rsmm.engine import entity_check as CK
+    ef, _hc, _lent = _lend("Romeo: Basic Attack", "Basic Attack Controller")
+    unowned = [i for i in CK._ownership(ef, None) if "owned by nothing" in i.message]
+    assert unowned and not [i for i in unowned if i.error]
+    assert all("oCDtAttackComboStepSettings" in i.message for i in unowned)

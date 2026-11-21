@@ -285,6 +285,16 @@ class EntityFile:
             if len(near) == 1:
                 owned[x] = near[0]
                 del ambiguous[x]
+        # Last, subtree()'s rule: a candidate whose owner's class owns NO
+        # sub-object anywhere in the file is data. A lent Romeo FMod event
+        # holds the number 35 where a scratch hero's #35 node is owned by a
+        # node part (Kintaro Trait template, 2026-11-21). Only when one is left.
+        owners = {self._owner_class(p.owner) for p in owned.values()}
+        for x, cands in list(ambiguous.items()):
+            fit = [p for p in cands if self._owner_class(p.owner) in owners]
+            if len(fit) == 1:
+                owned[x] = fit[0]
+                del ambiguous[x]
         return owned, ambiguous
 
     def _owner_class(self, obj: int) -> str:
@@ -1067,6 +1077,13 @@ class EntityFile:
                 n = struct.unpack_from("<I", p, i + 24)[0]
                 end = i + 28 + n + 4
                 got = _picker_path(bytes(p[i:end]))
+                if not got and old == bytes(16):
+                    # An UNSET picker (null GUID, no label), not a reference.
+                    # Shipped data also links by label alone with a null GUID
+                    # (Romeo's weapon -> its body mesh), so retargeting that
+                    # link must leave the unset slots beside it alone.
+                    i = p.find(head + old, end)
+                    continue
                 if not cross_kind and _label_kind(got) != _label_kind(label):
                     raise EntityEditError(
                         f"{c.name!r}: {got!r} is not the same kind of node as {label!r}")

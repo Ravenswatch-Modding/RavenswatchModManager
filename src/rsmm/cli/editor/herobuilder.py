@@ -114,8 +114,30 @@ def schema() -> dict:
         "columns": list(COLUMNS),
         "rigs": list(rigs()),
         # weapon.from names the hero's entity folder (SunWukong), not its alias
-        "hero_folders": list(rigs().values()),
+        "hero_folders": weapon_donors(),
     }
+
+
+@cache
+def weapon_donors() -> list[str]:
+    """The hero folders ``weapon.from`` may name: offered heroes that hold a
+    hand weapon. Red, Piper, Carmilla and Melusine hold none, and picking one
+    failed the build with "0 components named 'Weapon In Right Hand Mesh'"."""
+    from rsmm.engine import corpus
+    from rsmm.engine import hero_frame as HF
+    from rsmm.engine.entity_graph_edit import EntityEditError, EntityFile
+    out = []
+    for folder in rigs().values():
+        raw = corpus.read(f"EntitySettings/Heroes/Hero_{folder}/Hero_{folder}.entity.ot"
+                          ".EntitySettingsResource.gen")
+        if raw is None:
+            continue
+        try:
+            EntityFile(raw, f"Hero_{folder}").component(HF.WEAPON_SLOT)
+        except EntityEditError:
+            continue
+        out.append(folder)
+    return out
 
 
 @cache
@@ -225,21 +247,27 @@ def clips(mesh: str) -> dict:
 
 
 @cache
-def templates() -> list[dict]:
+def templates(*, offered: bool = True) -> list[dict]:
     """Every shipped button ``template`` can lend (``rsmm templates``): the
-    name the page offers and every name it answers to."""
+    name the page offers and every name it answers to. A paid DLC hero's
+    buttons are not offered: their clips and meshes cannot be handed out, so
+    every one failed the build (Merlin's 19)."""
     from rsmm.engine import ability_template as AT
     from rsmm.engine import corpus
     from rsmm.engine import hero_cook as H
+    from rsmm.sdk.kinds import heros
+    dlc = {h.lower().replace("_", "") for h in heros.DLC_HEROES}
     return [{"name": f"{e.hero}: {e.names[0]}", "names": [f"{e.hero}: {n}" for n in e.names],
              "clips": e.clips}
-            for e in AT.catalog(lambda ref: corpus.read(H.entity_rel(ref)))]
+            for e in AT.catalog(lambda ref: corpus.read(H.entity_rel(ref)))
+            if not (offered and e.hero.lower().replace("_", "") in dlc)]
 
 
 def _is_template(spec: str) -> bool:
     hero, _, button = str(spec).partition(":")
     name = f"{hero.strip().removeprefix('Hero_')}: {button.strip()}"
-    return any(name in t["names"] for t in templates())
+    # every shipped button: a DLC one then fails the build with the DLC reason
+    return any(name in t["names"] for t in templates(offered=False))
 
 
 def _pseudo_stats() -> list[str]:

@@ -379,10 +379,21 @@ def lend(ef: EntityFile, hc: EntityFile, read, tpl: Template, *, slot_ctl: str,
     by_obj = {c.index - 1: c for c in ef.graph().components}
     blocs = _blocs(ef, [c for o, c in by_obj.items() if o >= n_before and c.cls == _ANIMATIC])
     owner_comp = _owners(ef, n_before, by_obj)
+    new_comps = sorted(o for o in by_obj if o >= n_before)
     for obj in range(n_before, len(ef.objects)):
         c = owner_comp.get(obj)
         if c is None:
-            continue
+            # Appended by these clones, so a copy whatever owns it, and its
+            # links must be re-pointed too. The scan can miss its pointer while
+            # an OLD part spells its id as data (Romeo's lent attack: #256 =
+            # 0x100 inside "Defensive Ability Anim"), and skipping it left a
+            # link into Romeo's file. A clone writes components, then their
+            # sub-objects: credit it to the copied component before it (only
+            # names and a part's own list cuts depend on which).
+            prev = [o for o in new_comps if o < obj]
+            if not prev:
+                continue
+            c = by_obj[prev[-1]]
         skip = _body_at(ef, c) if obj == c.index - 1 else 0
         todo = None
         for _ in range(10000):

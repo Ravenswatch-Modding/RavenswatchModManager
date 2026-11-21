@@ -159,6 +159,18 @@ def test_a_rig_suggests_its_on_foot_body_and_its_clips():
 
 
 @needs_corpus
+def test_only_options_the_build_can_take_are_offered():
+    """weapon.from lists only heroes holding a hand weapon (Red, Piper, Carmilla
+    and Melusine hold none), and no paid DLC button is offered as a template:
+    each of those failed the build however it was set."""
+    donors = HB.weapon_donors()
+    assert {"Romeo", "Juliet", "Geppetto", "SunWukong", "Kintaro"} <= set(donors)
+    assert not {"Red", "Piper", "Carmilla", "Melusine", "Merlin"} & set(donors)
+    assert not any(t["name"].startswith("Merlin:") for t in HB.templates())
+    assert HB._is_template("Merlin: Primary")      # still known: the build says why
+
+
+@needs_corpus
 def test_the_shipped_lists_offer_names_in_the_form_the_build_reads(install_only):
     HB.shipped.cache_clear()
     HB.rig.cache_clear()
