@@ -2,6 +2,18 @@
   "generated": "2026-11-21",
   "entries": [
     {
+      "version": "",
+      "date": "2026-11-21",
+      "summary": "Restore and Steam launch fixes, every Hero editor option builds, talents can shorten bleed duration",
+      "highlights": [
+        "A forced seed set by a mod no longer sticks after you restore or disable mods",
+        "Plain Steam launches stay vanilla: no mods or loader left behind",
+        "Every Hero editor option now builds, including lent weapons and templates",
+        "Talents can shorten bleed duration"
+      ],
+      "cli_version": 43
+    },
+    {
       "version": "6.0.2",
       "date": "2026-11-21",
       "summary": "Restore and Steam launch fixes, plus Hero editor and talent improvements.",
@@ -496,15 +508,6 @@
         "In-game Mods menu: a Mods tab in the game's own Settings page (switch mods on or off for the next launch, change mod settings while you play) and a Mods button in the pause menu. Replaces the old drawn overlay."
       ],
       "loader_version": 48
-    },
-    {
-      "version": "",
-      "date": "2026-10-24",
-      "summary": "Custom item effects now stack with duplicate copies: holding a second copy raises the stat and the card number (always-on and timed effects; super effects unchanged).",
-      "highlights": [
-        "Custom item effects now stack with duplicate copies: holding a second copy raises the stat and the card number (always-on and timed effects; super effects unchanged)."
-      ],
-      "cli_version": 13
     }
   ]
 }
