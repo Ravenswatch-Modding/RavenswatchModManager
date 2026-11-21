@@ -134,6 +134,17 @@ jobs:
           if [ "$EVENT" = "pull_request" ] && [ -n "$BASE" ]; then
             BASE=$(git merge-base "$BASE" "$SHA" || echo "$BASE")
           fi
+          # Production runs queue in the order their CI finishes, not commit
+          # order: two merges a minute apart can finish CI newer-first, and the
+          # older commit's run then redeployed over the newer one (2026-11-21:
+          # #263's deploy undid #264's fix). A commit that is already an
+          # ancestor of the last deployed one is stale; deploy nothing.
+          if [ "$EVENT" = "workflow_run" ] && [ -n "$BASE" ] && [ "$BASE" != "$SHA" ] \
+               && git merge-base --is-ancestor "$SHA" "$BASE" 2>/dev/null; then
+            echo "$SHA is older than the deployed $BASE; skipping."
+            echo 'projects=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           picked=""
           for p in www api docs; do
             if [ "$EVENT" = "workflow_dispatch" ]; then
