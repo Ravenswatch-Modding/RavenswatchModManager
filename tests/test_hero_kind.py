@@ -881,8 +881,6 @@ def test_a_frame_hero_holds_no_other_heros_parts(tmp_path):
             "base": "Kintaro", "frame": True, "kit": {"dash": "none"}}), tmp_path / "a2")
 
 
-@needs_corpus
-@needs_install
 def _puss(tmp_path, abilities, weapon="Romeo"):
     """The Puss in Boots mod's shape (built with the editor only, 2026-11-21):
     Wukong rig, a lent hand weapon, lent buttons."""
@@ -898,6 +896,7 @@ def _puss(tmp_path, abilities, weapon="Romeo"):
 
 
 @needs_corpus
+@needs_install
 def test_the_puss_in_boots_hero_builds(tmp_path):
     """It failed twice over: Romeo's weapon links his body by label with a null
     GUID, and Romeo's lent attack drops his Kick, leaving an inert copy of a
@@ -908,6 +907,7 @@ def test_the_puss_in_boots_hero_builds(tmp_path):
 
 
 @needs_corpus
+@needs_install
 @pytest.mark.slow
 @pytest.mark.parametrize("abilities", [
     {"trait": "Carmilla: Trait"},                 # a label-only (null GUID) link
@@ -924,6 +924,8 @@ def test_every_offered_template_builds(tmp_path, abilities):
     _puss(tmp_path, {"attack": "Romeo: Basic Attack", **abilities}, weapon=None)
 
 
+@needs_corpus
+@needs_install
 def test_a_hero_with_no_base_copies_no_hero(tmp_path):
     """`frame` without `base`: entities, buttons and roster record written from
     data; the rig lends assets only (no hero entity file is written but its own)."""
