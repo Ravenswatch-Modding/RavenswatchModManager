@@ -125,7 +125,10 @@ def bump_launch_generation() -> None:
     p = user_data_dir() / GEN_NAME
     with contextlib.suppress(OSError):
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(f"{time.time_ns()}-{os.getpid()}", encoding="utf-8")
+        # Random suffix: Windows' clock can return the same time_ns for two
+        # bumps in one tick, and an unchanged value hides the second launch.
+        p.write_text(f"{time.time_ns()}-{os.getpid()}-{os.urandom(4).hex()}",
+                     encoding="utf-8")
 
 
 def watcher_alive() -> bool:
