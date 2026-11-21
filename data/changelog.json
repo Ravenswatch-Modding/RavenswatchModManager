@@ -2,6 +2,18 @@
   "generated": "2026-11-21",
   "entries": [
     {
+      "version": "6.0.2",
+      "date": "2026-11-21",
+      "summary": "Restore and Steam launch fixes, plus Hero editor and talent improvements.",
+      "highlights": [
+        "A forced seed set by a mod no longer sticks after you restore or disable mods",
+        "Plain Steam launches stay vanilla: no mods or loader left behind",
+        "Every Hero editor option now builds, including lent weapons and templates",
+        "Talents can shorten bleed duration"
+      ],
+      "loader_version": 64
+    },
+    {
       "version": "",
       "date": "2026-11-21",
       "summary": "Fix custom heroes failing to build with 'sub-object ... has N possible owners'",
@@ -493,15 +505,6 @@
         "Custom item effects now stack with duplicate copies: holding a second copy raises the stat and the card number (always-on and timed effects; super effects unchanged)."
       ],
       "cli_version": 13
-    },
-    {
-      "version": "",
-      "date": "2026-10-24",
-      "summary": "In-game mod menu: an ImGui panel drawn on the game's DX12 swapchain, painted onto the book. Adds R.debug.components.",
-      "highlights": [
-        "In-game mod menu: an ImGui panel drawn on the game's DX12 swapchain, painted onto the book. Adds R.debug.components."
-      ],
-      "loader_version": 47
     }
   ]
 }
