@@ -578,6 +578,32 @@ for _, g in ipairs(SANDBOXED) do _G[g] = _saved[g] end
 assert(ok_load, "rsmm.lua raised under the loader sandbox: " .. tostring(R))
 assert(type(R) == "table", "rsmm.lua did not return the R table")
 
+-- `--dump-surface`: print every dotted path reachable from R (sorted) and exit
+-- before any spec case runs. scripts/contract_pins.py pins this list in
+-- data/contracts/r_surface.txt. R._internal is not public and is skipped.
+for i = 2, #arg do
+    if arg[i] == "--dump-surface" then
+        local paths, seen = {}, {}
+        local function walk(t, prefix)
+            if seen[t] then return end
+            seen[t] = true
+            local k, v = next(t)
+            while k ~= nil do
+                if type(k) == "string" and not (prefix == "R" and k == "_internal") then
+                    local path = prefix .. "." .. k
+                    paths[#paths + 1] = path
+                    if type(v) == "table" then walk(v, path) end
+                end
+                k, v = next(t, k)
+            end
+        end
+        walk(R, "R")
+        table.sort(paths)
+        io.write(table.concat(paths, "\n"), "\n")
+        os.exit(0)
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- tiny test runner
 -- ---------------------------------------------------------------------------
