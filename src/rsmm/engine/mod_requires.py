@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 KEYS = ("cli", "loader")
-BLEED_DURATION_MIN_LOADER = 64
+BLEED_DURATION_MIN_LOADER = 65
 
 
 def _entries_use_bleed_duration(entries) -> bool:
