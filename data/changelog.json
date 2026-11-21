@@ -4,6 +4,15 @@
     {
       "version": "",
       "date": "2026-11-21",
+      "summary": "Talents can shorten bleed duration",
+      "highlights": [
+        "Talents can shorten bleed duration"
+      ],
+      "loader_version": 65
+    },
+    {
+      "version": "",
+      "date": "2026-11-21",
       "summary": "Restore and Steam launch fixes, every Hero editor option builds, talents can shorten bleed duration",
       "highlights": [
         "A forced seed set by a mod no longer sticks after you restore or disable mods",
@@ -499,15 +508,6 @@
         "In-game Mods menu support: mods switched on or off in Settings > Mods are carried into your library on the next launch, and the pause menu gets a Mods button. Integer item stats (free rerolls, charges) now show their real number on the card instead of +0."
       ],
       "cli_version": 14
-    },
-    {
-      "version": "",
-      "date": "2026-10-24",
-      "summary": "In-game Mods menu: a Mods tab in the game's own Settings page (switch mods on or off for the next launch, change mod settings while you play) and a Mods button in the pause menu. Replaces the old drawn overlay.",
-      "highlights": [
-        "In-game Mods menu: a Mods tab in the game's own Settings page (switch mods on or off for the next launch, change mod settings while you play) and a Mods button in the pause menu. Replaces the old drawn overlay."
-      ],
-      "loader_version": 48
     }
   ]
 }
