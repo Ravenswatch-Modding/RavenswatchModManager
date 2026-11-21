@@ -38,7 +38,8 @@ vi.mock('@rsmm/db', () => {
   return {
     getDb: () => ({
       query: {
-        mods: { findFirst: async () => MOD },
+        mods: { findFirst: async () => ({ ...MOD, versions: [] }) },
+        users: { findFirst: async () => undefined },
         modReviews: { findFirst: async () => state.review },
       },
       select: () => chain(state.emailUser ? [state.emailUser] : []),
@@ -164,5 +165,22 @@ describe('notifications', () => {
   it('rejects a malformed paging cursor', async () => {
     const res = await appAs('owner').request('/api/me/notifications?before=nope');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('takedown read gate', () => {
+  it('lets the whole team (not just the owner) open a taken-down mod', async () => {
+    MOD.takedownStatus = 'hidden';
+    try {
+      expect((await appAs(null).request('/api/mods/m')).status).toBe(404);
+      expect((await appAs('stranger').request('/api/mods/m')).status).toBe(404);
+      // Past the gate the route runs queries this stub does not model, so
+      // the team's check is "not the gate's 404", not a full 200.
+      for (const id of ['owner', 'coauthor']) {
+        expect((await appAs(id).request('/api/mods/m')).status).not.toBe(404);
+      }
+    } finally {
+      MOD.takedownStatus = 'active';
+    }
   });
 });

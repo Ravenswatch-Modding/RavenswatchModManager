@@ -114,6 +114,21 @@ describe('mod moderation thread', () => {
     }
   });
 
+  it('returns the newest entries, oldest first', async () => {
+    // The route asks the DB for newest-first (capped) and flips it for display;
+    // the stub returns rows in the order the DB would.
+    const newer = {
+      ...row,
+      id: 'm2',
+      kind: 'message',
+      createdAt: new Date('2026-11-22T00:00:00Z'),
+    };
+    state.rows = [newer, row];
+    const res = await call('owner', '/api/mods/sample/moderation');
+    const json = (await res.json()) as { items: { id: string }[] };
+    expect(json.items.map((i) => i.id)).toEqual(['m1', 'm2']);
+  });
+
   it('shows a takedown that predates the thread as its opening entry', async () => {
     state.rows = [];
     const res = await call('owner', '/api/mods/sample/moderation');

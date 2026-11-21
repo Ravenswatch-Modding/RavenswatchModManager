@@ -1,7 +1,7 @@
 import { zValidator } from '@hono/zod-validator';
 import { getDb, schema } from '@rsmm/db';
 import { modModerationMessageSchema } from '@rsmm/schemas';
-import { asc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { isAdmin } from '../admin.js';
@@ -32,6 +32,9 @@ const limiter = createRateLimiter({
   maxHits: 20,
   keyFrom: (c) => c.get('user')?.id ?? c.req.header('x-real-ip') ?? 'anon',
 });
+
+/** Most entries one GET returns (the newest ones). */
+const THREAD_LIMIT = 500;
 
 type ModRow = {
   id: string;
@@ -90,15 +93,20 @@ modModerationRouter.get('/:slug/moderation', zValidator('param', slugParamSchema
     .from(schema.modModerationMessages)
     .leftJoin(schema.users, eq(schema.modModerationMessages.authorId, schema.users.id))
     .where(eq(schema.modModerationMessages.modId, access.mod.id))
-    .orderBy(asc(schema.modModerationMessages.createdAt))
-    .limit(500);
+    // The NEWEST entries, shown oldest-first: ascending + limit returned the
+    // oldest ones, so past the cap every new message vanished for both sides.
+    .orderBy(desc(schema.modModerationMessages.createdAt))
+    .limit(THREAD_LIMIT);
 
-  const items = rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  const items = rows.reverse().map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  const whole = rows.length < THREAD_LIMIT;
   // Takedowns made before this thread existed left no status row. Show the
   // mod's current takedown (and its reason) as the opening entry instead of an
   // empty thread under a "Hidden" status.
   const { mod } = access;
-  if (mod.takedownStatus !== 'active' && !items.some((i) => i.kind === 'status')) {
+  // Only when the whole thread is loaded: a truncated one may hold its status
+  // rows beyond the cut.
+  if (whole && mod.takedownStatus !== 'active' && !items.some((i) => i.kind === 'status')) {
     items.unshift({
       id: `takedown-${mod.id}`,
       kind: 'status',

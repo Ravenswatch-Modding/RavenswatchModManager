@@ -379,10 +379,15 @@ modsRouter.get('/:slug', zValidator('param', slugParamSchema), async (c) => {
   });
   if (!mod) return c.json({ error: 'not found' }, 404);
 
-  // Admin takedown gate: a delisted/removed mod is 404 to the public. The owner
-  // and admins can still load it (to see the takedown reason / appeal).
+  // Admin takedown gate: a delisted/removed mod is 404 to the public. Its team
+  // (owner and co-authors) and admins can still load it, to see the takedown
+  // reason and reach the moderation thread.
   const viewer = c.get('user');
-  if (mod.takedownStatus !== 'active' && mod.ownerId !== viewer?.id && !isAdmin(viewer?.id)) {
+  if (
+    mod.takedownStatus !== 'active' &&
+    !isAdmin(viewer?.id) &&
+    !(viewer && (await canManageMod(mod, viewer.id)))
+  ) {
     return c.json({ error: 'not found' }, 404);
   }
 
