@@ -50,6 +50,15 @@ jobs:
       HAS_BOT_APP: ${{ vars.RSMM_BOT_APP_ID != '' && secrets.RSMM_BOT_PRIVATE_KEY != '' }}
 
     steps:
+      # The channel ships what main holds, and main only takes reviewed
+      # changes, so a dispatch from any other ref is refused before anything
+      # builds or signs.
+      - name: Refuse refs other than main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Publish loader channel runs on main only (dispatched on $GITHUB_REF)."
+          exit 1
+
       - uses: actions/checkout@v5
         with:
           # Need a real branch (not a detached HEAD) to push the version bump.

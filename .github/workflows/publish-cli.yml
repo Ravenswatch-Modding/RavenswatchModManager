@@ -40,6 +40,16 @@ jobs:
         platform: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
+      # The channel ships what main holds, and main only takes reviewed
+      # changes, so a dispatch from any other ref is refused before anything
+      # builds. publish needs this job, so it never runs either.
+      - name: Refuse refs other than main
+        if: github.ref != 'refs/heads/main'
+        shell: bash
+        run: |
+          echo "::error::Publish CLI channel runs on main only (dispatched on $GITHUB_REF)."
+          exit 1
+
       # Pinned to the dispatched commit so every platform builds the same one
       # and publish can record it as `built_from` (main may move meanwhile).
       - uses: actions/checkout@v5
