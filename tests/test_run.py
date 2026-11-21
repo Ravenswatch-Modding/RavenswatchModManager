@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 
@@ -270,6 +272,7 @@ def test_failed_apply_restores_before_aborting(monkeypatch):
     assert calls == [["apply", "--for-launch"], ["restore"]]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="AppImage is Linux-only")
 def test_watcher_runs_from_a_copy_outside_the_appimage(monkeypatch, tmp_path):
     """The AppImage mount is gone once the app quits; the watcher's restore
     re-runs its own executable, so that must not live inside the mount."""

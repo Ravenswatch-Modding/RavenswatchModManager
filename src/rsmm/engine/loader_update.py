@@ -779,13 +779,15 @@ def cache_update(game_dir: Path, state: dict,
 def _cache_holds(game_dir: Path, manifest: dict) -> bool:
     """True when the cache already holds exactly this signed manifest and a
     payload whose every file matches it. The manifest bytes are compared, not
-    re-verified: they equal ones just fetched and verified from the channel."""
+    re-verified: they equal ones just fetched and verified from the channel.
+    The cached signature IS verified (replant_cached will need it to pass);
+    comparing it as text breaks on Windows newline translation."""
     cache = cache_dir(game_dir)
     try:
         if (cache / MANIFEST_NAME).read_bytes() != manifest["_raw"]:
             return False
-        if (cache / SIGNATURE_NAME).read_text(encoding="utf-8") != manifest["_signature"]:
-            return False
+        minisign_verify(manifest["_raw"],
+                        (cache / SIGNATURE_NAME).read_text(encoding="utf-8"), public_key())
         for f in manifest["files"]:
             src = cache.joinpath("payload", *resolve_destination(f["path"]))
             size = f.get("size")
@@ -793,7 +795,7 @@ def _cache_holds(game_dir: Path, manifest: dict) -> bool:
                 return False
             if _sha256(src.read_bytes()) != f["sha256"]:
                 return False
-    except (OSError, LoaderUpdateError):
+    except (OSError, MinisignError, LoaderUpdateError):
         return False
     return True
 
