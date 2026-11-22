@@ -3,6 +3,9 @@ export const IMAGE_MAX_AGE = 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 const MAX_ENTRIES = 256;
+// Opening the app mounts every card at once; unbounded parallel downloads of
+// multi-MB screenshots saturated home wifi (router RTT 5 ms -> 3 s).
+const MAX_PARALLEL_DOWNLOADS = 3;
 
 export interface ImageEntry {
   url: string;
@@ -106,7 +109,8 @@ export const imageStore: ImageStore = {
 async function downloadImage(url: string): Promise<Blob | undefined> {
   const response = await fetch(url, {
     credentials: 'omit',
-    cache: 'no-cache',
+    // Default HTTP caching: an expired entry revalidates with the stored ETag
+    // (304) instead of downloading every image again.
     signal: AbortSignal.timeout(15_000),
   });
   if (
@@ -149,12 +153,24 @@ async function downloadImage(url: string): Promise<Blob | undefined> {
 
 export function createImageCache(store: ImageStore, download = downloadImage, now = Date.now) {
   const pending = new Map<string, Promise<Blob | undefined>>();
+  let active = 0;
+  const queue: (() => void)[] = [];
+  async function limited(url: string): Promise<Blob | undefined> {
+    if (active >= MAX_PARALLEL_DOWNLOADS) await new Promise<void>((go) => queue.push(go));
+    active++;
+    try {
+      return await download(url);
+    } finally {
+      active--;
+      queue.shift()?.();
+    }
+  }
   function refresh(url: string): Promise<Blob | undefined> {
     const existing = pending.get(url);
     if (existing) return existing;
     const request = (async () => {
       try {
-        const blob = await download(url);
+        const blob = await limited(url);
         if (!blob) return;
         // Storage denial or quota exhaustion must not break a usable image.
         await store.write({ url, blob, updatedAt: now() }).catch(() => {});
