@@ -132,7 +132,12 @@ describe('while the launcher itself updates', () => {
 
   it('starts the channel checks once the app check answers "no update"', async () => {
     let answer: () => void = () => {};
-    const d = deps({ appIdle: () => new Promise<void>((r) => (answer = r)) });
+    const d = deps({
+      appIdle: () =>
+        new Promise<void>((r) => {
+          answer = r;
+        }),
+    });
     const start = checkChannels('start', d);
     await vi.advanceTimersByTimeAsync(0);
     expect(d.loader).not.toHaveBeenCalled();
@@ -144,7 +149,12 @@ describe('while the launcher itself updates', () => {
 
   it('skips the start check when the app check found an update', async () => {
     let answer: () => void = () => {};
-    const d = deps({ appIdle: () => new Promise<void>((r) => (answer = r)) });
+    const d = deps({
+      appIdle: () =>
+        new Promise<void>((r) => {
+          answer = r;
+        }),
+    });
     const start = checkChannels('start', d);
     setAppUpdateBusy(true);
     answer();
