@@ -382,6 +382,8 @@ export const zhCN: Record<string, string> = {
     '改为安装到 ~/Applications 只需几秒，之后的每次更新都会自动完成。',
   'Installing {done}/{total}…': '正在安装 {done}/{total}…',
   'Installing…': '正在安装…',
+  'Install {name}': '安装 {name}',
+  'Added {name} to “{profile}”.': '已将 {name} 添加到“{profile}”。',
   'Is Ravenswatch installed?': 'Ravenswatch 安装好了吗？',
   'Join the rsmm index to track your library and sync your profiles.':
     '加入 rsmm 索引，管理你的模组库并同步方案。',

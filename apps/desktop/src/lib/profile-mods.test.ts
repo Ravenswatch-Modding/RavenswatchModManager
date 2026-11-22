@@ -17,6 +17,8 @@ import { type Profile, isEnabledIn, useApp } from '../store';
 import {
   duplicateProfileWithMods,
   installModIntoProfile,
+  installModsIntoProfile,
+  isModInstalledInProfile,
   modIdsOf,
   resolveInstallTarget,
   syncInstalledMods,
@@ -320,5 +322,97 @@ describe('duplicateProfileWithMods', () => {
   it('reports a failed copy instead of swallowing it', async () => {
     invoke.mockRejectedValue('disk full');
     expect((await duplicateProfileWithMods('A')).copyError).toBe('disk full');
+  });
+});
+
+describe('installModsIntoProfile', () => {
+  it('keeps every download in the captured profile and reconciles folder ids', async () => {
+    listLocalModsForProfile
+      .mockResolvedValueOnce(listed('shared'))
+      .mockResolvedValueOnce([
+        ...listed('shared'),
+        { ...listed('custom-folder')[0], slug: 'new-mod' },
+      ]);
+    installModFromIndex.mockImplementation(async () => {
+      useApp.setState({ activeProfileId: 'A' });
+      return { ok: true };
+    });
+    const progress = vi.fn();
+
+    await installModsIntoProfile(['shared', 'new-mod'], 'B', progress);
+
+    expect(installModFromIndex).toHaveBeenCalledExactlyOnceWith('new-mod', 'B');
+    expect(listLocalModsForProfile.mock.calls).toEqual([['B'], ['B']]);
+    expect(profileById('B').loadOrder).toEqual(['shared', 'custom-folder']);
+    expect(progress).toHaveBeenLastCalledWith({ value: 2, max: 2, slug: null });
+  });
+
+  it('retains completed mods when a later download fails, and retries only missing mods', async () => {
+    listLocalModsForProfile.mockResolvedValueOnce([]).mockResolvedValue(listed('first'));
+    installModFromIndex
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, error: 'download failed' });
+
+    await expect(installModsIntoProfile(['first', 'second'], 'B')).rejects.toThrow(
+      'download failed',
+    );
+    expect(profileById('B').loadOrder).toEqual(['first']);
+    expect(useApp.getState().installed).toEqual(['first']);
+
+    listLocalModsForProfile
+      .mockResolvedValueOnce(listed('first'))
+      .mockResolvedValue(listed('first', 'second'));
+    installModFromIndex.mockResolvedValue({ ok: true });
+    await installModsIntoProfile(['first', 'second'], 'B');
+    expect(installModFromIndex.mock.calls).toEqual([
+      ['first', 'B'],
+      ['second', 'B'],
+      ['second', 'B'],
+    ]);
+    expect(profileById('B').loadOrder).toEqual(['first', 'second']);
+  });
+
+  it('preserves the original install error when reconciliation also fails', async () => {
+    listLocalModsForProfile.mockResolvedValueOnce([]).mockRejectedValue(new Error('list failed'));
+    installModFromIndex
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(new Error('download failed'));
+    await expect(installModsIntoProfile(['first', 'second'], 'B')).rejects.toThrow(
+      'download failed',
+    );
+  });
+
+  it('reports initial and final listing failures to the caller', async () => {
+    listLocalModsForProfile.mockRejectedValueOnce(new Error('initial list failed'));
+    await expect(installModsIntoProfile(['first'], 'B')).rejects.toThrow('initial list failed');
+    expect(installModFromIndex).not.toHaveBeenCalled();
+
+    listLocalModsForProfile
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('final list failed'));
+    installModFromIndex.mockResolvedValue({ ok: true });
+    await expect(installModsIntoProfile(['first'], 'B')).rejects.toThrow('final list failed');
+  });
+});
+
+describe('isModInstalledInProfile', () => {
+  it('recognizes registry slugs with different folder ids, only while on disk and in profile', () => {
+    useApp.getState().syncLocalMods(
+      listed('folder-id').map((mod) => ({ ...mod, slug: 'registry-slug' })),
+      'B',
+    );
+    useApp.setState({ activeProfileId: 'B' });
+    useApp.getState().syncLocalMods(
+      listed('folder-id').map((mod) => ({ ...mod, slug: 'registry-slug' })),
+      'B',
+    );
+    const localMods = useApp.getState().localMods;
+    expect(
+      isModInstalledInProfile('registry-slug', mk('B', ['folder-id']), ['folder-id'], localMods),
+    ).toBe(true);
+    expect(isModInstalledInProfile('registry-slug', mk('B', ['folder-id']), [], localMods)).toBe(
+      false,
+    );
+    expect(isModInstalledInProfile('registry-slug', mk('B'), ['folder-id'], localMods)).toBe(false);
   });
 });

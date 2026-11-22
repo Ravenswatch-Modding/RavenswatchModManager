@@ -11,6 +11,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { ExternalLink, Loader2, Plus, WifiOff } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, CopyButton, Panel } from '../components/chrome';
+import { CollectionInstallButton } from '../components/collection-install-button';
 import { InstalledState } from '../components/installed-state';
 import { useToast } from '../components/toast';
 import { api, describeApiError, getApiBaseUrl, logApiError } from '../lib/api';
@@ -242,6 +243,9 @@ function BrowsePage() {
                     listing={listing}
                     onOpen={() =>
                       navigate({ to: '/collection/$slug', params: { slug: collection.slug } })
+                    }
+                    actions={
+                      <CollectionInstallButton collection={collection} onError={setInstallError} />
                     }
                     locale={t.tag}
                     labels={registryCardLabels(t, listing)}

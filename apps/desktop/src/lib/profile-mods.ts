@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
-import { useApp } from '../store';
+import { type Profile, useApp } from '../store';
 import { LIBRARY_PREVIEW } from './browser-preview';
 import { t } from './i18n';
+import type { Mod } from './mod-types';
 import {
   type InstallResult,
   type LocalMod,
@@ -80,6 +81,52 @@ export function syncInstalledMods(mods: LocalMod[], profileId: string, slugs: st
     if (id !== undefined) useApp.getState().installMod(slug, profileId, id);
   }
   useApp.getState().syncLocalMods(mods, profileId);
+}
+
+/** Collection membership uses registry slugs; profiles keep on-disk folder ids. */
+export function isModInstalledInProfile(
+  slug: string,
+  profile: Profile,
+  installed: string[],
+  localMods: Record<string, Mod>,
+): boolean {
+  return profile.loadOrder.some(
+    (id) => installed.includes(id) && (id === slug || localMods[id]?.slug === slug),
+  );
+}
+
+export interface InstallProgress {
+  value: number;
+  max: number;
+  slug: string | null;
+}
+
+/** Install a whole collection into one captured profile, retaining partial successes. */
+export async function installModsIntoProfile(
+  slugs: string[],
+  profileId: string,
+  onProgress?: (progress: InstallProgress) => void,
+): Promise<void> {
+  const onDisk = modIdsOf(await listLocalModsForProfile(profileId));
+  const completed: string[] = [];
+  try {
+    for (const slug of slugs) {
+      onProgress?.({ value: completed.length, max: slugs.length, slug });
+      await installModIntoProfile(slug, profileId, { onDisk });
+      completed.push(slug);
+      onProgress?.({ value: completed.length, max: slugs.length, slug: null });
+    }
+  } catch (err) {
+    // Resolve successful downloads' folder ids without hiding the install error
+    // if the follow-up listing also fails. Retrying skips what already landed.
+    if (completed.length) {
+      const local = await listLocalModsForProfile(profileId).catch(() => null);
+      if (local) syncInstalledMods(local, profileId, completed);
+    }
+    throw err;
+  }
+  const local = await listLocalModsForProfile(profileId);
+  if (local) syncInstalledMods(local, profileId, completed);
 }
 
 /**
