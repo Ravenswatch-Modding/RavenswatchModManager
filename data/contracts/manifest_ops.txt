@@ -13,6 +13,7 @@ ability:link
 ability:override
 ability:owner_read
 ability:percent
+ability:read
 ability:remove_link
 ability:replace_subobject
 ability:retarget

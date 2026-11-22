@@ -175,3 +175,22 @@ def test_ui_layouter_fields_edit_cleanly(tmp_path):
     assert _links(blob, "GameModifier List Ui Layouter", "columns") == "int 2"
     assert _links(blob, "GameModifier List Ui Layouter", "vertical_sizing") == "3"
     assert _links(blob, "GameModifier List Ui Layouter", "horizontal_sizing") == "3"
+
+
+_BAR = "GameUis/Common_Ui/Life_Bar_NPC_Common"
+_BAR_REL = f"EntitySettings/{_BAR}.entity.ot.EntitySettingsResource.gen"
+
+
+@pytest.mark.skipif(corpus.read(_BAR_REL) is None, reason="no life bar in corpus")
+def test_read_points_a_number_slot_at_another_parts_accessor(tmp_path):
+    import struct
+    hp, stagger = struct.pack("<I", 0x1acadef8), struct.pack("<I", 0x1ad2c982)
+    old = corpus.read(_BAR_REL)
+    (out,) = _emit(tmp_path, {"read": "Stagger Label.value_22", "to": "Dt Entity Hittable Listener",
+                              "accessor": 0x1acadef8}, id="Hp", entity=_BAR)
+    new = out.read_bytes()
+    assert new.count(hp) == old.count(hp) + 1
+    assert new.count(stagger) == old.count(stagger) - 1
+    with pytest.raises(ContentError):
+        _emit(tmp_path, {"read": "Stagger Label.value_99", "to": "Dt Entity Hittable Listener",
+                         "accessor": 1}, id="Bad", entity=_BAR)

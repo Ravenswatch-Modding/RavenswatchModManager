@@ -96,6 +96,11 @@ One step per table::
     switch = "Skill Attack Bite Owned"    this entity) is on; Marked needs
     talent = "Attack Feral Bite"          ``duration`` (seconds, or a value part)
 
+    read = "Stagger Label.value_22"       a number slot reads another part's
+    to = "Dt Entity Hittable Listener"    output, picked by ``accessor`` (an
+    accessor = 0x1acadef8                 engine id; a life-bar listener's
+                                          current HP here)
+
     add_subobject = "Wolf Basic Attack Combo.bytes_4"   append a copy of entry
     donor_index = 1                       ``donor_index`` of that id list (a
     replace_ref = { "Step 2" = "Step 3" } combo's steps), its links to the
@@ -121,17 +126,31 @@ _OPS = ("clone", "set", "link", "add_link", "remove_link", "percent", "add_subob
         "append_operand", "add_cinebloc", "animatic_speed", "animatic_clip", "sound_volume",
         "add_selector", "unlink_reads",
         "swap_ref", "scale_by_talent", "talent_number", "owner_read", "scale_with_level",
-        "level_linear", "add_status")
+        "level_linear", "add_status", "read")
 #: Every key a step may carry; anything else is a typo that would otherwise be
 #: ignored silently (a `rename` the old clone did not read left its copies
 #: under the default suffix, and the next step found nothing).
 _KEYS = {*_OPS, "value", "to", "entity", "as", "suffix", "from", "rename",
          "donor_index", "donor", "replace_ref", "node", "from_kind", "condition", "talent",
-         "values", "tag", "flag", "factor", "base", "status", "switch", "duration"}
+         "values", "tag", "flag", "factor", "base", "status", "switch", "duration",
+         "accessor"}
 
 
 class AbilityEditError(ValueError):
     pass
+
+
+def _read(ef: EntityFile, step: dict) -> None:
+    """``read = "Part.value_N"``, ``to``, ``accessor``: the slot reads ``to``."""
+    from . import entity_fields as EF
+    part, _, fld = str(step["read"]).rpartition(".")
+    acc = step.get("accessor")
+    if not part or not step.get("to") or not isinstance(acc, int) or isinstance(acc, bool):
+        raise AbilityEditError("read = 'Part.value_N', to = <part>, accessor = <int>")
+    values = [x.name for x in EF.fields(ef.component(part)) if x.kind == "value"]
+    if fld not in values:
+        raise AbilityEditError(f"read: {part!r} has no value field {fld!r} ({', '.join(values)})")
+    ef.source_value(part, values.index(fld), str(step["to"]), accessor=acc)
 
 
 @dataclass
@@ -271,6 +290,8 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
                               float(step.get("base", 0.0)), f"{seed}:{n}")
             elif op == "add_status":
                 _add_status(ef, step, f"{seed}:{n}")
+            elif op == "read":
+                _read(ef, step)
             elif op == "retarget_targets":
                 part, _, fld = str(step[op]).rpartition(".")
                 if not part or not step.get("to"):
