@@ -42,7 +42,7 @@ function SignInInner() {
     setError(null);
     setBusy(true);
     const callbackURL = resolveCallbackURL();
-    const res = await signIn.email({ email, password, callbackURL });
+    const res = await signIn.email({ email, password, callbackURL, rememberMe: true });
     setBusy(false);
     if (res.error) setError(res.error.message ?? 'sign-in failed');
     else router.push(callbackURL as Route);

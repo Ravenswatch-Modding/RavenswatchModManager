@@ -112,12 +112,13 @@ function SignInPage() {
           : await signIn.email({
               email: trimmedEmail,
               password,
+              rememberMe: true,
             });
       if (authResult.error) {
         handleAuthError(authResult.error, mode);
         return;
       }
-      // Refresh session cache (cookie + local storage) before leaving the page.
+      // Confirm the server session before leaving the page.
       const session = await authClient.getSession({ query: { disableCookieCache: true } });
       if (!session.data?.user) {
         if (mode === 'signup') {

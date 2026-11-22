@@ -108,11 +108,28 @@ function hasSessionCookie(cookie: string | undefined): boolean {
 app.use('*', async (c, next) => {
   // Anonymous requests skip Better Auth entirely, so an instance that only
   // serves them never loads it (see getAuth in auth.ts — cold-start CPU).
-  const session = hasSessionCookie(c.req.header('cookie'))
+  const resolved = hasSessionCookie(c.req.header('cookie'))
     ? await getAuth()
-        .then((a) => a.api.getSession({ headers: c.req.raw.headers }))
+        .then((a) =>
+          a.api.getSession({
+            headers: c.req.raw.headers,
+            returnHeaders: true,
+            // Auth handlers own their cookies (especially sign-out). Let
+            // /get-session perform its own renewal instead of consuming it
+            // here before the handler sees the request.
+            query: { disableRefresh: c.req.path.startsWith('/api/auth/') },
+          }),
+        )
         .catch(() => null)
     : null;
+  // A server-side getSession can extend the database expiry. Its Set-Cookie
+  // must reach the client too, or the browser/WebView still drops the cookie
+  // on the original deadline, even for a player who uses the app every day.
+  for (const cookie of resolved?.headers.getSetCookie() ?? []) {
+    c.header('Set-Cookie', cookie, { append: true });
+    c.header('Cache-Control', 'private, no-store');
+  }
+  const session = resolved?.response ?? null;
   let user = session?.user ?? null;
   let tokenId: string | null = null;
   c.set('bannedInfo', null);
@@ -193,6 +210,7 @@ app.use('*', async (c, next) => {
   if (c.req.method !== 'GET' || c.res.status !== 200) return;
   if (!isCdnCacheablePath(c.req.path)) return;
   if (c.res.headers.has('Cache-Control')) return;
+  if (c.res.headers.has('Set-Cookie')) return;
   c.header('Vercel-CDN-Cache-Control', 'max-age=60, stale-while-revalidate=300');
 });
 

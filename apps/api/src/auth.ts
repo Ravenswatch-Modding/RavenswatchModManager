@@ -116,12 +116,11 @@ async function createAuth() {
         }
       },
     },
-    // Shorten the session window from the 7-day default. A stolen cookie
-    // now stops working after a day of inactivity instead of a week, and
-    // `updateAge: 1h` slides the expiry forward on active use so legit
-    // users don't get bounced mid-session.
+    // Remember players between launches/visits. Active use slides this window
+    // forward; app.ts forwards the renewed cookie along with the DB update.
+    // Sign-out/revocation still invalidate the server-side session immediately.
     session: {
-      expiresIn: 60 * 60 * 24, // 24 hours
+      expiresIn: 60 * 60 * 24 * 30, // 30 days of inactivity
       updateAge: 60 * 60, // re-issue at most once per hour
     },
     user: {
