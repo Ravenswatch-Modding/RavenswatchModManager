@@ -825,6 +825,12 @@ def _starter(fn):
     return route
 
 
+def _import(req: Request) -> dict:
+    """Bring a saved mod folder back, art/ included (the web editor keeps mods in the page)."""
+    from rsmm.cli.editor import content as C
+    return C._import_mod(req)
+
+
 #: Pure game-data reads: kept across launches, and by the web editor in the
 #: browser (the shipped lists take seconds there).
 CACHED = frozenset({"/api/schema", "/api/rig", "/api/clips", "/api/templates",
@@ -845,6 +851,7 @@ ROUTES = {
     ("POST", "/api/delete"): _delete,
     ("POST", "/api/build"): _build,
     ("POST", "/api/newmod"): _new_mod,
+    ("POST", "/api/import"): _import,
     ("GET", "/api/file"): _file,
     ("POST", "/api/delete_file"): _delete_file,
     ("GET", "/static/*"): lambda req: _static(req),

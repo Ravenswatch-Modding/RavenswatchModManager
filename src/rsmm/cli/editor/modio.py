@@ -907,12 +907,14 @@ def _talent_prefix(hero: str, blocks: list[tuple[str, str, dict]]) -> str | None
 
 # --- importing a mod (the web editor) --------------------------------------------
 
-_IMPORT_RE = re.compile(r"^(?:manifest\.toml|init\.lua|icons/[A-Za-z0-9_]+\.png)$")
+#: ``art/`` holds a hero's own files (body, clips, pictures) that its frame names.
+_IMPORT_RE = re.compile(r"^(?:manifest\.toml|init\.lua|icons/[A-Za-z0-9_]+\.png"
+                        r"|art(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)+\.(?:png|glb|gltf|blend|fbx))$")
 
 
 def import_mod(root: Path, files: dict) -> str:
     """Put an uploaded mod's editable files (``manifest.toml``, ``init.lua``,
-    ``icons/*.png``) under ``root``. For the web editor, whose mods live only in
+    ``icons/*.png``, ``art/**``) under ``root``. For the web editor, whose mods live only in
     the page; refuses to write over a mod that is already there."""
     from . import content as C
     if not isinstance(files, dict) or "manifest.toml" not in files:

@@ -105,6 +105,17 @@ def test_import_writes_only_editable_files_and_never_over_a_mod(tmp_path):
         M.import_mod(tmp_path, files)
 
 
+def test_import_keeps_a_heros_art_files(tmp_path):
+    b = lambda s: base64.b64encode(s).decode()  # noqa: E731
+    files = {"manifest.toml": b(b'[mod]\nid = "hero"\n'), "art/body.glb": b(b"glTF"),
+             "art/anims/Kintaro_Run.glb": b(b"glTF"), "art/ui/portrait.png": b(b"\x89PNG"),
+             "art/../x.png": b(b"x"), "art/.hidden/a.png": b(b"x"), "art/notes.txt": b(b"x")}
+    assert M.import_mod(tmp_path, files) == "hero"
+    got = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert got == ["hero/art/anims/Kintaro_Run.glb", "hero/art/body.glb",
+                   "hero/art/ui/portrait.png", "hero/manifest.toml"]
+
+
 def _game() -> bool:
     try:
         return bool(C.item_detail("Damage_Attack")["values"]) and bool(C.talent_values("Piper"))
