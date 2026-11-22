@@ -365,6 +365,64 @@ def lend_layers(ef: EntityFile, read, rig: str, bones: int, *, seed: str = "") -
     return filled
 
 
+def bone_table(names: list[str], weights: list[float], split: str = "", *,
+               tail: tuple[int, float] = (0, 0.2)) -> bytes:
+    """A layer's bone table (``bytes_7``): ``u8 1``, the split bone (lstr),
+    ``u32 n`` + a weight per bone, ``u32 n`` + the bone names in skeleton
+    order, then ``u8`` + ``f32``. Read off every shipped hero's layers (Kintaro's
+    move split: ``DEF.Spine02``, 157 weights, 157 names, tail ``1, 0.05``; the
+    shared slots': no split bone, weights 0, tail ``0, 0.2``)."""
+    import struct
+    if len(names) != len(weights):
+        raise FrameError("a bone table needs one weight per bone")
+    out = bytearray(b"\x01")
+    for s in (split,):
+        e = s.encode("utf-8")
+        out += struct.pack("<I", len(e)) + e
+    out += struct.pack(f"<I{len(weights)}f", len(weights), *weights)
+    out += struct.pack("<I", len(names))
+    for n in names:
+        e = n.encode("utf-8")
+        out += struct.pack("<I", len(e)) + e
+    return bytes(out + struct.pack("<Bf", tail[0], tail[1]))
+
+
+def own_layers(ef: EntityFile, read, bones: list[tuple[str, int]], split: str = "", *,
+               seed: str = "") -> list[str]:
+    """Fill the shared bone layers for a skeleton no shipped hero has
+    (``bones``: ``(name, parent index)`` in skeleton order), as
+    :func:`lend_layers` fills them from a rig: ``Move Split Layer`` weights
+    ``split`` and every bone below it 1 (the upper body that acts while the
+    legs walk; no split: nothing is split), ``Physic Layer`` weights nothing
+    (no fur or cloth). Each table lists the skeleton's own bones, so none
+    names a bone the body lacks. Returns the slots filled. Unproven in game."""
+    names = [n for n, _p in bones]
+    if split and split not in names:
+        raise FrameError(f"split bone {split!r} is not a bone of the skeleton")
+    at = names.index(split) if split else -1
+
+    def below(i: int) -> bool:
+        while i >= 0:
+            if i == at:
+                return True
+            i = bones[i][1]
+        return False
+    filled = []
+    for slot, (base_name, _alt) in _LAYERS.items():
+        if any(x.name == slot for x in ef.graph().components):
+            continue
+        fill_slot(ef, common(read, base_name), slot, seed=seed)
+        if slot == "Move Split Layer" and split:
+            table = bone_table(names, [1.0 if below(i) else 0.0 for i in range(len(names))],
+                               split, tail=(1, 0.05))
+        else:
+            table = bone_table(names, [0.0] * len(names))
+        p, a, b = _field_span(ef, slot, _BONES)
+        p[a:b] = table
+        filled.append(slot)
+    return filled
+
+
 def _set_clips(ef: EntityFile, slot: str, clips: list[str]) -> None:
     from . import entity_fields as EF
     c = ef.component(slot)
@@ -951,7 +1009,9 @@ KIT_DONORS: list[dict] = [
 __all__ = ["BASES", "CHARACTER_COMMON", "HERO_COMMON", "HERO_CONTROLLER", "FrameError",
            "add_talent", "build_hero", "clip_length", "common", "fill_body", "fill_slot",
            "fx_frame", "guid", "KIT_DONORS", "main_frame", "relabel_base_links", "replace_in_slot",
-           "resource_value", "rig_slots", "rig_sounds", "fill_sound", "lend_layers", "skin_frame",
+           "resource_value", "rig_slots", "rig_sounds", "fill_sound", "lend_layers", "own_layers",
+           "bone_table",
+           "skin_frame",
            "source_resource",
            "talent_effects"]
 
@@ -1037,7 +1097,9 @@ def build_hero(read, *, scope: str, fx_ref: str, common_alias: bytes, mesh: str,
                indicators: bool = True, ultimates: list[tuple[str, dict]] | None = None,
                weapon: tuple | None = None,
                sounds: dict[str, str] | None = None, level_up: str = "",
-               rig: str | None = None, bones: int = 0) -> tuple[bytes, bytes, list[tuple]]:
+               rig: str | None = None, bones: int = 0,
+               own_bones: list[tuple[str, int]] | None = None,
+               split: str = "") -> tuple[bytes, bytes, list[tuple]]:
     """A hero written from scratch: ``(main entity, FX entity, skin values)``.
 
     ``slots``: shared slot -> its fill (``fill_slot``'s ``clip``/``duration``/
@@ -1062,7 +1124,9 @@ def build_hero(read, *, scope: str, fx_ref: str, common_alias: bytes, mesh: str,
     # all inherited parts, and the hero's own states are persistent.
     from . import talent_writer as TW
     TW.TalentWriter(ef, f"{seed}:kit-event", "Kit").state(KIT_EVENT, flags=TW.EVENT)
-    if rig and bones:
+    if own_bones:
+        own_layers(ef, read, own_bones, split, seed=seed)
+    elif rig and bones:
         lend_layers(ef, read, rig, bones, seed=seed)
     _level_up_fx(ef, read, level_up, seed=seed)
     # Sound slots (``fill_sound``): slot -> "<entity ref> | <FMod event part>".

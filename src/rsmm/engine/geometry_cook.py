@@ -478,7 +478,8 @@ def _per_record_palettes(main: bytes, blended: list[list[bytes] | None],
 
 
 def _swap_section(main: bytes, placed: list[_geo.SubMesh | None],
-                  palette: list[list[str] | None] | None = None) -> bytes:
+                  palette: list[list[str] | None] | None = None,
+                  degenerate_bone: str | None = None) -> bytes:
     """Rewrite a section's meshbuffer blobs with the custom geometry.
 
     `placed[i]` is the mesh for template record `i`; None degenerates that
@@ -487,7 +488,10 @@ def _swap_section(main: bytes, placed: list[_geo.SubMesh | None],
     its bone-name palette replaced — the transferred weights are indexed
     against that merged palette, not against the one the record shipped with.
     A degenerated record keeps its original palette, because its layers keep
-    replicating the template's own vertex-0 record.
+    replicating the template's own vertex-0 record; with `degenerate_bone`
+    (a skeleton of the model's own, which has none of the template's bones)
+    every entry of it names that bone instead, at the same length, so
+    whatever index the replicated record holds resolves to a bone that exists.
     """
     recs = _find_records(main)
     if not recs:
@@ -504,6 +508,11 @@ def _swap_section(main: bytes, placed: list[_geo.SubMesh | None],
             got = _parse_palette(main, end)
             if got is not None:
                 out += _encode_palette(pal)
+                cursor = got[1]
+        elif sm is None and degenerate_bone is not None:
+            got = _parse_palette(main, end)
+            if got is not None:
+                out += _encode_palette([degenerate_bone] * len(got[0]))
                 cursor = got[1]
     out += main[cursor:]
     return bytes(out)
@@ -1010,6 +1019,10 @@ def swap_geometry(template_cooked: bytes, glb_bytes: bytes,
                            first, preserving its material split
       - {"bones": {src: dst}} -> rename bones on the way in (`skin="gltf"`)
       - {"drop_bones": [...]} -> delete geometry driven by those bones
+      - {"palette": [...]} -> bind the .glb's joints to THESE bone names (a
+                           skeleton of the model's own, written over the
+                           template's afterwards by skeleton_codec) instead of
+                           the template's (`skin="gltf"`)
     Recentering is always automatic; scale stays uniform (never distorts).
     """
     from . import cooked
@@ -1079,6 +1092,10 @@ def swap_geometry(template_cooked: bytes, glb_bytes: bytes,
     # Skinning records come back re-indexed against one merged bone palette.
     src = _gather_source(cf, target, old_subs)
     palette = src.get("palette") if src else None
+    if transform.get("palette") is not None:
+        if skin_mode != "gltf":
+            raise ValueError("transform.palette needs transform.skin='gltf'")
+        palette = [str(n) for n in transform["palette"]]
 
     if skin_mode == "gltf" and palette is None:
         raise NotReversedError(
@@ -1259,7 +1276,9 @@ def swap_geometry(template_cooked: bytes, glb_bytes: bytes,
                     if palette is not None else None)
 
     cf.sections[target] = cooked.Section(
-        payload=_swap_section(cf.sections[target].payload, placed, rec_palettes))
+        payload=_swap_section(cf.sections[target].payload, placed, rec_palettes,
+                              degenerate_bone=(palette[0] if transform.get("palette")
+                                               else None)))
 
     # Which template record each per-vertex side layer belongs to, by the
     # vertex count it was sized for.

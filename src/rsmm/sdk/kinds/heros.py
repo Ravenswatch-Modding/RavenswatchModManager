@@ -73,6 +73,15 @@ each piece is wired the way it is. NOT YET PROVEN IN GAME.
         column) and ``animations`` (``{name = {source, clip, template}}``:
         a glb on the rig's skeleton cooked by anim_cook into a NEW clip of its
         own; ``clip = "anim:<name>"`` in a slot or a button uses it).
+        ``skeleton`` (``{fallback, split, sockets}``, with ``model``): the
+        model's OWN armature replaces the rig's, so the model need not be
+        rigged to any shipped skeleton. Every clip is then its own (an
+        animation's ``template`` lends only the clip's tail fields), every
+        slot the rig would fill plays ``fallback`` (``"anim:<name>"``) unless
+        ``slots`` says otherwise, ``split`` names the bone the upper body
+        turns from, and ``sockets`` (``{"DEF.Head" = "<bone>" | {bone,
+        offset}}``) adds the bones the shared hero parts hang on. Unproven
+        in game.
     ``materials`` (table)  ``{"<material>" = {albedo, mra, normal}}``: any
         material the hero's own entities use, by file stem (``M_KintaroBear``)
         or full ref, retextured in this hero's files only (its ``_LowRes``
@@ -1261,7 +1270,14 @@ _SCRATCH_FIELDS = frozenset({"rig", "mesh", "material", "albedo", "slots", "abil
                              "ultimates", "weapon",
                              "talents", "sort", "portrait", "animations", "model",
                              "projectiles", "book", "new_hero", "skin_icon", "codex",
-                             "banner", "effects", "sounds", "entities", "pets", "edits"})
+                             "banner", "effects", "sounds", "entities", "pets", "edits",
+                             "skeleton"})
+#: ``frame.skeleton``: the model's own armature in place of the rig's.
+_SKELETON_FIELDS = frozenset({"sockets", "split", "fallback"})
+#: Bones the shared hero parts name (their locators, the health bar, the
+#: preview shadow); the root comes first, as on every shipped skeleton.
+_ROOT_BONE = "DEF.RootMotion"
+_SHARED_BONES = ("DEF.HealthBarAttach", "DEF.Head", "DEF.SpineMiddle")
 #: An effect layer's particle material, written as the hero's own: the
 #: engine's sprite shader (texture = the shape, its colours tinted by the
 #: layer's `colors`, as most shipped billboard particles are drawn), in the
@@ -1558,7 +1574,63 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     # with the glb armature's rest pose (engine/skeleton_codec.py), so mesh,
     # skeleton and the clips retargeted onto that armature agree.
     retarget_rest = None
-    if frame.get("model"):
+    # Its own skeleton (frame.skeleton): the model's armature replaces the
+    # rig's outright, so none of the rig's clips or bone layers can play on it;
+    # every clip is one of its own (frame.animations, cooked by
+    # anim_cook.cook_own) and its layers are built for its bones.
+    own_skel = None
+    model_glb = None                # the model's bytes, for clips of other glbs
+    skel_spec = frame.get("skeleton")
+    if skel_spec is not None:
+        if not isinstance(skel_spec, dict) or set(skel_spec) - _SKELETON_FIELDS:
+            raise ContentError(f"hero {hid}: frame.skeleton is a table of "
+                               f"{', '.join(sorted(_SKELETON_FIELDS))}")
+        if not frame.get("model"):
+            raise ContentError(f"hero {hid}: frame.skeleton needs frame.model (the "
+                               "rigged glb whose armature it is)")
+        if not str(skel_spec.get("fallback") or "").startswith(_OWN_CLIP):
+            raise ContentError(f"hero {hid}: frame.skeleton.fallback names one of its own "
+                               "clips (\"anim:<name>\"), played by every slot frame.slots "
+                               "leaves empty: the rig's clips are for the rig's bones")
+    if frame.get("model") and skel_spec is not None:
+        from ...engine import skeleton_codec as SK
+        glb = model_glb = _mod_source(out_dir, frame["model"], hid, "frame.model").read_bytes()
+        template = corpus.read(PC.art_cooked_path(mesh))
+        if template is None:
+            raise ContentError(f"hero {hid}: the rig mesh {mesh!r} is not in the game files")
+        sockets = {}
+        for sname, sv in (skel_spec.get("sockets") or {}).items():
+            if isinstance(sv, str):
+                sockets[str(sname)] = (sv, (0.0, 0.0, 0.0))
+            elif isinstance(sv, dict) and sv.get("bone") and set(sv) <= {"bone", "offset"} \
+                    and len(sv.get("offset") or (0, 0, 0)) == 3:
+                sockets[str(sname)] = (str(sv["bone"]), tuple(sv.get("offset") or (0, 0, 0)))
+            else:
+                raise ContentError(f"hero {hid}: frame.skeleton.sockets.{sname} is a bone "
+                                   "of the model, or { bone = <name>, offset = [x, y, z] }")
+        try:
+            glb_bones = set(SK.locals_from_glb(glb))
+            root = "" if _ROOT_BONE in glb_bones else _ROOT_BONE
+            if "DEF.HealthBarAttach" not in glb_bones:   # Kintaro's: on the root, at 0
+                sockets.setdefault("DEF.HealthBarAttach", (_ROOT_BONE, (0.0, 0.0, 0.0)))
+            like = SK.decode(template)
+            names = [b.name for b in SK.from_glb(glb, like, root=root, sockets=sockets).bones]
+            geo = PC.cook_model(glb, template, transform={
+                "skin": "gltf", "submeshes": "map", "palette": names})
+            own_skel = SK.from_glb(glb, SK.decode(geo), root=root, sockets=sockets)
+            geo = SK.encode(geo, own_skel)
+        except SK.SkeletonError as e:
+            raise ContentError(f"hero {hid}: frame.model: {e}") from e
+        lacking = [b for b in _SHARED_BONES if b not in names]
+        if lacking:
+            print(f"warning: hero {hid}: the model has no {', '.join(lacking)}; the shared "
+                  "parts that hang on them (head and torso locators) find no bone. Name a "
+                  "bone so, or add frame.skeleton.sockets", file=sys.stderr)
+        own_mesh = f"{mesh.rsplit(chr(92), 1)[0]}\\{scope}_GEO.fbx"
+        put(PC.art_cooked_path(own_mesh), geo)
+        art.append(f"3D|{own_mesh}|oCGeometry")
+        mesh = own_mesh
+    elif frame.get("model"):
         from ...engine import skeleton_codec as SK
         glb = _mod_source(out_dir, frame["model"], hid, "frame.model").read_bytes()
         template = corpus.read(PC.art_cooked_path(mesh))
@@ -1607,7 +1679,12 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     def fit(clip):
         """A clip of the rig's own, re-proportioned for the hero's own body
         (anim_cook.retarget) into a clip file of the hero's; anything else,
-        or every clip when the hero has no body of its own, as it is."""
+        or every clip when the hero has no body of its own, as it is. On a
+        skeleton of its own no shipped clip can play: refused."""
+        if skel_spec is not None and isinstance(clip, str):
+            raise ContentError(f"hero {hid}: {clip!r} is a shipped clip, keyed for a shipped "
+                               "skeleton; a hero with frame.skeleton plays its own "
+                               "(\"anim:<name>\")")
         if not (retarget_rest and isinstance(clip, str)
                 and clip.lower().startswith(rig_dir.lower() + "\\")):
             return clip
@@ -1664,8 +1741,23 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
             if retarget_rest:   # bones the glb leaves alone keep the template's keys
                 tpl_payload = AC.retarget(tpl_payload, *retarget_rest)
             try:
-                payload, _notes = AC.cook(glb, tpl_payload,
-                                          name=spec.get("clip"), strict=bool(spec.get("strict")))
+                if skel_spec is not None:
+                    # Its own bones: the template lends only the clip's tail
+                    # fields, so pick one that loops (or not) as this does.
+                    # A clip from another glb (an animation library on the
+                    # same bone names, other lengths) keys translations at
+                    # that glb's lengths: re-proportioned for the model's, and
+                    # bones the library lacks hold the model's rest.
+                    foreign = glb != model_glb
+                    payload = AC.cook_own(glb, [b.name for b in own_skel.bones],
+                                          tpl_payload, name=spec.get("clip"),
+                                          rest=AC.glb_rest(model_glb) if foreign else None)
+                    if foreign:
+                        payload = AC.retarget(payload, AC.glb_rest_translations(glb),
+                                              AC.glb_rest_translations(model_glb))
+                else:
+                    payload, _notes = AC.cook(glb, tpl_payload, name=spec.get("clip"),
+                                              strict=bool(spec.get("strict")))
             except AC.AnimCookError as e:
                 raise ContentError(f"hero {hid}: animation {name}: {e}") from e
             head = len(tcf.sections[0].payload)
@@ -1897,7 +1989,15 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
 
     try:
         slots = HF.rig_slots(read, rig)
-        for fill in slots.values():
+        if skel_spec is not None:
+            # Every slot the rig would lend a clip to plays the fallback,
+            # unless frame.slots fills it below.
+            fallback = own({"clip": skel_spec["fallback"]}, "frame.skeleton.fallback")
+            # a slot of several clips (walk and run) gets the fallback in each
+            slots = {s: ({"clip": [fallback["clip"]] * len(sf["clip"])}
+                         if isinstance(sf.get("clip"), list) else dict(fallback))
+                     for s, sf in slots.items()}
+        for fill in (slots.values() if skel_spec is None else ()):
             if isinstance(fill.get("clip"), list):
                 fill["clip"] = [fit(c) for c in fill["clip"]]
             elif "clip" in fill:
@@ -1940,6 +2040,9 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
             mesh=mesh, material=body_mat, slots=slots, talents=talents,
             abilities=abilities, effects=effects, seed=f"{mod_id}:{hid}", indicators=False,
             ultimates=ultimates, weapon=weapon, sounds=sounds, rig=rig, bones=n_bones,
+            own_bones=([(b.name, b.parent) for b in own_skel.bones]
+                       if skel_spec is not None else None),
+            split=str((skel_spec or {}).get("split") or ""),
             level_up=_level_up(frame.get("level_up"), hid))
     except (HF.FrameError, HA.AbilityError) as e:
         raise ContentError(f"hero {hid}: {e}") from e

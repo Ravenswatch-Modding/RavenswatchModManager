@@ -210,5 +210,72 @@ def locals_from_glb(glb: bytes) -> dict[str, Mat]:
     return out
 
 
-__all__ = ["Bone", "Skeleton", "SkeletonError", "decode", "encode", "locals_from_glb",
-           "scale_lengths", "with_rest"]
+def from_glb(glb: bytes, like: Skeleton, *, root: str = "",
+             sockets: dict[str, tuple[str, tuple[float, float, float]]] | None = None
+             ) -> Skeleton:
+    """A skeleton made of the glb's own armature, to replace ``like`` (the
+    geometry's current one, which supplies where the block sits and its
+    bounds) with bones that need not match any shipped rig. Bones are the
+    skin's joints, parents before children; ``name2`` repeats ``name`` and
+    ``flag`` is 0, as every shipped bone has them (Kintaro, 157 of 157).
+
+    ``root``: the name of a bone to add in front of the armature's own roots
+    (identity rest pose; the game's skeletons start at ``DEF.RootMotion``,
+    which the engine moves a character by). Leave it empty when the armature
+    carries its own.
+
+    ``sockets``: bones the game's shared hero parts name (``DEF.Head``,
+    ``DEF.SpineMiddle``, ``DEF.HealthBarAttach``), added after the armature
+    as ``{name: (parent bone, local offset)}``; the parent is a joint of the
+    glb or ``root``, and the socket carries no rotation."""
+    import json
+    jlen = struct.unpack_from("<I", glb, 12)[0]
+    doc = json.loads(glb[20:20 + jlen])
+    nodes = doc["nodes"]
+    joints = [i for sk in doc.get("skins", []) for i in sk.get("joints", [])]
+    if not joints:
+        raise SkeletonError("the glb has no skin")
+    parent_of = {c: i for i, nd in enumerate(nodes) for c in nd.get("children", [])}
+    locals_ = locals_from_glb(glb)
+    ident: Mat = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+                  0.0, 0.0, 0.0, 1.0)
+    order: list[int] = []
+    seen: set[int] = set()
+
+    def visit(i: int) -> None:
+        if i in seen:
+            return
+        p = parent_of.get(i)
+        if p in joints:
+            visit(p)
+        seen.add(i)
+        order.append(i)
+    for i in joints:
+        visit(i)
+    names = [nodes[i].get("name") or f"joint{i}" for i in order]
+    if len(set(names)) != len(names):
+        raise SkeletonError("the glb's joints share a name; bones are matched by name")
+    index = {i: k + (1 if root else 0) for k, i in enumerate(order)}
+    bones: list[Bone] = []
+    if root:
+        if root in names:
+            raise SkeletonError(f"the glb already has a bone named {root!r}")
+        bones.append(Bone(root, root, ident, ident, ident, -1, 0))
+    for i, name in zip(order, names, strict=True):
+        p = parent_of.get(i)
+        parent = index[p] if p in index else (0 if root else -1)
+        bones.append(Bone(name, name, ident, ident, locals_[name], parent, 0))
+    for name, (parent_name, offset) in (sockets or {}).items():
+        where = {b.name: k for k, b in enumerate(bones)}
+        if name in where:
+            raise SkeletonError(f"socket {name!r} is already a bone of the glb")
+        if parent_name not in where:
+            raise SkeletonError(f"socket {name!r}: no bone {parent_name!r} to hang it on")
+        local = (*ident[:12], *map(float, offset), 1.0)
+        bones.append(Bone(name, name, ident, ident, local, where[parent_name], 0))
+    out = Skeleton(like.section, like.start, like.end, bones, like.bounds)
+    return with_rest(out, {b.name: b.local for b in bones})
+
+
+__all__ = ["Bone", "Skeleton", "SkeletonError", "decode", "encode", "from_glb",
+           "locals_from_glb", "scale_lengths", "with_rest"]

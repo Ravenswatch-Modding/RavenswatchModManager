@@ -209,12 +209,80 @@ def cook(glb: bytes, template_payload: bytes, *, name: str | None = None,
             new = replace(new, **{tattr: times, vattr: vals})
         tracks.append(new)
 
+    return A.emit_payload(_with_tail(tpl, tracks, duration)), notes
+
+
+def _with_tail(tpl: A.Animation, tracks: list, duration: float) -> A.Animation:
+    """``tpl`` with new tracks, its length fields moved to ``duration``."""
     five = list(tpl.five_f32)
     if abs(five[1] - tpl.duration) < 1e-4:
         five[1] = duration
     frame_step = duration if abs(tpl.frame_step - tpl.duration) < 1e-4 else tpl.frame_step
-    out = replace(tpl, tracks=tracks, five_f32=tuple(five), frame_step=frame_step)
-    return A.emit_payload(out), notes
+    return replace(tpl, tracks=tracks, five_f32=tuple(five), frame_step=frame_step)
+
+
+def glb_rest(glb: bytes) -> dict[str, tuple]:
+    """Each named node's rest ``(translation, rotation xyzw, scale)``."""
+    doc, _ = _read_glb(glb)
+    return {nd["name"]: (tuple(nd.get("translation", (0.0, 0.0, 0.0))),
+                         tuple(nd.get("rotation", (0.0, 0.0, 0.0, 1.0))),
+                         tuple(nd.get("scale", (1.0, 1.0, 1.0))))
+            for nd in doc.get("nodes") or [] if nd.get("name")}
+
+
+def glb_rest_translations(glb: bytes) -> dict[str, tuple]:
+    """Each named node's local rest translation in a glb: the space its clips
+    key translations in, as :func:`retarget` takes it."""
+    return {n: t for n, (t, _, _) in glb_rest(glb).items()}
+
+
+def cook_own(glb: bytes, bones: list[str], tail_payload: bytes, *,
+             name: str | None = None, rest: dict[str, tuple] | None = None) -> bytes:
+    """Cook a glTF animation for a skeleton of its own (one built by
+    :func:`rsmm.engine.skeleton_codec.from_glb`), with no shipped clip
+    supplying the tracks.
+
+    ``bones``: the skeleton's bone names in skeleton order; one track each, in
+    that order. A bone the clip does not animate holds the glb's rest pose
+    (identity for a bone the glb has no node for, such as an added root).
+    ``rest``: rest poses (as :func:`glb_rest` gives them) for bones the glb
+    has no node for -- the model's own, when the clip comes from a separate
+    animation library that lacks some of its bones.
+    ``tail_payload``: any shipped clip; only its per-clip tail fields
+    (``five_f32``, ``frame_step``, the version struct) and the track prelude
+    are borrowed. Unproven in game."""
+    tpl = A.parse_payload(tail_payload)
+    src = read_gltf_animation(glb, name)
+    unknown = sorted(set(src) - set(bones))
+    if unknown:
+        raise AnimCookError(f"glTF animates bone(s) the skeleton lacks: {unknown[:8]}")
+    duration = max((t for ch in src.values() for keys in ch.values() for t, _ in keys),
+                   default=0.0)
+    declared = declared_duration(glb, name)
+    if declared and declared > duration - 1e-6:
+        duration = declared
+    if duration <= 0:
+        raise AnimCookError("animation has no duration (all keys at t=0)")
+    rest = {**(rest or {}), **glb_rest(glb)}
+    ident = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0))
+    first = tpl.tracks[0]
+    tracks = []
+    for bone in bones:
+        ch, r = src.get(bone, {}), rest.get(bone, ident)
+        streams = {}
+        for k, (path, quant) in enumerate((("translation", quant_ts),
+                                           ("rotation", quant_quat),
+                                           ("scale", quant_ts))):
+            keys = sorted(ch.get(path) or [(0.0, r[k])], key=lambda kv: kv[0])
+            streams[path] = ([quant_time(t, duration) for t, _ in keys],
+                             [quant(v) for _, v in keys])
+        tracks.append(A.AnimationTrack(
+            res_prelude=first.res_prelude, leading_u32=first.leading_u32, name=bone,
+            t_times=streams["translation"][0], t_values=streams["translation"][1],
+            r_times=streams["rotation"][0], r_values=streams["rotation"][1],
+            s_times=streams["scale"][0], s_values=streams["scale"][1],
+            duration=duration))
+    return A.emit_payload(_with_tail(tpl, tracks, duration))
 
 
 #: A bone whose rest translation is shorter than this (metres) has no length to
