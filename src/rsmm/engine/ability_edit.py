@@ -101,6 +101,13 @@ One step per table::
     accessor = 0x1acadef8                 engine id; a life-bar listener's
                                           current HP here)
 
+    label_format = "Boss Name"            a label shows a String Format built
+    text = "{0}  {1}"                     here: a literal template whose {N}
+    inputs = [ { node = "Name Get Value", are the inputs, each read from a part
+                 accessor = 0x16abf2f0,   (``<entity>|<part>`` for another
+                 type = "text" }, ... ]   file's) through ``accessor``; type
+                                          "text" or "number"
+
     add_subobject = "Wolf Basic Attack Combo.bytes_4"   append a copy of entry
     donor_index = 1                       ``donor_index`` of that id list (a
     replace_ref = { "Step 2" = "Step 3" } combo's steps), its links to the
@@ -126,14 +133,14 @@ _OPS = ("clone", "set", "link", "add_link", "remove_link", "percent", "add_subob
         "append_operand", "add_cinebloc", "animatic_speed", "animatic_clip", "sound_volume",
         "add_selector", "unlink_reads",
         "swap_ref", "scale_by_talent", "talent_number", "owner_read", "scale_with_level",
-        "level_linear", "add_status", "read")
+        "level_linear", "add_status", "read", "label_format")
 #: Every key a step may carry; anything else is a typo that would otherwise be
 #: ignored silently (a `rename` the old clone did not read left its copies
 #: under the default suffix, and the next step found nothing).
 _KEYS = {*_OPS, "value", "to", "entity", "as", "suffix", "from", "rename",
          "donor_index", "donor", "replace_ref", "node", "from_kind", "condition", "talent",
          "values", "tag", "flag", "factor", "base", "status", "switch", "duration",
-         "accessor"}
+         "accessor", "text", "inputs"}
 
 
 class AbilityEditError(ValueError):
@@ -151,6 +158,89 @@ def _read(ef: EntityFile, step: dict) -> None:
     if fld not in values:
         raise AbilityEditError(f"read: {part!r} has no value field {fld!r} ({', '.join(values)})")
     ef.source_value(part, values.index(fld), str(step["to"]), accessor=acc)
+
+
+#: The accessor a label's text slot reads a String Format through (every
+#: shipped label that shows one: Play_Book_Page, Recap_Book_Page, Tuto_Page_7).
+_LABEL_READS_FORMAT = 0x13800d8d
+#: String Format input types (the oCDynamicTypePicker tag): 0 decimal, 1 int,
+#: 5 text (Character_Common "Alive Flags String Format").
+_FORMAT_INPUT_TYPES = {"number": 0, "int": 1, "text": 5}
+
+
+def _label_format(ef: EntityFile, step: dict, read, seed: str) -> None:
+    """``label_format = <LabelUi part>``, ``text``, ``inputs``: a new String
+    Format part (literal ``text`` template, one input per ``inputs`` entry)
+    and the label's text slot pointed at it."""
+    import struct
+
+    from . import cooked
+    from . import entity_graph as EG
+    from . import entity_parts as P
+    from .entity_graph_edit import kind_label
+    from .hero_kit import point
+    label = str(step["label_format"])
+    text, inputs = step.get("text"), step.get("inputs")
+    if not isinstance(text, str) or not isinstance(inputs, list) or not inputs:
+        raise AbilityEditError("label_format needs text = '<template>' and inputs = [ ... ]")
+    if ef.component(label).cls != "oCEntityCpntLabelUiSettings":
+        raise AbilityEditError(f"label_format: {label!r} is not a label")
+
+    def link_to(node: str) -> P.Link:
+        ref, bar, name = node.partition("|")
+        if not bar:
+            c = ef.component(node)
+            return P.Link(c.guid, f"[{kind_label(c.cls)}] {ef.name}\\"
+                          + (f"{c.group}\\" if c.group else "") + c.name)
+        ref_path = source_entity_ref(ref)
+        raw = read(ref_path) if ref_path else None
+        if raw is None:
+            raise AbilityEditError(f"label_format: no entity {ref!r}")
+        stem = ref_path.rsplit("\\", 1)[-1].removesuffix(".entity.ot")
+        hits = [c for c in EG.parse(raw, stem).components if c.name == name]
+        if len(hits) != 1:
+            raise AbilityEditError(f"label_format: {stem} has {len(hits)} parts named {name!r}")
+        c = hits[0]
+        return P.Link(c.guid, f"[{kind_label(c.cls)}] {stem}\\"
+                      + (f"{c.group}\\" if c.group else "") + c.name)
+
+    w = P.PartWriter(ef, seed)
+    entry_cls = cooked.FORMAT_ENTRY_CLASSES[0]
+    entries = b""
+    for i, inp in enumerate(inputs):
+        acc = inp.get("accessor") if isinstance(inp, dict) else None
+        if not isinstance(inp, dict) or not inp.get("node") \
+                or inp.get("type") not in _FORMAT_INPUT_TYPES \
+                or not isinstance(acc, int) or isinstance(acc, bool):
+            raise AbilityEditError(f"label_format: input {i} needs node, accessor (int) and "
+                                   f"type ({', '.join(_FORMAT_INPUT_TYPES)})")
+        kind = _FORMAT_INPUT_TYPES[inp["type"]]
+        empty = _TEXT_EMPTY if kind == 5 else bytes(4)
+        num = P.Num(kind, empty, source=link_to(str(inp["node"])), key=inp["accessor"])
+        entries += P._B + struct.pack("<II", w.ci(entry_cls), kind) + P.num_bytes(num, w.ci) \
+            + struct.pack("<I", 0) + P._E
+    template = P.Num(5, P._lstr(text) + _TEXT_EMPTY[4:])
+    name = f"{label} Format"
+    fmt = w.add("oCEntityCpntStringFormatValueSettings", name, flags=0x101,
+                body=P.num_bytes(template, w.ci) + struct.pack("<I", len(inputs)) + entries)
+    point(ef, label, "value_21", fmt.guid, fmt.path)
+    # the accessor after the picker: how a label reads a String Format
+    c, f, at = ef._field(label, "value_21")
+    sub = EG.Component(0, c.cls, "", "", b"", None, body=c.body[f.offset:f.offset + f.size],
+                       classes=c.classes)
+    toks = EG.tokens(sub)
+    r = next(k for k, t in enumerate(toks) if t.kind == "ref")
+    acc = toks[r + 1]
+    if acc.kind != "bytes" or acc.size != 4:
+        raise AbilityEditError(f"label_format: {label!r} value_21 has no accessor after its link")
+    p = ef.objects[c.index - 1]
+    struct.pack_into("<I", p, at + f.offset + acc.offset, _LABEL_READS_FORMAT)
+
+
+#: An empty text payload: no literal, then the localized half (3, type "",
+#: bank "", row -1, key "") — what a label with no text holds.
+_TEXT_EMPTY = (b"\x00\x00\x00\x00" + b"\x03\x00\x00\x00" + bytes(8)
+               + b"\xff\xff\xff\xff" + bytes(4))
 
 
 @dataclass
@@ -292,6 +382,8 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
                 _add_status(ef, step, f"{seed}:{n}")
             elif op == "read":
                 _read(ef, step)
+            elif op == "label_format":
+                _label_format(ef, step, read, f"{seed}:{n}")
             elif op == "retarget_targets":
                 part, _, fld = str(step[op]).rpartition(".")
                 if not part or not step.get("to"):

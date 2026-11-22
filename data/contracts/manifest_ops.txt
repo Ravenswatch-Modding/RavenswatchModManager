@@ -8,6 +8,7 @@ ability:animatic_speed
 ability:append_operand
 ability:clone
 ability:event
+ability:label_format
 ability:level_linear
 ability:link
 ability:override

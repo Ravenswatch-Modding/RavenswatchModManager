@@ -194,3 +194,34 @@ def test_read_points_a_number_slot_at_another_parts_accessor(tmp_path):
     with pytest.raises(ContentError):
         _emit(tmp_path, {"read": "Stagger Label.value_99", "to": "Dt Entity Hittable Listener",
                          "accessor": 1}, id="Bad", entity=_BAR)
+
+
+_BOSS = "GameUis/Common_Ui/Life_Bar_Boss_Common"
+_BOSS_REL = f"EntitySettings/{_BOSS}.entity.ot.EntitySettingsResource.gen"
+_BOSS_FORMAT = {
+    "label_format": "Boss Name", "text": "{0}   {1}",
+    "inputs": [
+        {"node": "Name Get Value", "accessor": 0x16abf2f0, "type": "text"},
+        {"node": "GameUis\\Common_Ui\\Life_Bar_Common.entity.ot|Dt Entity Hittable Listener",
+         "accessor": 0x1acadef8, "type": "number"},
+    ],
+}
+
+
+@pytest.mark.skipif(corpus.read(_BOSS_REL) is None, reason="no boss bar in corpus")
+def test_label_format_keeps_the_text_and_adds_a_number(tmp_path):
+    import struct
+    (out,) = _emit(tmp_path, _BOSS_FORMAT, id="Hp", entity=_BOSS)
+    new = out.read_bytes()
+    g = EG.parse(new, "x")
+    fmt = next(c for c in g.components if c.name == "Boss Name Format")
+    fields = {f.name: f.text for f in EF.fields(fmt)}
+    assert fields["value_2"] == "text '{0}   {1}'"
+    assert "Name Get Value" in fields["obj_4"]
+    assert "Life_Bar_Common\\Getter\\Dt Entity Hittable Listener" in fields["obj_5"]
+    label = _links(new, "Boss Name", "value_21")
+    assert "[String Format] Life_Bar_Boss_Common\\Boss Name Format" in label
+    assert struct.pack("<I", 0x13800d8d) in new          # label reads a String Format
+    with pytest.raises(ContentError):
+        _emit(tmp_path, {**_BOSS_FORMAT, "inputs": [{"node": "Name Get Value", "type": "text"}]},
+              id="Bad", entity=_BOSS)
