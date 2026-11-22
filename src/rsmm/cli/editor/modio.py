@@ -915,7 +915,8 @@ _IMPORT_RE = re.compile(r"^(?:manifest\.toml|init\.lua|icons/[A-Za-z0-9_]+\.png"
 def import_mod(root: Path, files: dict) -> str:
     """Put an uploaded mod's editable files (``manifest.toml``, ``init.lua``,
     ``icons/*.png``, ``art/**``) under ``root``. For the web editor, whose mods live only in
-    the page; refuses to write over a mod that is already there."""
+    the page, and for a folder from elsewhere locally. Never writes over a mod
+    that is already there: the same manifest just opens it, another refuses."""
     from . import content as C
     if not isinstance(files, dict) or "manifest.toml" not in files:
         raise EditorError("that folder has no manifest.toml")
@@ -936,7 +937,12 @@ def import_mod(root: Path, files: dict) -> str:
         raise EditorError("the manifest has no usable [mod] id")
     target = root / mod_id
     if target.exists():
-        raise EditorError(f"a mod named {mod_id!r} is already open here")
+        # The same mod picked again (or straight from the mods folder): just open it.
+        here = target / "manifest.toml"
+        if here.is_file() and here.read_bytes() == blobs["manifest.toml"]:
+            return mod_id
+        raise EditorError(f"another mod named {mod_id!r} is already in the Mod list; "
+                          "rename one of them first")
     for rel, data in blobs.items():
         dest = target / rel
         dest.parent.mkdir(parents=True, exist_ok=True)

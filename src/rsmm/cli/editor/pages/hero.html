@@ -115,7 +115,7 @@ dialog pre { white-space: pre-wrap; font-size: 12px; max-height: 60vh; overflow:
   <h1>Hero Builder</h1>
   <label>Mod <select id="mod"></select></label>
   <label>Hero <select id="pick"></select></label>
-  <button id="import" type="button" class="small" hidden title="Bring a mod you saved before back into the editor, with its art/ files">Open a mod folder…</button>
+  <button id="import" type="button" class="small" title="Bring a mod folder (one saved before, or unzipped from somewhere) into the editor, with its art/ files">Open a mod folder…</button>
   <input id="importdir" type="file" hidden>
   <span id="busy" class="muted tiny"></span>
 </header>
@@ -1438,10 +1438,10 @@ $("pick").addEventListener("change", async () => {
   if (S.dirty && !confirm("Leave this hero? Its changes are not saved.")) { $("pick").value = S.block; return; }
   S.block = $("pick").value; await openHero(); tellShell();
 });
-// The web editor's mods live only in the page, so one saved earlier is brought back
-// from its folder: the manifest, init.lua, icons/ and the art/ files its hero names.
+// A mod folder from elsewhere (the web editor's mods live only in the page, so this is
+// also how one saved earlier comes back): the manifest, init.lua, icons/ and the art/
+// files its hero names are copied in. One already in the Mod list is just picked.
 $("importdir").webkitdirectory = true;
-$("import").hidden = !window.RSMM_HOSTED;
 $("import").addEventListener("click", () => {
   if (S.dirty && !confirm("Leave this hero? Its changes are not saved.")) return;
   $("importdir").click();

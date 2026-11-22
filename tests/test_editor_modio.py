@@ -101,8 +101,10 @@ def test_import_writes_only_editable_files_and_never_over_a_mod(tmp_path):
     assert M.import_mod(tmp_path, files) == "imp"
     got = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
     assert got == ["imp/icons/a.png", "imp/init.lua", "imp/manifest.toml"]
+    assert M.import_mod(tmp_path, {**files, "init.lua": b(b"-- new")}) == "imp"   # same mod
+    assert (tmp_path / "imp/init.lua").read_bytes() == b"-- x"  # kept
     with pytest.raises(C.EditorError):
-        M.import_mod(tmp_path, files)
+        M.import_mod(tmp_path, {**files, "manifest.toml": b(b'[mod]\nid = "imp"\nname = "x"\n')})
 
 
 def test_import_keeps_a_heros_art_files(tmp_path):
