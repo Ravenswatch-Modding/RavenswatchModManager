@@ -39,6 +39,9 @@ jobs:
       matrix:
         platform: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: read
+      actions: read   # scripts/ci_green.sh
     steps:
       # The channel ships what main holds, and main only takes reviewed
       # changes, so a dispatch from any other ref is refused before anything
@@ -57,6 +60,15 @@ jobs:
           ref: ${{ github.sha }}
           # reuse_published_loader.py diffs against the channel's build commit.
           fetch-depth: 0
+
+      # CI on main already tested this commit on both platforms; ship only if
+      # it went green, rather than re-running a subset of the suite here.
+      - name: CI green on this commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/ci_green.sh "${{ github.sha }}"
 
       - uses: actions/setup-python@v6
         with:
@@ -90,12 +102,6 @@ jobs:
       - name: Validate loader DLL
         shell: bash
         run: python scripts/validate_loader_dll.py dist/winhttp.dll
-
-      - name: Test the CLI
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          pip install -e ".[dev]"
-          python -m pytest -n auto -m "not slow"
 
       # Same bundle definition and post-build checks as the app's sidecar.
       - name: Build onedir CLI and check it

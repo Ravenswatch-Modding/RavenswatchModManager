@@ -8,12 +8,10 @@ on:
 
 jobs:
   # A tag build used to start regardless of whether the tree it points at was
-  # green. It isn't theoretical: CI was red on 6b2843a (the 5.4.4 changelog
-  # commit) because that release's own bump had deleted 343 lines of
-  # src/loader/lib/rsmm.lua, and the desktop release built from it anyway —
-  # shipping a sidecar whose Lua SDK was missing every capability those lines
-  # backed. This runs the two suites that would have caught it, and the matrix
-  # waits on it, so a red tree costs a minute instead of a release.
+  # green: 5.4.4 shipped a sidecar whose Lua SDK had lost 343 lines, and
+  # v5.9.10 shipped from a commit whose CI was red. CI on main already ran
+  # every suite on this commit, so the gate waits for that run instead of
+  # re-running a subset of it; the matrix waits on the gate.
   gate:
     runs-on: ubuntu-22.04
     permissions:
@@ -22,59 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # The two suites below are Linux-only and Python/Lua-only. CI covers the
-      # rest — Windows pytest, both frozen sidecars, typescript, the loader
-      # cross-compile — and v5.9.10 shipped from a commit whose CI was red
-      # (typescript), because nothing here looked at it. Wait for CI on this
-      # exact commit and refuse anything but green. A tag on a commit that was
-      # never pushed to main has no CI run and is refused too. Only the external
-      # link check is exempt: a third-party site being down says nothing about
-      # the build.
       - name: CI green on this commit
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          id=""
-          for _ in $(seq 1 20); do
-            id=$(gh run list --workflow ci.yml --commit "$SHA" --event push \
-                   --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-            [ -n "$id" ] && break
-            echo "no CI run for $SHA yet; waiting"; sleep 30
-          done
-          if [ -z "$id" ]; then
-            echo "::error::no CI run for $SHA — push the commit to main and let CI finish before tagging"
-            exit 1
-          fi
-          gh run watch "$id" --interval 30 > /dev/null
-          bad=$(gh run view "$id" --json jobs --jq \
-            '.jobs[] | select(.name | startswith("docs external links") | not)
-                     | select(.conclusion != "success" and .conclusion != "skipped")
-                     | "\(.name): \(.conclusion)"')
-          if [ -n "$bad" ]; then
-            echo "::error::CI is not green on $SHA (run $id):"
-            echo "$bad"
-            exit 1
-          fi
-          echo "CI run $id is green on $SHA"
-
-      - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install Lua
-        run: sudo apt-get update && sudo apt-get install -y lua5.4
-
-      - name: Loader Lua SDK spec
-        run: lua5.4 tests/lua/rsmm_spec.lua src/loader/lib
-
-      - name: Python tests
-        run: |
-          pip install -e ".[dev]"
-          python -m pytest -n auto -m "not slow"
+        run: scripts/ci_green.sh "${{ github.sha }}"
 
   # Creates the draft release ONCE, before the matrix starts. It used to be
   # created by whichever build leg got there first, and on v5.7.0 both legs
