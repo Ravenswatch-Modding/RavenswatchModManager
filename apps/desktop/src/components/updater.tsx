@@ -8,10 +8,12 @@ import {
   describeLoaderInstall,
   getLaunchActive,
   loaderMismatchNote,
+  setAppUpdateBusy,
   subscribeChannelPhases,
   trackCliUpdate,
   trackLoaderUpdate,
 } from '../lib/channel-status';
+import { APP_CHECK_WAIT_MS } from '../lib/channel-triggers';
 import { t as tr } from '../lib/i18n';
 import { useT } from '../lib/i18n-react';
 import { appendLauncherLog } from '../lib/launcher-log';
@@ -81,8 +83,23 @@ interface UpdateStatus {
 let sharedStatus: UpdateStatus = { state: 'idle' };
 const listeners = new Set<(s: UpdateStatus) => void>();
 
+/**
+ * States in which the launcher update is fetching, or holding, a new build.
+ * 'checking' is deliberately absent: check() has no timeout, and a hung check
+ * must not hold the CLI/loader checks (they wait for it, but only up to
+ * APP_CHECK_WAIT_MS while the answer is unknown).
+ */
+const APP_UPDATE_BUSY = new Set<UpdateStatus['state']>([
+  'available',
+  'downloading',
+  'ready',
+  'migrating',
+  'migrated',
+]);
+
 function setStatus(next: UpdateStatus) {
   sharedStatus = next;
+  if (next.state !== 'checking') setAppUpdateBusy(APP_UPDATE_BUSY.has(next.state));
   for (const l of listeners) l(sharedStatus);
 }
 
@@ -978,7 +995,13 @@ export function UpdaterSettings() {
         toast.push(t('Launcher is on the latest version.'), 'success');
       }
     });
-    void Promise.allSettled([app, runLoaderUpdate(), runCliUpdate()]);
+    // Channels only once the app is known to be current: a new build checks
+    // them itself on first start, and three downloads at once swamp a slow line.
+    const capped = new Promise((resolve) => setTimeout(resolve, APP_CHECK_WAIT_MS));
+    void Promise.race([app, capped]).then(() => {
+      if (!APP_UPDATE_BUSY.has(sharedStatus.state))
+        void Promise.allSettled([runLoaderUpdate(), runCliUpdate()]);
+    });
   };
 
   const onApply = () => {

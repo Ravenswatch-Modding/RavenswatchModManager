@@ -25,6 +25,7 @@
  */
 import {
   adjustLaunchDepth,
+  getAppUpdateBusy,
   getChannelPhases,
   getLaunchActive,
   loaderUpdateInFlight,
@@ -32,6 +33,7 @@ import {
   setLaunchHold,
   trackCliUpdate,
   trackLoaderUpdate,
+  whenAppUpdateIdle,
 } from './channel-status';
 import { t as tr } from './i18n';
 import { noteLoaderResult } from './loader-status';
@@ -40,6 +42,8 @@ import { type LaunchKind, type UpdateLoaderResult, cliChannel, setLaunchGate } f
 export type CheckReason = 'start' | 'focus' | 'prelaunch' | 'manual';
 
 export const DEBOUNCE_MS = 60_000;
+/** How long the start check waits for a first app-update answer that never comes. */
+export const APP_CHECK_WAIT_MS = 30_000;
 /** How long a pre-launch check may take before the game launches regardless. */
 export const PRELAUNCH_CHECK_MS = 3000;
 /** Once a bundle is actually downloading, a pre-launch check may take this long. */
@@ -57,6 +61,8 @@ export interface TriggerDeps {
   downloading: () => boolean;
   /** Called when a pre-launch check gives up on the loader. */
   timedOut: (seconds: number) => void;
+  /** Resolves when the launcher's own update is idle (start checks wait on it). */
+  appIdle?: () => Promise<void>;
 }
 
 const defaultDeps: TriggerDeps = {
@@ -76,6 +82,7 @@ const defaultDeps: TriggerDeps = {
       });
     }
   },
+  appIdle: () => whenAppUpdateIdle(APP_CHECK_WAIT_MS),
 };
 
 let lastFinished = Number.NEGATIVE_INFINITY;
@@ -136,6 +143,14 @@ export async function checkChannels(
   reason: CheckReason,
   deps: TriggerDeps = defaultDeps,
 ): Promise<CheckResult> {
+  // While the launcher itself downloads or holds an update, start/focus checks
+  // stand down (see setAppUpdateBusy); a start check first waits for the app
+  // check to answer. Pre-launch and manual checks are never held.
+  if (reason === 'start' || reason === 'focus') {
+    if (getAppUpdateBusy() === true) return lastResult;
+    if (reason === 'start' && deps.appIdle) await deps.appIdle();
+    if (getAppUpdateBusy() === true) return lastResult;
+  }
   if (reason !== 'prelaunch') {
     if (inflight) return inflight;
     if (getLaunchActive()) return lastResult;
@@ -201,8 +216,10 @@ export function resetChannelTriggers(): void {
  */
 export function installChannelTriggers(): () => void {
   setLaunchGate({ before: (kind) => beforeLaunch(kind), after: afterLaunch });
+  // While the launcher itself updates, start/focus checks wait (see
+  // channel-status.ts setAppUpdateBusy). Pre-launch checks still run.
   const onFocus = () => {
-    void checkChannels('focus');
+    if (getAppUpdateBusy() === false) void checkChannels('focus');
   };
   window.addEventListener('focus', onFocus);
   // A CLI build staged by an earlier launch is waiting for a restart: say so

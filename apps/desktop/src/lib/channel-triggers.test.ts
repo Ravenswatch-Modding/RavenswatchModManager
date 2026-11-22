@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetChannelPhases } from './channel-status';
+import { resetChannelPhases, setAppUpdateBusy } from './channel-status';
 import {
   DEBOUNCE_MS,
   PRELAUNCH_CHECK_MS,
@@ -112,5 +112,43 @@ describe('pre-launch check', () => {
     release();
     const r = await p;
     expect(r.loader?.status).toBe('updated');
+  });
+});
+
+describe('while the launcher itself updates', () => {
+  it('holds start and focus checks, but never a pre-launch or manual one', async () => {
+    setAppUpdateBusy(true);
+    const d = deps();
+    await checkChannels('start', d);
+    await checkChannels('focus', d);
+    expect(d.loader).not.toHaveBeenCalled();
+    expect(d.cli).not.toHaveBeenCalled();
+    await checkChannels('manual', d);
+    expect(d.loader).toHaveBeenCalledTimes(1);
+    clock += DEBOUNCE_MS + 1;
+    await checkChannels('prelaunch', d);
+    expect(d.loader).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts the channel checks once the app check answers "no update"', async () => {
+    let answer: () => void = () => {};
+    const d = deps({ appIdle: () => new Promise<void>((r) => (answer = r)) });
+    const start = checkChannels('start', d);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.loader).not.toHaveBeenCalled();
+    setAppUpdateBusy(false);
+    answer();
+    await start;
+    expect(d.loader).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the start check when the app check found an update', async () => {
+    let answer: () => void = () => {};
+    const d = deps({ appIdle: () => new Promise<void>((r) => (answer = r)) });
+    const start = checkChannels('start', d);
+    setAppUpdateBusy(true);
+    answer();
+    await start;
+    expect(d.loader).not.toHaveBeenCalled();
   });
 });

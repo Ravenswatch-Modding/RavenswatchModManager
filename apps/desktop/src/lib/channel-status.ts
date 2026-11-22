@@ -93,8 +93,44 @@ export function adjustLaunchDepth(delta: 1 | -1): void {
   if (was !== launchDepth > 0) for (const fn of listeners) fn();
 }
 
+// The launcher's own update. While it is checking, downloading or waiting for a
+// restart, the start/focus CLI and loader checks wait: on a slow line the app
+// (~140 MB), CLI (~30 MB) and loader downloads together saturated it for
+// minutes, and the new build checks both channels on its own first start.
+// null = the first app check has not finished yet.
+let appUpdateBusy: boolean | null = null;
+const appIdleWaiters = new Set<() => void>();
+
+export function getAppUpdateBusy(): boolean | null {
+  return appUpdateBusy;
+}
+
+export function setAppUpdateBusy(busy: boolean): void {
+  appUpdateBusy = busy;
+  if (busy) return;
+  for (const resolve of appIdleWaiters) resolve();
+  appIdleWaiters.clear();
+}
+
+/**
+ * Resolves once the app update is idle. If the first app check has not
+ * reported within `unknownMs` (updater not mounted, not in Tauri), resolves
+ * anyway; an update that is actually under way keeps it waiting.
+ */
+export function whenAppUpdateIdle(unknownMs: number): Promise<void> {
+  if (appUpdateBusy === false) return Promise.resolve();
+  return new Promise((resolve) => {
+    appIdleWaiters.add(resolve);
+    setTimeout(() => {
+      if (appUpdateBusy === null) resolve();
+    }, unknownMs);
+  });
+}
+
 /** Tests only. */
 export function resetChannelPhases(): void {
+  appUpdateBusy = null;
+  appIdleWaiters.clear();
   launchDepth = 0;
   clearTimeout(timers.cli);
   clearTimeout(timers.loader);

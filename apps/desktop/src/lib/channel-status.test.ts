@@ -10,8 +10,10 @@ import {
   getPendingCliUpdate,
   loaderMismatchNote,
   resetChannelPhases,
+  setAppUpdateBusy,
   setChannelPhase,
   subscribeChannelPhases,
+  whenAppUpdateIdle,
 } from './channel-status';
 
 beforeEach(() => {
@@ -166,5 +168,39 @@ describe('cliPendingVersion', () => {
     expect(cliPendingVersion({ status: 'up_to_date', installedVersion: 8 }, 8)).toBeNull();
     expect(cliPendingVersion({ status: 'error', installedVersion: 9 }, 8)).toBeNull();
     expect(cliPendingVersion({ status: 'not_published' }, 8)).toBeNull();
+  });
+});
+
+describe('whenAppUpdateIdle', () => {
+  const settled = async (p: Promise<void>) => {
+    let done = false;
+    void p.then(() => {
+      done = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    return () => done;
+  };
+
+  it('waits while the launcher update downloads, then releases the channel checks', async () => {
+    setAppUpdateBusy(true);
+    const done = await settled(whenAppUpdateIdle(30_000));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(done()).toBe(false);
+    setAppUpdateBusy(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done()).toBe(true);
+  });
+
+  it('does not wait forever when no app check ever reports', async () => {
+    const done = await settled(whenAppUpdateIdle(30_000));
+    expect(done()).toBe(false);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(done()).toBe(true);
+  });
+
+  it('resolves at once when the app is already current', async () => {
+    setAppUpdateBusy(false);
+    const done = await settled(whenAppUpdateIdle(30_000));
+    expect(done()).toBe(true);
   });
 });
