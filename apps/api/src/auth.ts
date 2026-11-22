@@ -50,7 +50,7 @@ if (githubConfigured()) {
  * bundle and run at startup; these dynamic ones stay lazy.
  */
 async function createAuth() {
-  const [{ betterAuth }, { drizzleAdapter }, { createAuthMiddleware }, { oneTimeToken }] =
+  const [{ betterAuth, getAuthStateVerificationIdentifier }, { drizzleAdapter }, { createAuthMiddleware }, { oneTimeToken }] =
     await Promise.all([
       import('better-auth'),
       import('better-auth/adapters/drizzle'),
@@ -173,7 +173,10 @@ async function createAuth() {
         const state = ctx.query?.state ?? ctx.body?.state;
         if (typeof state === 'string' && state) {
           const row = await ctx.context.internalAdapter
-            .findVerificationValue(state)
+            // better-auth >= 1.7 keys state rows as `auth-state:<state>`; a raw
+            // lookup misses, the skip never fires, and every relay sign-in
+            // whose browser dropped the cookie dies with state_mismatch.
+            .findVerificationValue(getAuthStateVerificationIdentifier(state))
             .catch(() => null);
           if (row) {
             try {
