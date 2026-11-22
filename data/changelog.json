@@ -4,6 +4,16 @@
     {
       "version": "",
       "date": "2026-11-22",
+      "summary": "Two new content steps for entity edits: read (a number slot reads a chosen output of another part) and label_format (a label shows a built String Format). Needed by the Boss Health mod.",
+      "highlights": [
+        "Mods can show live numbers on game HUD labels (new read and label_format content steps)",
+        "Boss Health mod now applies: boss HP next to the boss's name"
+      ],
+      "cli_version": 47
+    },
+    {
+      "version": "",
+      "date": "2026-11-22",
       "summary": "New read content step: mods can show a live number (like boss health) on a game HUD label. Needed by the Boss Health mod.",
       "highlights": [
         "New read content step: mods can show a live number (like boss health) on a game HUD label. Needed by the Boss Health mod."
@@ -497,19 +507,6 @@
         "Symbol map corrections for build b9c3642: two mis-mapped flag serializers dropped, 16 more engine functions located (#66)"
       ],
       "loader_version": 49
-    },
-    {
-      "version": "",
-      "date": "2026-10-25",
-      "summary": "Talent range modifiers, and fixes for integer item stats and inherited rewires",
-      "highlights": [
-        "New talent range modifiers: grow an ability's melee reach, shot range, area radius or rectangle in the editor's Make an ability bigger",
-        "An ability's area hits grow with its radius, Snow Queen's skating hitbox included, from their own vanilla size",
-        "Integer stats such as Extra MO Choice, Extra skill choice and Rooted are written as whole numbers, so items and talents giving them work",
-        "A range talent refuses a range its ability lacks instead of scaling another ability's",
-        "Rework talents refuse an ambiguous rewire into an inherited file instead of wiring the wrong node"
-      ],
-      "cli_version": 17
     }
   ]
 }
