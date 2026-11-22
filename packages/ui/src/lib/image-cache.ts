@@ -27,7 +27,9 @@ const THUMBNAIL_SOURCE_HOSTS = [
   'cdn.rsmm.me',
   's3-ravenswatch.ovilli.de',
 ];
-const THUMBNAIL_ORIGIN = 'https://rsmm.me';
+// The website (and its preview deploys) resize on their own origin; the
+// desktop WebView has no optimizer of its own and uses production.
+const thumbnailOrigin = () => ('__TAURI_INTERNALS__' in globalThis ? 'https://rsmm.me' : '');
 /** Widths must be in Next's default deviceSizes/imageSizes or it answers 400. */
 export type ThumbnailWidth = 384 | 640 | 828;
 
@@ -39,7 +41,7 @@ export function thumbnailUrl(src: string, width: ThumbnailWidth): string {
   } catch {
     return src;
   }
-  return `${THUMBNAIL_ORIGIN}/_next/image?url=${encodeURIComponent(src)}&w=${width}&q=75`;
+  return `${thumbnailOrigin()}/_next/image?url=${encodeURIComponent(src)}&w=${width}&q=75`;
 }
 
 // Keep this aligned with desktop img-src. A blob URL must never bypass the

@@ -129,9 +129,17 @@ describe('registry thumbnails', () => {
   const upload = 'https://s3-ravenswatch.ovilli.de/ravenswatch-mods/mod-images/x/a b.png';
 
   it('routes registry uploads through the rsmm.me optimizer and caches the result', () => {
+    vi.stubGlobal('__TAURI_INTERNALS__', {});
     const thumb = thumbnailUrl(upload, 640);
+    vi.unstubAllGlobals();
     expect(thumb).toBe(`https://rsmm.me/_next/image?url=${encodeURIComponent(upload)}&w=640&q=75`);
     expect(cacheableImageUrl(thumb)).toBe(true);
+  });
+
+  it('resizes on the page origin outside the desktop WebView (website, previews)', () => {
+    expect(thumbnailUrl(upload, 384)).toBe(
+      `/_next/image?url=${encodeURIComponent(upload)}&w=384&q=75`,
+    );
   });
 
   it('leaves other hosts, bundled art and malformed URLs untouched', () => {
