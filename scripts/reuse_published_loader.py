@@ -16,7 +16,7 @@ reused when it really is this commit's loader:
   (data/loader_version.json), and
 * nothing the DLL is compiled from changed since the channel's `commit`:
   `src/loader/` minus the disk-loaded Lua SDK (`lib/`, `lua/`), which is not
-  inside the DLL.
+  inside the DLL, and minus Markdown (a CLAUDE.md edit recompiled v6.1.0).
 
 Anything else — channel behind or ahead, an unknown commit (shallow clone),
 offline, a bad signature — prints why and reports `reused=false`, and the
@@ -44,6 +44,7 @@ DLL_INPUTS = [
     "src/loader",
     ":(exclude)src/loader/lib",
     ":(exclude)src/loader/lua",
+    ":(exclude,glob)src/loader/**/*.md",
 ]
 
 
