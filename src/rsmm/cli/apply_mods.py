@@ -935,7 +935,30 @@ def encoded_to_dest(encoded: str, cooking: Path, game_dir: Path) -> Path:
     return cooking / Path(*parts)
 
 
+LOAD_ORDER_ENV = "RSMM_LOAD_ORDER"
+
+
+def profile_load_order() -> dict[str, int]:
+    """Mod folder -> position in the desktop profile's load order.
+
+    `json_bridge apply` passes the profile's enabled mods, in the order the
+    Library shows them, as a JSON list in RSMM_LOAD_ORDER. Later positions load
+    later and win conflicts, like a higher manifest `load_order`. Empty when the
+    variable is unset or unreadable, which keeps the alphabetical order."""
+    try:
+        ids = json.loads(os.environ.get(LOAD_ORDER_ENV) or "[]")
+    except ValueError:
+        return {}
+    if not isinstance(ids, list):
+        return {}
+    return {m: i for i, m in enumerate(ids) if isinstance(m, str)}
+
+
 def discover_mods(repo: Path) -> list[Mod]:
+    """Every mod under `mods/`, alphabetical by folder, then reordered by the
+    profile's load order when one is set (see `profile_load_order`). Mods the
+    profile does not list (`_merged`, or ones it has disabled) stay in front, so
+    every mod it orders loads after them."""
     mods_dir = MODS_DIR
     if not mods_dir.is_dir():
         return []
@@ -960,6 +983,9 @@ def discover_mods(repo: Path) -> list[Mod]:
                   f"(check it with: rsmm lint {entry.name})", file=sys.stderr)
         except (OSError, ValueError) as e:
             print(f"  [warn] skipping mod '{entry.name}': {e}", file=sys.stderr)
+    rank = profile_load_order()
+    if rank:
+        mods.sort(key=lambda m: rank.get(m.root.name, -1))   # stable
     return mods
 
 
@@ -1453,7 +1479,7 @@ def plan_apply(mods: list[Mod],
                       None)
         if merger is not None:
             merge_fn, label = merger
-            ordered = sorted(writers, key=lambda w: w[1])   # deterministic by mod id
+            ordered = writers   # load order: `collected` follows `mods`
             dest = encoded_to_dest(enc, cooking, game_dir)
             vanilla = dest.parent / (dest.name + BACKUP_SUFFIX)
             if not vanilla.exists():

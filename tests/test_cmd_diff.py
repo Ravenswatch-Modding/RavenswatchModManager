@@ -74,6 +74,18 @@ def test_unmerged_overlap_names_the_mod_whose_copy_lands(mods_dir):
     assert "LOST to beta" in D.render(_report(mods_dir, "alpha"))
 
 
+def test_profile_load_order_picks_the_winner(mods_dir, monkeypatch):
+    # The desktop profile's order (RSMM_LOAD_ORDER) beats folder order: the
+    # mod it lists last loads last and wins, for assets and [[patch]] blocks.
+    _mod(mods_dir, "alpha", {ENTITY: b"a"}, extra='[[patch]]\nkind = "stat"\n')
+    _mod(mods_dir, "beta", {ENTITY: b"b"}, extra='[[patch]]\nkind = "stat"\n')
+    _mod(mods_dir, "gamma", {})
+    monkeypatch.setenv(A.LOAD_ORDER_ENV, '["beta", "alpha"]')
+    assert [m.id for m in A.discover_mods(mods_dir.parent)] == ["gamma", "beta", "alpha"]
+    assert _by_path(_report(mods_dir, "beta"))[ENTITY].winner == "alpha"
+    assert [p.mod_id for p in M._ranked(M.collect_patches())] == ["beta", "alpha"]
+
+
 def test_additive_families_are_merged_not_conflicts(mods_dir):
     _mod(mods_dir, "alpha", {TEXT_BANK: b"a"})
     _mod(mods_dir, "beta", {TEXT_BANK: b"b"})

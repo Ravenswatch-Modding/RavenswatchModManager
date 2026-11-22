@@ -559,6 +559,11 @@ def cmd_apply(rest: list[str], enabled_json: str | None = None) -> int:
     os.close(fd)
     prior = os.environ.get("RSMM_SKIPPED_FILE")
     os.environ["RSMM_SKIPPED_FILE"] = skipped_path    # the child inherits it
+    # The profile's order decides which mod wins a conflict (see
+    # apply_mods.profile_load_order); `ids` is already in that order.
+    prior_order = os.environ.pop("RSMM_LOAD_ORDER", None)
+    if enabled_json is not None:
+        os.environ["RSMM_LOAD_ORDER"] = json.dumps(ids)
     try:
         result = _collect_rsmm(["apply", *rest])
         try:
@@ -570,6 +575,10 @@ def cmd_apply(rest: list[str], enabled_json: str | None = None) -> int:
             os.environ.pop("RSMM_SKIPPED_FILE", None)
         else:
             os.environ["RSMM_SKIPPED_FILE"] = prior
+        if prior_order is None:
+            os.environ.pop("RSMM_LOAD_ORDER", None)
+        else:
+            os.environ["RSMM_LOAD_ORDER"] = prior_order
         with contextlib.suppress(OSError):
             os.unlink(skipped_path)
     result["skipped"] = skipped if isinstance(skipped, list) else []

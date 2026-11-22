@@ -143,7 +143,9 @@ Write declarative blocks in `manifest.toml` for numeric values (`stat`), texture
 swaps (`texture`), and plaintext `.ot` fields (`ot`). The applier composes every mod's patches into a single
 cooked file per target. Two mods touching *different* fields of the same file
 both take effect; conflicts on the *same* field resolve by `load_order` (lower =
-applies first; later wins on overlap).
+applies first; later wins on overlap). When you apply from the desktop app, the
+Library's load order replaces `load_order`: the mod lower in the list wins, for
+patches and for whole-file overrides alike.
 
 ```toml
 [[patch]]

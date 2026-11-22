@@ -75,6 +75,8 @@ def collect_patches() -> list[_Patch]:
     out: list[_Patch] = []
     if not MODS_DIR.is_dir():
         return out
+    from rsmm.cli.apply_mods import profile_load_order
+    rank = profile_load_order()
     for entry in sorted(MODS_DIR.iterdir()):
         if not entry.is_dir() or entry.name.startswith(("_", ".")):
             continue
@@ -98,7 +100,9 @@ def collect_patches() -> list[_Patch]:
         if not is_on:
             continue
         mid = mod_meta.get("id") or entry.name
-        order = int(mod_meta.get("load_order", 100))
+        # The desktop profile's order, when set, replaces the manifest's.
+        order = (rank[entry.name] if entry.name in rank
+                 else int(mod_meta.get("load_order", 100)))
         for p in t.get("patch", []) or []:
             kind = p.get("kind")
             if not kind:
