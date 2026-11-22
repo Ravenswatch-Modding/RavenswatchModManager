@@ -23,8 +23,8 @@ const nextConfig = {
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' https://partner.googleadservices.com https://www.googletagservices.com https://adservice.google.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "connect-src 'self' https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
-            "img-src 'self' data: blob: https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
+            "connect-src 'self' https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://cdn.discordapp.com https://avatars.githubusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
+            "img-src 'self' data: blob: https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://cdn.discordapp.com https://avatars.githubusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "font-src 'self' https://fonts.gstatic.com",
             "frame-src 'self' https://www.youtube.com https://player.vimeo.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "object-src 'none'",
@@ -36,6 +36,10 @@ const nextConfig = {
           ].join('; ')
         : '';
     return [
+      {
+        source: '/image-cache-sw.js',
+        headers: [{ key: 'Cache-Control', value: 'no-cache' }],
+      },
       {
         source: '/(.*)',
         headers: [

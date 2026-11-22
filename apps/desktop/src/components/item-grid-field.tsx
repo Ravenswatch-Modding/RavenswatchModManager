@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 /**
  * Renderer for the generic `item-grid` config field.
  *
@@ -149,7 +150,7 @@ export function ItemGridField({
             ].join(' ')}
           >
             {theme.portrait ? (
-              <img
+              <CachedImage
                 src={theme.portrait}
                 alt=""
                 className={[
@@ -355,7 +356,9 @@ function GridSection({
                     onFocus={() => onFocusItem(o.id)}
                     className="flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-gilt/15"
                   >
-                    {o.icon ? <img src={o.icon} alt="" className="h-8 w-8 shrink-0" /> : null}
+                    {o.icon ? (
+                      <CachedImage src={o.icon} alt="" className="h-8 w-8 shrink-0" />
+                    ) : null}
                     <span className="min-w-0">
                       <span className="block truncate text-sm">{o.label}</span>
                       {o.group ? (
@@ -454,7 +457,7 @@ function GridCard({
         </button>
       ) : null}
       {option?.icon ? (
-        <img src={option.icon} alt="" className="h-14 w-14 object-contain drop-shadow" />
+        <CachedImage src={option.icon} alt="" className="h-14 w-14 object-contain drop-shadow" />
       ) : (
         <span className="flex h-14 w-14 items-center justify-center text-ash text-sm">
           {label.slice(0, 2).toUpperCase()}
@@ -477,7 +480,7 @@ function GridCard({
           }
         >
           {theme.numberIcon ? (
-            <img src={theme.numberIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
+            <CachedImage src={theme.numberIcon} alt="" className="h-3.5 w-3.5 shrink-0" />
           ) : null}
           {editable ? (
             <input

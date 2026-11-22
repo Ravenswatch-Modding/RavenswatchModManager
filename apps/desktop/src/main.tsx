@@ -12,6 +12,7 @@ import '@rsmm/ui/styles.css';
 import '@rsmm/ui/registry.css';
 import '@rsmm/ui/registry-detail.css';
 import './desktop.css';
+import { ImageCacheProvider } from '@rsmm/ui';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { isTauri } from '@tauri-apps/api/core';
@@ -234,13 +235,15 @@ if (import.meta.env.DEV && LIBRARY_PREVIEW) initializeLibraryPreview();
 reactRoot.render(
   <StrictMode>
     <RootErrorBoundary>
-      {IS_OVERLAY_WINDOW ? (
-        <OverlayHud modId={OVERLAY_MOD_ID} />
-      ) : (
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      )}
+      <ImageCacheProvider>
+        {IS_OVERLAY_WINDOW ? (
+          <OverlayHud modId={OVERLAY_MOD_ID} />
+        ) : (
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        )}
+      </ImageCacheProvider>
     </RootErrorBoundary>
   </StrictMode>,
 );

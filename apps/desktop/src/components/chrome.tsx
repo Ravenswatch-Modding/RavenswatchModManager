@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { cn } from '@rsmm/ui';
 import { Copy, EyeOff } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -73,7 +74,7 @@ export function Crest({
   return (
     <span className={cn('brand-crest', sizeClass, className)} aria-hidden>
       {iconSrc ? (
-        <img
+        <CachedImage
           src={iconSrc}
           alt={iconAlt}
           className="h-full w-full rounded-[inherit] object-contain p-1"
@@ -208,7 +209,7 @@ export function Cover({
         className,
       )}
     >
-      <img
+      <CachedImage
         src={src}
         alt={alt}
         loading="lazy"
@@ -326,7 +327,7 @@ export function Markdown({ source, className }: { source: string; className?: st
             <td className="border border-oxblood/40 px-2 py-1 align-top" {...props} />
           ),
           img: ({ node, alt, src, ...props }) => (
-            <img
+            <CachedImage
               {...props}
               src={src}
               alt={typeof alt === 'string' && alt.length > 0 ? alt : t('mod image')}

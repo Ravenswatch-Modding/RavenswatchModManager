@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { Link } from '@tanstack/react-router';
 import { ChevronUp, ExternalLink, LogOut, WifiOff } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
@@ -139,7 +140,7 @@ export function AccountStrip({ collapsed = false }: { collapsed?: boolean }) {
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-char/60 text-xs font-semibold text-parchment">
           {user.image ? (
-            <img src={user.image} alt="" className="h-full w-full object-cover" />
+            <CachedImage src={user.image} alt="" className="h-full w-full object-cover" />
           ) : (
             <span>{initialsFor(user.name, user.email)}</span>
           )}

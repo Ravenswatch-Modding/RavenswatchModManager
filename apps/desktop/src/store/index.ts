@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { LIBRARY_PREVIEW, previewStorage } from '../lib/browser-preview';
 import {
   DEFAULT_ANIMATIONS,
   DEFAULT_FONT,
@@ -12,6 +11,7 @@ import {
   normalizeFont,
   normalizeFontScale,
 } from '../lib/appearance';
+import { LIBRARY_PREVIEW, previewStorage } from '../lib/browser-preview';
 import { type Locale, detectLocale, normalizeLocale } from '../lib/i18n';
 import type { Mod, ModCategory } from '../lib/mod-types';
 import { getPlatform } from '../lib/platform';
@@ -108,6 +108,11 @@ export interface AppSettings {
   usageReports: boolean;
 }
 
+interface ModArtwork {
+  image: string | null;
+  nsfw: boolean;
+}
+
 interface State {
   profiles: Profile[];
   activeProfileId: string;
@@ -122,6 +127,8 @@ interface State {
   settings: AppSettings;
   /** Non-persisted: live mods discovered by rsmm on disk, keyed by id. */
   localMods: Record<string, Mod>;
+  /** Registry artwork only; never evidence that a mod is installed. */
+  modArtwork: Record<string, ModArtwork>;
   installMod: (id: string, targetProfileId?: string, onDiskId?: string) => void;
   uninstallMod: (id: string) => void;
   toggleMod: (id: string) => void;
@@ -363,6 +370,22 @@ export function hydrateImportedSettings(
   return next;
 }
 
+function hydrateArtwork(value: unknown): Record<string, ModArtwork> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(
+        ([, entry]) =>
+          entry &&
+          typeof entry === 'object' &&
+          (entry.image === null ||
+            (typeof entry.image === 'string' && entry.image.startsWith('https://'))) &&
+          typeof entry.nsfw === 'boolean',
+      )
+      .slice(-512),
+  );
+}
+
 export const useApp = create<State>()(
   persist(
     (set, get) => ({
@@ -389,6 +412,7 @@ export const useApp = create<State>()(
         fontScale: DEFAULT_FONT_SCALE,
       },
       localMods: {},
+      modArtwork: {},
 
       installMod: (id, targetProfileId, onDiskId) =>
         set((s) => {
@@ -695,7 +719,12 @@ export const useApp = create<State>()(
           const ownerIsActive = owner === s.activeProfileId;
           const localMods: Record<string, Mod> = {};
           for (const m of mods) {
-            localMods[m.id] = toMod(m, s.localMods[m.id]);
+            const previous = s.localMods[m.id];
+            localMods[m.id] = toMod(
+              m,
+              previous?.slug === m.slug ? previous : undefined,
+              s.modArtwork[m.slug ?? m.id],
+            );
           }
           // What was on disk before, for spotting a confirmed removal. Only the
           // active profile's previous listing is known; for any other profile
@@ -776,18 +805,31 @@ export const useApp = create<State>()(
       patchRemoteInfo: (info) =>
         set((s) => {
           const next: Record<string, Mod> = { ...s.localMods };
+          const artwork = new Map(Object.entries(s.modArtwork));
           for (const [slug, payload] of Object.entries(info)) {
             const found = Object.values(next).find((m) => m.slug === slug);
+            const previous = artwork.get(slug);
+            if (payload.image !== undefined || payload.nsfw != null) {
+              // Reinsert to keep the bounded metadata cache ordered by recency.
+              artwork.delete(slug);
+              artwork.set(slug, {
+                image:
+                  payload.image !== undefined
+                    ? payload.image
+                    : (previous?.image ?? found?.image ?? null),
+                nsfw: payload.nsfw ?? previous?.nsfw ?? found?.nsfw ?? false,
+              });
+            }
             if (!found) continue;
             next[found.id] = {
               ...found,
               latestVersion: payload.latestVersion ?? found.latestVersion,
-              image: payload.image ?? found.image,
+              image: payload.image !== undefined ? (payload.image ?? undefined) : found.image,
               summary: payload.summary ?? found.summary,
               nsfw: payload.nsfw ?? found.nsfw,
             };
           }
-          return { localMods: next };
+          return { localMods: next, modArtwork: Object.fromEntries([...artwork].slice(-512)) };
         }),
     }),
     {
@@ -806,6 +848,7 @@ export const useApp = create<State>()(
           ...merged,
           profiles,
           activeProfileId,
+          modArtwork: hydrateArtwork(merged.modArtwork),
         };
       },
       // `localMods` and `installed` are both disk facts, re-derived on every
@@ -876,7 +919,7 @@ function inferCategory(tags: string[]): ModCategory {
   return 'gameplay';
 }
 
-function toMod(m: LocalMod, prev?: Mod): Mod {
+function toMod(m: LocalMod, prev?: Mod, artwork?: ModArtwork): Mod {
   const summary = m.summary ?? '';
   return {
     id: m.id,
@@ -899,9 +942,9 @@ function toMod(m: LocalMod, prev?: Mod): Mod {
         : (prev?.dependencies ?? []),
     writes: m.writes.length > 0 ? m.writes : (prev?.writes ?? []),
     gameBuild: prev?.gameBuild ?? '',
-    image: prev?.image,
+    image: artwork ? (artwork.image ?? undefined) : prev?.image,
     markdown: prev?.markdown ?? (summary ? `# ${m.name}\n\n${summary}` : `# ${m.name}`),
-    nsfw: prev?.nsfw ?? false,
+    nsfw: artwork?.nsfw ?? prev?.nsfw ?? false,
     // `?? prev` so an older sidecar (which omits the field) doesn't erase what
     // a previous, newer answer established.
     hasConfig: m.hasConfig ?? prev?.hasConfig ?? false,

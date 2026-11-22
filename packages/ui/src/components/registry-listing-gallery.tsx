@@ -1,4 +1,6 @@
 'use client';
+import { CachedImage } from './cached-image';
+
 import { ChevronLeft, ChevronRight, EyeOff, Grid2X2, ImageOff, Play, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toEmbedUrl } from '../lib/video-embed';
@@ -25,7 +27,7 @@ function GalleryImage({
       </span>
     );
   return (
-    <img
+    <CachedImage
       src={item.url}
       alt={item.label}
       loading={priority ? 'eager' : 'lazy'}

@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { Sparkles } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useEffect, useId, useRef } from 'react';
 import hero1 from '../assets/library-heroes/hero-1.png';
@@ -132,7 +133,13 @@ export function LibraryEmptyState({
                 <div className="empty-grimoire-portrait">
                   <div className="empty-grimoire-card">
                     <div className="empty-grimoire-portrait-face">
-                      <img src={portrait.src} alt="" width={256} height={256} draggable={false} />
+                      <CachedImage
+                        src={portrait.src}
+                        alt=""
+                        width={256}
+                        height={256}
+                        draggable={false}
+                      />
                     </div>
                     <div className="empty-grimoire-portrait-back">
                       <Sparkles aria-hidden />

@@ -1,5 +1,6 @@
 import { Download, Layers, Star, TriangleAlert, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { CachedImage } from './cached-image';
 import { RegistryModCover } from './registry-mod-cover';
 
 export interface RegistryListingCardData {
@@ -88,7 +89,7 @@ export function RegistryListingCard({
         {listLeading ? <div className="mod-card-list-leading">{listLeading}</div> : null}
         <div className="mod-card-list-art">
           {listing.imageUrl ? (
-            <img src={listing.imageUrl} alt="" loading="lazy" />
+            <CachedImage src={listing.imageUrl} alt="" loading="lazy" />
           ) : (
             <RegistryModCover seed={listing.slug} name={listing.name} size="sm" />
           )}
@@ -201,7 +202,7 @@ export function RegistryListingCard({
     <>
       <div className="mod-card-artwork">
         {listing.imageUrl ? (
-          <img
+          <CachedImage
             src={listing.imageUrl}
             alt={labels.preview ?? `${listing.name} preview`}
             loading="lazy"

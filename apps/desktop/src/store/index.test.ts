@@ -30,6 +30,7 @@ function resetStore() {
     activeProfileId: 'default',
     installed: [],
     localMods: {},
+    modArtwork: {},
   });
 }
 
@@ -57,6 +58,35 @@ function profileById(id: string): Profile {
 }
 
 beforeEach(resetStore);
+
+describe('persistent library artwork', () => {
+  it('restores artwork and its content rating without persisting installed mods', async () => {
+    const image = 'https://cdn.rsmm.me/cover.png';
+    useApp.getState().syncLocalMods([localMod({ id: 'folder', slug: 'mod' })]);
+    useApp.getState().patchRemoteInfo({ mod: { image, nsfw: true } });
+    const saved = localStorage.getItem('rsmm-grimoire');
+    expect(saved).not.toContain('"localMods"');
+    expect(saved).not.toContain('"installed"');
+    resetStore();
+    localStorage.setItem('rsmm-grimoire', saved ?? '');
+    await useApp.persist.rehydrate();
+    expect(useApp.getState().localMods).toEqual({});
+    expect(useApp.getState().installed).toEqual([]);
+    useApp.getState().syncLocalMods([localMod({ id: 'folder', slug: 'mod' })]);
+    expect(useApp.getState().localMods.folder).toMatchObject({ image, nsfw: true });
+  });
+
+  it('removes deleted artwork and does not leak it across slugs sharing a folder', () => {
+    useApp.getState().patchRemoteInfo({ mod: { image: 'https://cdn.rsmm.me/old.png' } });
+    useApp.getState().syncLocalMods([localMod({ id: 'folder', slug: 'mod' })]);
+    expect(useApp.getState().localMods.folder?.image).toBeTruthy();
+    useApp.getState().patchRemoteInfo({ mod: { image: null } });
+    expect(useApp.getState().localMods.folder?.image).toBeUndefined();
+    useApp.getState().patchRemoteInfo({ mod: { image: 'https://cdn.rsmm.me/new.png' } });
+    useApp.getState().syncLocalMods([localMod({ id: 'folder', slug: 'different-mod' })]);
+    expect(useApp.getState().localMods.folder?.image).toBeUndefined();
+  });
+});
 
 describe('starter profile and saved profiles', () => {
   it('starts with one empty My mods list and no Chaos Run', () => {

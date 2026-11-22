@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { useEffect, useRef, useState } from 'react';
 import paladinPoster from '../assets/library-tome/paladin-poster.webp';
 
@@ -31,7 +32,7 @@ export function LibrarySpellbook() {
 
   return (
     <div className="empty-grimoire-book" data-ready={ready} aria-hidden="true">
-      <img
+      <CachedImage
         className="empty-grimoire-book-poster"
         src={paladinPoster}
         alt=""

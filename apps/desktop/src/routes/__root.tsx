@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import type { QueryClient } from '@tanstack/react-query';
 import { Link, Outlet, createRootRouteWithContext, useLocation } from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react';
@@ -485,7 +486,11 @@ function RootLayout() {
                   data-tauri-drag-region={collapsed ? undefined : true}
                 >
                   <div className="sidebar-brand">
-                    <img src="/logo.png" alt="Ravenswatch Mod Manager" className="sidebar-logo" />
+                    <CachedImage
+                      src="/logo.png"
+                      alt="Ravenswatch Mod Manager"
+                      className="sidebar-logo"
+                    />
                   </div>
                   <div
                     className="sidebar-expanded-content min-w-0 overflow-hidden font-serif-italic text-lg leading-none text-parchment"

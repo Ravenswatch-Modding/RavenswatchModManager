@@ -11,6 +11,7 @@
     "./registry.css": "./src/registry.css",
     "./registry-detail.css": "./src/registry-detail.css",
     "./registry-media": "./src/lib/registry-media.ts",
+    "./image-cache": "./src/lib/image-cache.ts",
     "./tailwind-preset": "./tailwind.preset.cjs",
     "./reviews": "./src/reviews.ts"
   },

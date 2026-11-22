@@ -1,4 +1,5 @@
 import { ApiError, isRateLimited } from '@rsmm/api-client';
+import { CachedImage } from '@rsmm/ui';
 import { ProgressBar } from '@rsmm/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useCanGoBack, useNavigate, useRouter } from '@tanstack/react-router';
@@ -365,7 +366,7 @@ function CollectionDetailPage() {
                     className="group block w-full text-left"
                   >
                     <div className="aspect-video overflow-hidden rounded border border-oxblood/30 bg-pitch">
-                      <img
+                      <CachedImage
                         src={shot.url}
                         alt={shot.caption || t('Screenshot {n}', { n: i + 1 })}
                         loading="lazy"

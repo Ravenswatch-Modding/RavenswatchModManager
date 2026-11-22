@@ -16,10 +16,12 @@ describe('desktop image policy', () => {
     'https://*.googleusercontent.com',
     'https://cdn.discordapp.com',
     'https://avatars.githubusercontent.com',
-  ])('allows %s avatars only as images', (source) => {
+  ])('allows %s avatars as images and cache fetches', (source) => {
     expect(directives.get('img-src')).toContain(source);
+    expect(directives.get('connect-src')).toContain(source);
     for (const [directive, sources] of directives) {
-      if (directive !== 'img-src') expect(sources).not.toContain(source);
+      if (directive !== 'img-src' && directive !== 'connect-src')
+        expect(sources).not.toContain(source);
     }
   });
 

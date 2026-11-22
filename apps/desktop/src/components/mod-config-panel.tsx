@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { Input } from '@rsmm/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -545,7 +546,7 @@ function MultiSelectField({
                   ].join(' ')}
                 >
                   {opt.icon ? (
-                    <img
+                    <CachedImage
                       src={opt.icon}
                       alt=""
                       className={['h-8 w-8 shrink-0 object-contain', on ? 'grayscale' : ''].join(

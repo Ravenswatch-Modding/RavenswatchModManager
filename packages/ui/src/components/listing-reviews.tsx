@@ -1,12 +1,14 @@
 'use client';
-import type { Review } from '@rsmm/schemas';
+import { CachedImage } from './cached-image';
+
 import type { createApiClient } from '@rsmm/api-client';
-import { Button } from './button';
-import { Input } from './input';
+import type { Review } from '@rsmm/schemas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Star, Trash2 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
-import { reviewText, type ReviewTextOptions } from '../lib/review-text';
+import { type ReviewTextOptions, reviewText } from '../lib/review-text';
+import { Button } from './button';
+import { Input } from './input';
 import { ReviewReplyBlock } from './review-reply';
 
 export type ReviewTarget = 'mod' | 'collection';
@@ -374,7 +376,7 @@ function ListingReviewsContent({
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-muted text-xs font-semibold">
                   {r.userImage ? (
-                    <img
+                    <CachedImage
                       loading="lazy"
                       src={r.userImage}
                       alt={r.userName ?? t('reviewer')}

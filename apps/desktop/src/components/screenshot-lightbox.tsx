@@ -1,3 +1,4 @@
+import { CachedImage } from '@rsmm/ui';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useT } from '../lib/i18n-react';
@@ -61,7 +62,7 @@ export function ScreenshotLightbox({
             onClick={(e) => e.stopPropagation()}
             className="pointer-events-auto flex w-full max-w-6xl flex-col items-center gap-4"
           >
-            <img
+            <CachedImage
               src={active.url}
               alt={label}
               className="max-w-full rounded-md object-contain shadow-2xl"
