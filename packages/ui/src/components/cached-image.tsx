@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ComponentProps, ReactNode, SyntheticEvent } from 'react';
 import {
   type ThumbnailWidth,
   cacheableImageUrl,
@@ -76,6 +76,15 @@ function PlainImage({ src, alt, loading, onError, ...props }: ComponentProps<'im
   }, [cached, src, loading]);
 
   const displaySrc = cached ? (resolved?.source === src ? resolved.url : undefined) : src;
+  // A server-rendered <img> can fail before React hydrates, and React never
+  // replays that error event. Without this, a failed thumbnail on the website
+  // never falls back to the original and the card stays blank.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once per source; onError is a fresh closure each render
+  useEffect(() => {
+    const img = element.current;
+    if (!cached && img?.complete && img.naturalWidth === 0 && img.getAttribute('src'))
+      onError?.({ currentTarget: img, target: img } as unknown as SyntheticEvent<HTMLImageElement>);
+  }, [displaySrc]);
   return (
     <img
       {...props}
