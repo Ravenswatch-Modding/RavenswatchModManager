@@ -14,10 +14,15 @@ permissions:
   contents: read
 
 jobs:
-  # Which jobs this change needs. A job whose inputs did not change is skipped
-  # (a skipped job counts as passed), so a website-only change does not wait on
-  # two PyInstaller builds and a Python-only one does not rebuild the loader.
-  # Each filter errs toward running: when in doubt a path is listed.
+  # Which jobs this change needs. On a PR, a job whose inputs did not change is
+  # skipped (a skipped job counts as passed), so a website-only change does not
+  # wait on two PyInstaller builds and a Python-only one does not rebuild the
+  # loader. Each filter errs toward running: when in doubt a path is listed.
+  # A push to main runs every job: release.yml and both channel publishes ship
+  # a main commit on the strength of its CI run (scripts/ci_green.sh), so that
+  # run has to cover the whole tree, not just the delta from the parent (which
+  # skipped the Lua spec on v6.1.0, and lets a red commit look green one merge
+  # later). The external link check stays filtered; the gate ignores it.
   changes:
     name: changes (which jobs to run)
     runs-on: ubuntu-latest
@@ -25,10 +30,10 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      python: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python == 'true' || steps.inputs.outputs.schema == 'true' }}
-      sidecar: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.sidecar }}
-      ts: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.ts }}
-      loader: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.loader }}
+      python: ${{ github.event_name != 'pull_request' || steps.filter.outputs.python == 'true' || steps.inputs.outputs.schema == 'true' }}
+      sidecar: ${{ github.event_name != 'pull_request' || steps.inputs.outputs.sidecar }}
+      ts: ${{ github.event_name != 'pull_request' || steps.inputs.outputs.ts }}
+      loader: ${{ github.event_name != 'pull_request' || steps.inputs.outputs.loader }}
       docs_links: ${{ github.event_name == 'workflow_dispatch' || steps.inputs.outputs.docs_links }}
     steps:
       - uses: actions/checkout@v5

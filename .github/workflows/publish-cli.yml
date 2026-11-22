@@ -33,15 +33,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # CI on main already ran every suite on this commit (both platforms); ship
+  # only if it went green, rather than re-running a subset here. Its own job so
+  # the Windows build runner is not billed for idling while CI finishes.
+  ci-green:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - name: CI green on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/ci_green.sh "${{ github.sha }}"
+
   build:
+    needs: ci-green
     strategy:
       fail-fast: true
       matrix:
         platform: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.platform }}
-    permissions:
-      contents: read
-      actions: read   # scripts/ci_green.sh
     steps:
       # The channel ships what main holds, and main only takes reviewed
       # changes, so a dispatch from any other ref is refused before anything
@@ -60,15 +76,6 @@ jobs:
           ref: ${{ github.sha }}
           # reuse_published_loader.py diffs against the channel's build commit.
           fetch-depth: 0
-
-      # CI on main already tested this commit on both platforms; ship only if
-      # it went green, rather than re-running a subset of the suite here.
-      - name: CI green on this commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: scripts/ci_green.sh "${{ github.sha }}"
 
       - uses: actions/setup-python@v6
         with:

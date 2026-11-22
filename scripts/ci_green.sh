@@ -4,8 +4,9 @@
 # Usage: scripts/ci_green.sh <sha>     (needs GH_TOKEN, GH_REPO; actions: read)
 #
 # release.yml, publish-cli.yml and publish-loader.yml all ship a main commit.
-# CI already ran every suite on it (Linux + Windows pytest, Lua spec, TS,
-# frozen sidecars, loader cross-compile), so they wait for that run instead of
+# A push to main runs every CI job (ci.yml applies its path filters to PRs
+# only), so that run covers Linux + Windows pytest, Lua spec, TS, frozen
+# sidecars and the loader cross-compile; they wait for it instead of
 # re-running a subset of it. A commit that never went through CI on main has no
 # run and is refused. Only the external link check is exempt: a third-party
 # site being down says nothing about the build. v5.9.10 shipped from a commit
