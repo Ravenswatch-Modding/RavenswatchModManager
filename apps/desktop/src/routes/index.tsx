@@ -35,6 +35,7 @@ import {
   filterLibraryRows,
   groupByCategory,
 } from '../lib/library-filter';
+import { localModsQueryOptions } from '../lib/local-mods-query';
 import type { ModCategory } from '../lib/mod-types';
 import { registryCardLabels } from '../lib/registry-labels';
 import { disableHookWarning, listLocalMods, uninstallLocalMod } from '../lib/rsmm';
@@ -143,20 +144,9 @@ function LibraryPage() {
   const conflicts = useMemo(() => detectConflicts(profile), [profile]);
   const conflictCountByMod = useMemo(() => buildConflictCounts(conflicts), [conflicts]);
 
-  const {
-    data: localMods,
-    error: localModsError,
-    isLoading: localModsLoading,
-  } = useQuery({
-    queryKey: ['rsmm', 'list', activeProfileId],
-    queryFn: listLocalMods,
-    retry: false,
-    staleTime: 5_000,
-  });
-
-  useEffect(() => {
-    if (localMods) syncLocalMods(localMods);
-  }, [localMods, syncLocalMods]);
+  const { error: localModsError, isLoading: localModsLoading } = useQuery(
+    localModsQueryOptions(activeProfileId),
+  );
 
   useEffect(() => {
     if (firstOpen.current) {
