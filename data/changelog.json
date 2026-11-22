@@ -2,6 +2,16 @@
   "generated": "2026-11-22",
   "entries": [
     {
+      "version": "6.1.1",
+      "date": "2026-11-22",
+      "summary": "Opening the app no longer floods a slow internet connection.",
+      "highlights": [
+        "Mod cards load small thumbnails instead of full-size screenshots (about 37 MB down to 1 MB).",
+        "Images download a few at a time and are only re-downloaded when they change."
+      ],
+      "loader_version": 65
+    },
+    {
       "version": "6.1.0",
       "date": "2026-11-22",
       "summary": "Install whole collections from Browse, plus sign-in, library and speed fixes.",
@@ -503,15 +513,6 @@
         "Fractional Free Reroll amounts are rejected instead of silently rounding to 0"
       ],
       "cli_version": 16
-    },
-    {
-      "version": "",
-      "date": "2026-10-25",
-      "summary": "Pams fixes",
-      "highlights": [
-        "Pams fixes"
-      ],
-      "cli_version": 15
     }
   ]
 }
