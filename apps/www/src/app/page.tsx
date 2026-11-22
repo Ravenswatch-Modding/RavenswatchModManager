@@ -136,22 +136,22 @@ const steps = [
 
 const screens = [
   {
-    src: '/screens/list.jpg',
+    src: '/screens/list.jpg?v=3',
     alt: 'The library in list view, with each mod switched on or off and numbered in load order',
     title: 'Your library, in order',
     body: 'Every mod in the active profile with its switch, version and load position. Mods with a heads-up display can open it as an overlay while you play.',
   },
   {
-    src: '/screens/config.jpg',
-    alt: 'The settings dialog of the Damage Meter mod',
+    src: '/screens/config.jpg?v=3',
+    alt: 'A mod settings dialog with effect strength, notifications and preset controls',
     title: 'Settings without editing files',
     body: 'Mods declare their own options. Change a number or flip a switch, save, and apply.',
   },
   {
-    src: '/screens/profiles.jpg',
-    alt: 'The profiles screen with three saved setups',
+    src: '/screens/profiles.jpg?v=3',
+    alt: 'The Library profile picker with saved setups and actions to duplicate or export a profile',
     title: 'A setup for every run',
-    body: 'Keep separate profiles for solo runs and co-op nights, and share one with a friend as a short code.',
+    body: 'Switch profiles from the Library for solo runs and co-op nights, and export one to share with a friend as a short code.',
   },
 ];
 
@@ -310,8 +310,8 @@ export default async function Home() {
         <h2 className="font-display text-3xl text-parchment sm:text-4xl">Inside the app</h2>
         <figure className="gilt-frame mt-8">
           <img
-            src="/screens/library.jpg"
-            alt="The RSMM library: installed mods grouped by category, each with an on/off switch and settings"
+            src="/screens/library.jpg?v=3"
+            alt="The RSMM Library with category groups, mod switches, search, filters and the profile picker"
             width={2160}
             height={1350}
             className="block h-auto w-full"
@@ -399,7 +399,7 @@ export default async function Home() {
             operatingSystem: 'Windows, Linux, SteamOS',
             url: 'https://rsmm.me',
             downloadUrl: 'https://rsmm.me/download',
-            image: 'https://rsmm.me/screens/library.jpg?v=2',
+            image: 'https://rsmm.me/screens/library.jpg?v=3',
             ...(release.tag ? { softwareVersion: release.tag.replace(/^v/, '') } : {}),
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
             publisher: { '@id': 'https://rsmm.me/#org' },

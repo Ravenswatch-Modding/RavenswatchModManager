@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/library.jpg" alt="The RSMM library: installed mods grouped by category, each with an on/off switch, settings and store link" width="100%">
+  <img src=".github/readme/library.jpg" alt="The RSMM Library with category groups, mod switches, search, filters and the profile picker" width="100%">
 </p>
 
 <table>
@@ -79,7 +79,7 @@ and the [FAQ](https://docs.rsmm.me/getting-started/faq/) covers safety, co-op an
 <tr>
 <td width="33%" valign="top"><img src=".github/readme/list.jpg" alt="Library list view with load order"><br><sub><b>List view.</b> Every mod in the active profile at a glance, in load order.</sub></td>
 <td width="33%" valign="top"><img src=".github/readme/config.jpg" alt="A mod's settings dialog"><br><sub><b>Mod settings.</b> Change a mod's options without editing any files.</sub></td>
-<td width="33%" valign="top"><img src=".github/readme/profiles.jpg" alt="Profiles screen"><br><sub><b>Profiles.</b> Keep separate mod setups and share them as a code.</sub></td>
+<td width="33%" valign="top"><img src=".github/readme/profiles.jpg" alt="The Library profile picker with saved setups and export actions"><br><sub><b>Profiles.</b> Switch setups from the Library and export one to share as a code.</sub></td>
 </tr>
 </table>
 

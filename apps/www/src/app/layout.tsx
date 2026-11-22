@@ -165,7 +165,7 @@ export const metadata: Metadata = {
     // renders as a large card, which is where the backlinks come from.
     images: [
       {
-        url: '/screens/library.jpg?v=2',
+        url: '/screens/library.jpg?v=3',
         width: 2160,
         height: 1350,
         alt: 'The Ravenswatch Mod Manager library',
@@ -176,7 +176,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
-    images: ['/screens/library.jpg?v=2'],
+    images: ['/screens/library.jpg?v=3'],
   },
 };
 
