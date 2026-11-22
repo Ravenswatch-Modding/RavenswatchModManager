@@ -2,6 +2,15 @@
   "generated": "2026-11-22",
   "entries": [
     {
+      "version": "",
+      "date": "2026-11-22",
+      "summary": "New read content step: mods can show a live number (like boss health) on a game HUD label. Needed by the Boss Health mod.",
+      "highlights": [
+        "New read content step: mods can show a live number (like boss health) on a game HUD label. Needed by the Boss Health mod."
+      ],
+      "cli_version": 46
+    },
+    {
       "version": "6.1.1",
       "date": "2026-11-22",
       "summary": "Opening the app no longer floods a slow internet connection.",
@@ -501,18 +510,6 @@
         "Rework talents refuse an ambiguous rewire into an inherited file instead of wiring the wrong node"
       ],
       "cli_version": 17
-    },
-    {
-      "version": "",
-      "date": "2026-10-25",
-      "summary": "Item effect fixes: Vitality and Attack power entered in displayed points, correct card units for flat stats, per-level shield scaling",
-      "highlights": [
-        "Vitality and Attack power effects are entered as the number shown in game (10 = +10%), no more x100 bonuses",
-        "Armour, Shield and other flat stats show their real number on item cards instead of x100",
-        "New per_level = true: item effects can grow with hero level, like Fairy Dust's shield",
-        "Fractional Free Reroll amounts are rejected instead of silently rounding to 0"
-      ],
-      "cli_version": 16
     }
   ]
 }
