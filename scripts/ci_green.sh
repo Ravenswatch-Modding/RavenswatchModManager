@@ -27,10 +27,19 @@ if [ -z "$id" ]; then
 fi
 
 gh run watch "$id" --interval 30 > /dev/null
-bad=$(gh run view "$id" --json jobs --jq \
-  '.jobs[] | select(.name | startswith("docs external links") | not)
-           | select(.conclusion != "success" and .conclusion != "skipped")
-           | "\(.name): \(.conclusion)"')
+# A push to main runs every job, so anything but `success` fails the gate,
+# `skipped` included: a skip condition added to a main job later must not pass
+# unnoticed. A run with no jobs (a workflow file that failed to load) or one
+# without the `ci ok` aggregate is refused too, rather than passing empty.
+jobs=$(gh run view "$id" --json jobs --jq \
+  '[.jobs[] | select(.name | startswith("docs external links") | not)]')
+bad=$(jq -r '.[] | select(.conclusion != "success") | "\(.name): \(.conclusion)"' <<<"$jobs")
+if [ "$(jq 'length' <<<"$jobs")" -eq 0 ]; then
+  bad="no jobs in the run (did ci.yml fail to load?)"
+elif ! jq -e 'any(.[]; .name == "ci ok")' <<<"$jobs" > /dev/null; then
+  bad="${bad:+$bad
+}ci ok: missing"
+fi
 if [ -n "$bad" ]; then
   echo "::error::CI is not green on $SHA (run $id):"
   echo "$bad"
