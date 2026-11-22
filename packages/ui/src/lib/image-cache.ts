@@ -18,11 +18,37 @@ export interface ImageStore {
   write(entry: ImageEntry): Promise<void>;
 }
 
+// Registry uploads are full-size originals (2-4 MB PNG screenshots). Cards
+// and grids ask rsmm.me's Next image optimizer for a resized WebP instead, so
+// a list page costs ~1 MB rather than ~40 MB on a slow home line.
+const THUMBNAIL_SOURCE_HOSTS = [
+  'api.rsmm.me',
+  's3-rsmm.me',
+  'cdn.rsmm.me',
+  's3-ravenswatch.ovilli.de',
+];
+const THUMBNAIL_ORIGIN = 'https://rsmm.me';
+/** Widths must be in Next's default deviceSizes/imageSizes or it answers 400. */
+export type ThumbnailWidth = 384 | 640 | 828;
+
+export function thumbnailUrl(src: string, width: ThumbnailWidth): string {
+  try {
+    const url = new URL(src);
+    if (url.protocol !== 'https:' || url.port || !THUMBNAIL_SOURCE_HOSTS.includes(url.hostname))
+      return src;
+  } catch {
+    return src;
+  }
+  return `${THUMBNAIL_ORIGIN}/_next/image?url=${encodeURIComponent(src)}&w=${width}&q=75`;
+}
+
 // Keep this aligned with desktop img-src. A blob URL must never bypass the
 // image host policy just because connect-src happens to permit a host.
 export function cacheableImageUrl(src: string): boolean {
   try {
     const url = new URL(src);
+    if (url.hostname === 'rsmm.me')
+      return url.protocol === 'https:' && !url.port && url.pathname === '/_next/image';
     return (
       url.protocol === 'https:' &&
       !url.username &&

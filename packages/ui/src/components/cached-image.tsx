@@ -2,7 +2,12 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ComponentProps, ReactNode } from 'react';
-import { cacheableImageUrl, imageCache } from '../lib/image-cache';
+import {
+  type ThumbnailWidth,
+  cacheableImageUrl,
+  imageCache,
+  thumbnailUrl,
+} from '../lib/image-cache';
 
 const ImageCacheContext = createContext(false);
 
@@ -11,7 +16,29 @@ export function ImageCacheProvider({ children }: { children: ReactNode }) {
   return <ImageCacheContext.Provider value>{children}</ImageCacheContext.Provider>;
 }
 
-export function CachedImage({ src, alt, loading, onError, ...props }: ComponentProps<'img'>) {
+export function CachedImage({
+  thumb,
+  ...props
+}: ComponentProps<'img'> & {
+  /** Show a resized copy this wide; falls back to the original if it fails. */
+  thumb?: ThumbnailWidth;
+}) {
+  const original = props.src;
+  const thumbnail =
+    thumb && typeof original === 'string' ? thumbnailUrl(original, thumb) : original;
+  const [failedThumb, setFailedThumb] = useState<string>();
+  if (thumbnail === original || failedThumb === thumbnail) return <PlainImage {...props} />;
+  return (
+    <PlainImage
+      {...props}
+      key={thumbnail}
+      src={thumbnail}
+      onError={() => setFailedThumb(thumbnail)}
+    />
+  );
+}
+
+function PlainImage({ src, alt, loading, onError, ...props }: ComponentProps<'img'>) {
   const enabled = useContext(ImageCacheContext);
   const cached = enabled && typeof src === 'string' && cacheableImageUrl(src);
   const element = useRef<HTMLImageElement>(null);

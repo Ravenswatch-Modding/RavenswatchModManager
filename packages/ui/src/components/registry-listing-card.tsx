@@ -89,7 +89,7 @@ export function RegistryListingCard({
         {listLeading ? <div className="mod-card-list-leading">{listLeading}</div> : null}
         <div className="mod-card-list-art">
           {listing.imageUrl ? (
-            <CachedImage src={listing.imageUrl} alt="" loading="lazy" />
+            <CachedImage src={listing.imageUrl} alt="" loading="lazy" thumb={384} />
           ) : (
             <RegistryModCover seed={listing.slug} name={listing.name} size="sm" />
           )}
@@ -206,6 +206,7 @@ export function RegistryListingCard({
             src={listing.imageUrl}
             alt={labels.preview ?? `${listing.name} preview`}
             loading="lazy"
+            thumb={640}
           />
         ) : (
           <RegistryModCover seed={listing.slug} name={listing.name} className="h-full w-full" />

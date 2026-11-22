@@ -344,6 +344,7 @@ function CollectionDetailPage() {
                         src={shot.url}
                         alt={shot.caption || t('Screenshot {n}', { n: i + 1 })}
                         loading="lazy"
+                        thumb={640}
                         className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
                       />
                     </div>

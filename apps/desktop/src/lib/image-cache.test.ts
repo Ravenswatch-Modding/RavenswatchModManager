@@ -3,6 +3,7 @@ import {
   type ImageEntry,
   cacheableImageUrl,
   createImageCache,
+  thumbnailUrl,
 } from '@rsmm/ui/image-cache';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -121,5 +122,30 @@ describe('persistent WebView images', () => {
     expect(cacheableImageUrl(src)).toBe(false);
     await expect(cache.load(src, vi.fn())).resolves.toBeUndefined();
     expect(download).not.toHaveBeenCalled();
+  });
+});
+
+describe('registry thumbnails', () => {
+  const upload = 'https://s3-ravenswatch.ovilli.de/ravenswatch-mods/mod-images/x/a b.png';
+
+  it('routes registry uploads through the rsmm.me optimizer and caches the result', () => {
+    const thumb = thumbnailUrl(upload, 640);
+    expect(thumb).toBe(`https://rsmm.me/_next/image?url=${encodeURIComponent(upload)}&w=640&q=75`);
+    expect(cacheableImageUrl(thumb)).toBe(true);
+  });
+
+  it('leaves other hosts, bundled art and malformed URLs untouched', () => {
+    for (const src of [
+      '/logo.png',
+      'https://evil.test/x.png',
+      'not a url',
+      'http://cdn.rsmm.me/x.png',
+    ])
+      expect(thumbnailUrl(src, 384)).toBe(src);
+  });
+
+  it('caches only the optimizer path on rsmm.me', () => {
+    expect(cacheableImageUrl('https://rsmm.me/api/whatever.png')).toBe(false);
+    expect(cacheableImageUrl('https://rsmm.me:8443/_next/image?url=x')).toBe(false);
   });
 });

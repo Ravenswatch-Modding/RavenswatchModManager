@@ -11,6 +11,18 @@ const nextConfig = {
     // use instead.
     preloadEntriesOnStart: false,
   },
+  images: {
+    // Registry uploads are multi-MB originals; cards request resized WebP via
+    // /_next/image (packages/ui thumbnailUrl). Only our own upload hosts.
+    remotePatterns: [
+      { protocol: 'https', hostname: 's3-ravenswatch.ovilli.de' },
+      { protocol: 'https', hostname: 's3-rsmm.me' },
+      { protocol: 'https', hostname: 'cdn.rsmm.me' },
+      { protocol: 'https', hostname: 'api.rsmm.me' },
+    ],
+    // Upload keys carry a random suffix and never change content.
+    minimumCacheTTL: 31 * 24 * 60 * 60,
+  },
   async headers() {
     // Mod pages embed YouTube / Vimeo videos (lib/video-embed.ts). Everything
     // else third-party is AdSense: loader + creatives (googlesyndication /
@@ -24,7 +36,7 @@ const nextConfig = {
             "script-src 'self' 'unsafe-inline' https://partner.googleadservices.com https://www.googletagservices.com https://adservice.google.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "connect-src 'self' https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://cdn.discordapp.com https://avatars.githubusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
-            "img-src 'self' data: blob: https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://cdn.discordapp.com https://avatars.githubusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
+            "img-src 'self' data: blob: https://rsmm.me https://api.rsmm.me https://cdn.rsmm.me https://s3-rsmm.me https://s3-ravenswatch.ovilli.de https://*.googleusercontent.com https://cdn.discordapp.com https://avatars.githubusercontent.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "font-src 'self' https://fonts.gstatic.com",
             "frame-src 'self' https://www.youtube.com https://player.vimeo.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.g.doubleclick.net https://www.google.com https://fundingchoicesmessages.google.com https://*.adtrafficquality.google",
             "object-src 'none'",
@@ -36,6 +48,11 @@ const nextConfig = {
           ].join('; ')
         : '';
     return [
+      {
+        // The desktop WebView fetch()es thumbnails into its image cache.
+        source: '/_next/image',
+        headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }],
+      },
       {
         source: '/image-cache-sw.js',
         headers: [{ key: 'Cache-Control', value: 'no-cache' }],
