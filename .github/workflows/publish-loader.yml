@@ -79,6 +79,7 @@ jobs:
       # from rsmm.lua). CI on main ran the Lua spec and pytest on this exact
       # commit; ship only if it went green.
       - name: CI green on this commit
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
