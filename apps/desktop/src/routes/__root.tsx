@@ -276,22 +276,22 @@ function SidebarLaunch({ collapsed }: { collapsed: boolean }) {
           id={menuId}
           role="menu"
           aria-label={t('Launch options')}
-          className="grimoire-card grimoire-card--raised absolute inset-x-3 bottom-full z-50 mb-2 p-1.5"
+          className="sidebar-launch-menu grimoire-card grimoire-card--raised absolute z-50"
         >
           <button
             ref={vanillaRef}
             type="button"
             role="menuitem"
             disabled={busy}
-            className="flex min-h-11 w-full items-center gap-3 rounded px-3 py-2 text-left text-base font-semibold text-parchment transition-colors duration-150 hover:bg-char/60 focus-visible:bg-char/60"
+            className="sidebar-launch-action grid w-full items-center text-left text-base font-semibold text-parchment transition-colors duration-150 hover:bg-char/60 focus-visible:bg-char/60"
             onClick={() => {
               setMenuOpen(false);
               disclosureRef.current?.focus();
               void launch('vanilla');
             }}
           >
-            <LaunchIcon className="h-5 w-5 shrink-0 text-ash" />
-            {t('Launch Vanilla')}
+            <LaunchIcon className="h-5 w-5 shrink-0 text-ash" aria-hidden />
+            <span className="sidebar-expanded-content truncate pr-2">{t('Launch Vanilla')}</span>
           </button>
         </div>
       ) : null}

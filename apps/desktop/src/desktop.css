@@ -183,6 +183,18 @@
   grid-template-columns: var(--icon-button-size) minmax(0, 1fr);
   border-radius: inherit;
 }
+/* Keep this one-row menu snug even when compact density pads other cards.
+   Its inner action aligns with the complete split launch control above it. */
+.app-sidebar .sidebar-launch-menu.grimoire-card {
+  --launch-menu-padding: 4px;
+  inset-inline: calc(var(--sidebar-inset) - var(--launch-menu-padding) - 1px);
+  top: calc(100% - var(--app-spacing-sm) + 0.5rem);
+  padding: var(--launch-menu-padding);
+  border-radius: calc(var(--icon-button-radius) + var(--launch-menu-padding) + 1px);
+}
+.sidebar-launch-menu > .sidebar-launch-action {
+  border-radius: var(--icon-button-radius);
+}
 .app-sidebar
   :is(.sidebar-nav-item, .sidebar-launch-control, .sidebar-launch-action, .sidebar-account-action) {
   height: var(--icon-button-size);
