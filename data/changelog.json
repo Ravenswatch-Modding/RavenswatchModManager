@@ -1,6 +1,15 @@
 {
-  "generated": "2026-11-22",
+  "generated": "2026-11-23",
   "entries": [
+    {
+      "version": "",
+      "date": "2026-11-23",
+      "summary": "Updated for game patch 1.6.2.3 (exe e04db5c457dd): vftable addresses moved +0x10, so camera, keybinds and other address-based features work again on the new build.",
+      "highlights": [
+        "Updated for game patch 1.6.2.3 (exe e04db5c457dd): vftable addresses moved +0x10, so camera, keybinds and other address-based features work again on the new build."
+      ],
+      "loader_version": 66
+    },
     {
       "version": "",
       "date": "2026-11-22",
@@ -496,15 +505,6 @@
       "summary": "Windows Title bar dragging fix by Skigim",
       "highlights": [
         "See changelog"
-      ],
-      "loader_version": 49
-    },
-    {
-      "version": "",
-      "date": "2026-10-26",
-      "summary": "Symbol map corrections for build b9c3642: two mis-mapped flag serializers dropped, 16 more engine functions located (#66)",
-      "highlights": [
-        "Symbol map corrections for build b9c3642: two mis-mapped flag serializers dropped, 16 more engine functions located (#66)"
       ],
       "loader_version": 49
     }
