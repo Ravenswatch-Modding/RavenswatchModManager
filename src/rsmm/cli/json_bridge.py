@@ -520,6 +520,23 @@ def sync_enabled(mods_dir: Path, enabled_ids: list[str]) -> list[str]:
     return changed
 
 
+@contextlib.contextmanager
+def _load_order_env(order_json: str | None):
+    """Set RSMM_LOAD_ORDER (read by apply_mods.profile_load_order) for the
+    child rsmm process, or clear it when ``order_json`` is None; restores the
+    previous value afterwards."""
+    prior = os.environ.pop("RSMM_LOAD_ORDER", None)
+    if order_json is not None:
+        os.environ["RSMM_LOAD_ORDER"] = order_json
+    try:
+        yield
+    finally:
+        if prior is None:
+            os.environ.pop("RSMM_LOAD_ORDER", None)
+        else:
+            os.environ["RSMM_LOAD_ORDER"] = prior
+
+
 def cmd_apply(rest: list[str], enabled_json: str | None = None) -> int:
     """``apply``; with ``enabled_json`` (a JSON list of mod ids) the manifests
     are first made to match it (:func:`sync_enabled`)."""
@@ -561,11 +578,10 @@ def cmd_apply(rest: list[str], enabled_json: str | None = None) -> int:
     os.environ["RSMM_SKIPPED_FILE"] = skipped_path    # the child inherits it
     # The profile's order decides which mod wins a conflict (see
     # apply_mods.profile_load_order); `ids` is already in that order.
-    prior_order = os.environ.pop("RSMM_LOAD_ORDER", None)
-    if enabled_json is not None:
-        os.environ["RSMM_LOAD_ORDER"] = json.dumps(ids)
+    order = json.dumps(ids) if enabled_json is not None else None
     try:
-        result = _collect_rsmm(["apply", *rest])
+        with _load_order_env(order):
+            result = _collect_rsmm(["apply", *rest])
         try:
             skipped = json.loads(Path(skipped_path).read_text(encoding="utf-8") or "[]")
         except (OSError, ValueError):
@@ -575,10 +591,6 @@ def cmd_apply(rest: list[str], enabled_json: str | None = None) -> int:
             os.environ.pop("RSMM_SKIPPED_FILE", None)
         else:
             os.environ["RSMM_SKIPPED_FILE"] = prior
-        if prior_order is None:
-            os.environ.pop("RSMM_LOAD_ORDER", None)
-        else:
-            os.environ["RSMM_LOAD_ORDER"] = prior_order
         with contextlib.suppress(OSError):
             os.unlink(skipped_path)
     result["skipped"] = skipped if isinstance(skipped, list) else []
@@ -740,8 +752,19 @@ def cmd_loader_flags_set(names_json: str) -> int:
     })
 
 
-def cmd_build(rest: list[str]) -> int:
-    return _run_rsmm(["build", *rest])
+def cmd_build(rest: list[str], load_order_json: str | None = None) -> int:
+    """``build``; ``load_order_json`` (the profile's mod ids, in Library order)
+    decides which mod wins a conflict, as it does for ``apply``."""
+    if load_order_json is not None:
+        try:
+            ids = json.loads(load_order_json)
+        except json.JSONDecodeError:
+            ids = None
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            return _emit({"ok": False, "code": 2, "stdout": "",
+                          "stderr": "--load-order-json must be a JSON list of mod ids"})
+    with _load_order_env(load_order_json):
+        return _run_rsmm(["build", *rest])
 
 
 def _uninstall_loader_runtime(game_dir: Path) -> tuple[bool, str]:
@@ -2151,7 +2174,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("restore-all", help="restore every active override")
     sub.add_parser("self-heal", help="restore what a modded session left behind, "
                                      "only when every safeguard holds")
-    sub.add_parser("build", help="build asset map + loader + merge + apply")
+    p_build = sub.add_parser("build", help="build asset map + loader + merge + apply")
+    p_build.add_argument("--load-order-json", default=None,
+                         help="JSON list of the profile's mod ids in Library order; "
+                              "later mods win conflicts")
     sub.add_parser("conflicts", help="detect all conflicts among enabled mods")
     sub.add_parser("overlays", help="read every mod-declared overlay + its live rows")
     p_log = sub.add_parser("loader-log", help="read the in-game loader log")
@@ -2282,7 +2308,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "restore-all":
         return cmd_restore_all()
     if args.cmd == "build":
-        return cmd_build([])
+        return cmd_build([], args.load_order_json)
     if args.cmd == "conflicts":
         return cmd_conflicts()
     if args.cmd == "loader-log":

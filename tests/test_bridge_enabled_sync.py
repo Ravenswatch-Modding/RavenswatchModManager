@@ -98,3 +98,20 @@ def test_an_in_game_switch_beats_the_profile_and_is_reported(tmp_path, monkeypat
     out = json.loads(capsys.readouterr().out)
     assert out["menuToggles"] == {"a": False, "b": True}
     assert not _on(a) and _on(b)
+
+
+def test_build_passes_the_library_order(monkeypatch, capsys):
+    """Desktop Build runs `rsmm build`, not apply: the profile order must reach
+    that child too, and the variable is gone again afterwards."""
+    import os
+    monkeypatch.delenv("RSMM_LOAD_ORDER", raising=False)
+    seen = []
+    monkeypatch.setattr(B, "_collect_rsmm", lambda args: seen.append(
+        (args, os.environ.get("RSMM_LOAD_ORDER"))) or {"ok": True})
+    B.cmd_build([], json.dumps(["b", "a"]))
+    assert seen == [(["build"], '["b", "a"]')]
+    assert "RSMM_LOAD_ORDER" not in os.environ
+    capsys.readouterr()
+    B.cmd_build([], json.dumps({"a": 1}))
+    assert "load-order-json" in json.loads(capsys.readouterr().out)["stderr"]
+    assert len(seen) == 1

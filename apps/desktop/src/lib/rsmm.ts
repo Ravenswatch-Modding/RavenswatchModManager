@@ -1496,7 +1496,13 @@ function followMenuToggles(result: RunResult | null, profileId?: string) {
   }
 }
 
-export const build = () => rsmm<RunResult>(['build'], { timeoutMs: LONG_TIMEOUT_MS });
+/** Build honours the Library order too: later mods win conflicts. */
+export const build = () => {
+  const args = ['build'];
+  const enabled = profileEnabledMods();
+  if (enabled) args.push('--load-order-json', JSON.stringify(enabled));
+  return rsmm<RunResult>(args, { timeoutMs: LONG_TIMEOUT_MS });
+};
 
 // `run` applies every enabled mod (and may install the loader or restore)
 // before it launches, so it needs apply's budget. At 60 s it timed out on big
