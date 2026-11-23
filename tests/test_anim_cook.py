@@ -122,3 +122,22 @@ def test_animation_kind_writes_the_cooked_clip_over_the_target(tmp_path):
     assert [f.relative_to(mod / "assets").as_posix() for f in files] == [DASH]
     got = A.parse_payload(b"".join(s.payload for s in cooked.parse(files[0].read_bytes()).sections))
     assert got.duration == pytest.approx(A.parse_payload(payload).duration)
+
+
+@needs_clip
+def test_travel_moves_only_the_root_forward():
+    """`with_travel`: the root-motion bone eases forward to `metres` by
+    `until` and holds; every other track is untouched (a clip authored in
+    place gets a lunge without re-animating it)."""
+    src = A.parse_payload(_payload())
+    out = A.parse_payload(AK.with_travel(_payload(), 1.5, 0.2))
+    root = next(t for t in out.tracks if t.name == AK.ROOT_MOTION_BONE)
+    z = [A._decode_trans_scale(v)[2] for v in root.t_values]
+    z0 = A._decode_trans_scale(next(t for t in src.tracks
+                                    if t.name == AK.ROOT_MOTION_BONE).t_values[0])[2]
+    assert z == sorted(z) and abs(z[-1] - z0 - 1.5) < 1e-3
+    assert z[len(z) // 3] - z0 > 0.5 * 1.5          # eases out: most of it early
+    assert [t for t in out.tracks if t.name != AK.ROOT_MOTION_BONE] == \
+        [t for t in src.tracks if t.name != AK.ROOT_MOTION_BONE]
+    with pytest.raises(AK.AnimCookError):
+        AK.with_travel(_payload(), 1.5, 99)

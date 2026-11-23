@@ -1758,6 +1758,18 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
                 else:
                     payload, _notes = AC.cook(glb, tpl_payload, name=spec.get("clip"),
                                               strict=bool(spec.get("strict")))
+                # `travel`: metres the clip carries the hero forward (root
+                # motion), done by `travel_until` s; a clip authored in place
+                # (no root keys) otherwise attacks standing still.
+                if spec.get("travel") is not None:
+                    tv, tu = spec["travel"], spec.get("travel_until")
+                    if isinstance(tv, bool) or not isinstance(tv, (int, float)) or (
+                            tu is not None and (isinstance(tu, bool)
+                                                or not isinstance(tu, (int, float)))):
+                        raise ContentError(f"hero {hid}: animations.{name}: travel is metres "
+                                           "forward, travel_until seconds")
+                    payload = AC.with_travel(payload, float(tv),
+                                             None if tu is None else float(tu))
             except AC.AnimCookError as e:
                 raise ContentError(f"hero {hid}: animation {name}: {e}") from e
             head = len(tcf.sections[0].payload)
@@ -1787,6 +1799,12 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
                     fill["duration"] = own_clips[n][1]
             else:
                 out.append(fit(c))
+                # A rig clip re-proportioned for the hero's body is a new file
+                # (Hero_<id>_<clip>) the game does not ship yet, so the ability
+                # builder could not look its length up and refused it; the
+                # copy is exactly as long as the shipped clip.
+                if out[-1] != c and not isinstance(clip, list) and "duration" not in fill:
+                    fill["duration"] = HF.clip_length(c)
         if clip is not None:
             fill["clip"] = out if isinstance(clip, list) else out[0]
         if isinstance(fill.get("texture"), str):

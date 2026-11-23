@@ -221,6 +221,42 @@ def _with_tail(tpl: A.Animation, tracks: list, duration: float) -> A.Animation:
     return replace(tpl, tracks=tracks, five_f32=tuple(five), frame_step=frame_step)
 
 
+#: The bone whose translation the game turns into the hero's movement during
+#: an ability (root motion): every shipped hero rig has it, keyed along +Z
+#: (forward). Kintaro's three basic attacks carry him 2.4, 1.8 and 3.7 m, most
+#: of it in the first half of each clip; a clip that leaves it still plays in
+#: place (Jack's chop, playtest 2026-11-23).
+ROOT_MOTION_BONE = "DEF.RootMotion"
+_TRAVEL_FPS = 30
+
+
+def with_travel(payload: bytes, metres: float, until: float | None = None) -> bytes:
+    """``payload`` (a cooked clip) whose root motion carries the hero
+    ``metres`` forward, easing out (fast start, slow finish, as a lunge),
+    done at ``until`` seconds (default: 55% of the clip) and held after. The
+    root's sideways and vertical keys keep their first value."""
+    if not -31 <= metres <= 31:
+        raise AnimCookError(f"travel {metres} m is out of range (-31..31)")
+    anim = A.parse_payload(payload)
+    duration = anim.duration
+    track = next((t for t in anim.tracks if t.name == ROOT_MOTION_BONE), None)
+    if track is None:
+        raise AnimCookError(f"the clip has no {ROOT_MOTION_BONE} bone to carry the travel")
+    end = 0.55 * duration if until is None else float(until)
+    if not 0 < end <= duration:
+        raise AnimCookError(f"travel ends at {end} s, outside the clip (0..{duration:.2f} s)")
+    x, y, z = A._decode_trans_scale(track.t_values[0]) if track.t_values else (0.0, 0.0, 0.0)
+    n = max(2, int(end * _TRAVEL_FPS))
+    keys = [(end * i / n, (x, y, z + metres * (1 - (1 - i / n) ** 2))) for i in range(n + 1)]
+    if end < duration:
+        keys.append((duration, keys[-1][1]))
+    times, vals = _stream(keys, track.t_times, track.t_values, duration, quant_ts,
+                          lambda a, b: a == b)
+    tracks = [replace(t, t_times=times, t_values=vals) if t is track else t
+              for t in anim.tracks]
+    return A.emit_payload(replace(anim, tracks=tracks))
+
+
 def glb_rest(glb: bytes) -> dict[str, tuple]:
     """Each named node's rest ``(translation, rotation xyzw, scale)``."""
     doc, _ = _read_glb(glb)

@@ -1414,6 +1414,19 @@ clip = "anim:Bean"
 hits = [ { at = 0.9, radius = 5, damage = 300, status = "Rooted" } ]
 ```
 
+A button moves the hero only through its clip: the `DEF.RootMotion` bone's
+forward travel (root motion), as every shipped attack lunges. A clip animated
+in place attacks standing still. `travel` on the animation adds the step
+without re-animating it:
+
+```toml
+[content.frame.animations.Chop]
+source       = "art/anims/jack_Chop.glb"
+template     = "Kintaro_BasicAttack01"
+travel       = 1.5      # metres forward, fast at first, easing out
+travel_until = 0.35     # seconds; default 55% of the clip
+```
+
 - `stun` (seconds), `knockback` and `stagger` are fields of the hit's damage
   record; `status` puts `Rooted`, `Weak`, `Vulnerable`, `Bleed`, `Chilled` or
   `Ignite` on whoever it hits (a copy of a shipped debuff, on only while the
