@@ -997,7 +997,11 @@ _PET_KEYS = {"entity", "count", "button", "talent", "when", "counter", "appear",
              "hold", "keep_ability", "attack_area", "attack_speed", "attack_debuffs",
              "attack_cooldown", "attack_reach", "attack_range", "attack_targets",
              "attack_combo", "attack_damage",
-             "count_talents", "count_card", "look", "name", "upgrade"}
+             "count_talents", "count_card", "look", "name", "upgrade", "base"}
+#: `base`: "pet" follows the hero (Piper's rats); "ally" is a free summon
+#: on Ally_Model that rises out of the ground (Sun Wukong's clone).
+_PET_BASES = {"pet": "Heroes\\Hero_Pets\\Hero_Pet_Model.entity.ot",
+              "ally": "Enemies\\NPC_Common\\Ally_Model.entity.ot"}
 
 
 def _pets(spec, g: EG.EntityGraph, alt: tuple[str, ...], ctx: _Ctx,
@@ -1049,6 +1053,9 @@ def _pets(spec, g: EG.EntityGraph, alt: tuple[str, ...], ctx: _Ctx,
             raise KitError(f"kit pets upgrade has no {', '.join(sorted(bad))}")
     if spawn == "button" and spec.get("talent") and not upgrade:
         raise KitError("kit pets: spawn = \"button\" and a talent do not mix")
+    for b in (spec.get("base", "pet"), (upgrade or {}).get("base", "pet")):
+        if b not in _PET_BASES:
+            raise KitError(f"kit pets base = {b!r}: \"pet\" or \"ally\"")
     src = _entity_ref(spec["entity"])
     if _is_pet(src):
         # Already a pet (Piper's rat): her logic as shipped, in a copy of the
@@ -1063,7 +1070,7 @@ def _pets(spec, g: EG.EntityGraph, alt: tuple[str, ...], ctx: _Ctx,
         pre = []
         # A bomber pet: it bursts when it dies, on its first bite too
         # (`burst_on_hit`, Pam's suicide wolves), or when `lifetime` runs out.
-        pet = _summon_for(spec["entity"], ctx, "pets", base=AS.PET_MODEL,
+        pet = _summon_for(spec["entity"], ctx, "pets", base=_PET_BASES[spec.get("base", "pet")],
                           appear=spec.get("appear"), burst=spec.get("burst"),
                           lifetime=spec.get("lifetime"),
                           on_hit=bool(spec.get("burst_on_hit")), attack=spec.get("attack"),
@@ -1076,7 +1083,8 @@ def _pets(spec, g: EG.EntityGraph, alt: tuple[str, ...], ctx: _Ctx,
                 else spec
             )
             up_spec = {**base_spec, **upgrade}
-            pet_up = _summon_for(up_spec["entity"], ctx, "pets", base=AS.PET_MODEL,
+            pet_up = _summon_for(up_spec["entity"], ctx, "pets",
+                                 base=_PET_BASES[up_spec.get("base", "pet")],
                                  appear=up_spec.get("appear"), burst=up_spec.get("burst"),
                                  lifetime=up_spec.get("lifetime"),
                                  on_hit=bool(up_spec.get("burst_on_hit")),
