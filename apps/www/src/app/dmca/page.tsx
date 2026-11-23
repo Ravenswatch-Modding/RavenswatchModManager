@@ -25,8 +25,13 @@ export default function DmcaPage() {
             <p>
               Mods listed on this registry are uploaded by community members. Each uploader is
               solely responsible for the content they publish and warrants that they hold the rights
-              to distribute it. The maintainers do not pre-screen every upload and do not claim
-              ownership of community submissions.
+              to distribute it. The maintainers do not claim ownership of community submissions.
+            </p>
+            <p>
+              Every uploaded mod version is scanned for malware and goes live only once the scan
+              comes back clean. Guides are reviewed by a moderator before they are published, and
+              an edit to a published guide goes back for review. Other mod content is not reviewed
+              before it is listed: moderators act on reports and on what they find themselves.
             </p>
           </section>
 
@@ -54,7 +59,23 @@ export default function DmcaPage() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-semibold text-foreground">3. Trademarks</h2>
+            <h2 className="text-lg font-semibold text-foreground">3. Fair play</h2>
+            <p>
+              Mods may change how the game plays, but not at the expense of other players. A mod
+              that changes what the party plays (content, balance, enemies, rules) carries the{' '}
+              <strong>Private games only</strong> label, set automatically when the mod is packed,
+              and only a moderator can remove it. While such a mod is applied, the mod manager keeps
+              public matchmaking closed, so it is only played with people who joined a private game.
+            </p>
+            <p>
+              Mods built to gain an advantage over other players in public games, to get around
+              that restriction, or to tamper with other players&apos; accounts, saves or progress
+              are not allowed and are removed.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold text-foreground">4. Trademarks</h2>
             <p>
               &quot;Ravenswatch&quot; and related marks are trademarks of Passtech Games. This is an
               unofficial, fan-made project and is not affiliated with or endorsed by Passtech Games
@@ -65,7 +86,7 @@ export default function DmcaPage() {
 
           <section className="space-y-2">
             <h2 className="text-lg font-semibold text-foreground">
-              4. Reporting infringing content (DMCA / takedown)
+              5. Reporting infringing content (DMCA / takedown)
             </h2>
             <p>
               If you are a rights holder and believe material on this site infringes your copyright
@@ -103,10 +124,16 @@ export default function DmcaPage() {
               inappropriate content — use the <strong>Report</strong> button on the mod&apos;s page.
               Reports go straight to the moderation queue and each is reviewed by a moderator.
             </p>
+            <p>
+              A moderator who acts on a mod either hides it from the registry while the author fixes
+              it, or removes it. The author is told why and can reply to the moderator from the
+              mod&apos;s page. Accounts that keep breaking this policy can be banned from
+              publishing.
+            </p>
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-semibold text-foreground">5. Counter-notice</h2>
+            <h2 className="text-lg font-semibold text-foreground">6. Counter-notice</h2>
             <p>
               If your content was removed and you believe that was a mistake or misidentification,
               you may reply to the original notice with an explanation and your contact details, and
