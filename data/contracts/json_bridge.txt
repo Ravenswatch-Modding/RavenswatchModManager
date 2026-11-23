@@ -13,6 +13,7 @@ backend off
 backend set
 backend set url
 build
+build --load-order-json
 changelog
 changelog --refresh
 config
