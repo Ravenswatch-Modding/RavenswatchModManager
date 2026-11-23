@@ -4,6 +4,19 @@
     {
       "version": "",
       "date": "2026-11-23",
+      "summary": "Library load order decides which mod wins; custom heroes can bring their own skeleton; animation travel (root-motion lunge) for hero clips; pet bases and projectile explode radius fixed, new projectile building blocks; symbols remapped for game build 1.6.2.3",
+      "highlights": [
+        "The Library's load order now decides which mod wins a conflict",
+        "Custom heroes can bring their own skeleton",
+        "Hero animations can step the hero forward (travel), so attacks lunge",
+        "Pet bases and projectile explode radius fixed; new projectile building blocks",
+        "Symbols remapped for game build 1.6.2.3"
+      ],
+      "cli_version": 48
+    },
+    {
+      "version": "",
+      "date": "2026-11-23",
       "summary": "Updated for game patch 1.6.2.3 (exe e04db5c457dd): vftable addresses moved +0x10, so camera, keybinds and other address-based features work again on the new build.",
       "highlights": [
         "Updated for game patch 1.6.2.3 (exe e04db5c457dd): vftable addresses moved +0x10, so camera, keybinds and other address-based features work again on the new build."
@@ -498,15 +511,6 @@
         "rsmm apply builds custom heroes far faster (minutes down to seconds)"
       ],
       "cli_version": 19
-    },
-    {
-      "version": "5.9.27",
-      "date": "2026-10-26",
-      "summary": "Windows Title bar dragging fix by Skigim",
-      "highlights": [
-        "See changelog"
-      ],
-      "loader_version": 49
     }
   ]
 }
