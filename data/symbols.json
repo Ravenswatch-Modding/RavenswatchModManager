@@ -857,7 +857,7 @@
    "name": "EnemyController_vftable",
    "kind": "data",
    "category": "entity",
-   "va": "0x140f36f30",
+   "va": "0x140f36f40",
    "status": "va",
    "note": "Vftable of oCDtEntityCpntEnemyController. Derived from MSVC RTTI (type descriptor .?AVoCDtEntityCpntEnemyController@@ -> complete object locator -> vftable) and cross-checked by the same derivation reproducing HeroController's vftable at 0x140f30ca0, which HeroController_Ctor (0x14038ec30) provably stores at +0x1c6. ⚠ NOT the right key for 'is this entity an enemy' -- use the CLASS ID 0x1561073c (tools/mine_class_ids.py, data/class_ids.json) instead. Components on an oCEntity live in an F14 map (control bytes @entity+0x5e8, slots @+0x5f0 with stride 0x10 = {u32 class id @+0, cpnt* @+8}, bucket mask @+0x600) keyed by that id -- the exact structure Entity_GetNetComponent probes for oCEntityCpntNetwork (0x154fce5c). A class id is a hash of the class NAME, so it survives a patch that moves every address, while this VA does not. The vftable remains useful as corroboration on a component already found by id. CORRECTED 2026-08-17 after a playtest (session c536) in which the vftable walk classified 12/12 victims as unknown-or-scenery: it was scanning entity+0x190/+0x198, which is the component array of an oCEntitySpawnerGo (see Entity_GetComponentByTester), NOT of an oCEntity. Re-derive after a patch from EnemyController_Ctor+0x81.",
    "refs": [
@@ -2277,7 +2277,7 @@
    "name": "HeroMelodyPersistentData_vftable",
    "kind": "data",
    "category": "melodies",
-   "va": "0x140f146d0",
+   "va": "0x140f146e0",
    "status": "va",
    "note": "vftable of HeroMelodyPersistentData (\"Dt Hero Controller Owned Melody Persistent Data\", typedesc 0x141375258) — the per-hero component that survives a chapter and is the likeliest home of the player's NOTE COUNT and per-melody power-up level. Notes are NOT in the entity-value store (no key in R.stat) and not in the scene-context table (R.game has only 'Melody notes in spawning tile' and 'Melody power up level max catchup'); MelodyProfileData is the cross-run counterpart. 7 construction sites. Not yet walked: dump a live instance to find the counter.",
    "refs": []
@@ -2835,7 +2835,7 @@
    "name": "Library_AchievementDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f28d98",
+   "va": "0x140f28da8",
    "status": "va",
    "note": "vftable of oCTLibrary<oe::dt::AchievementDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2846,7 +2846,7 @@
    "name": "Library_ChallengeDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b568",
+   "va": "0x140f2b578",
    "status": "va",
    "note": "vftable of oCTLibrary<oe::dt::ChallengeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2857,7 +2857,7 @@
    "name": "Library_DreamShardDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b408",
+   "va": "0x140f2b418",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtDreamShardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2868,7 +2868,7 @@
    "name": "Library_EnemyCampDifficultyDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2c5d0",
+   "va": "0x140f2c5e0",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtEnemyCampDifficultyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2879,7 +2879,7 @@
    "name": "Library_EnemyCampTierDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2c610",
+   "va": "0x140f2c620",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtEnemyCampTierDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2890,7 +2890,7 @@
    "name": "Library_EnemyDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2cb10",
+   "va": "0x140f2cb20",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtEnemyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2901,7 +2901,7 @@
    "name": "Library_EnemyTribeDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2c7c8",
+   "va": "0x140f2c7d8",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtEnemyTribeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2912,7 +2912,7 @@
    "name": "Library_EntitySettingsResource_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f77ba8",
+   "va": "0x140f77bb8",
    "status": "va",
    "note": "vftable of oCTLibrary<oCEntitySettingsResource> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2923,7 +2923,7 @@
    "name": "Library_GameModifierDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b940",
+   "va": "0x140f2b950",
    "status": "va",
    "note": "vftable of oCTLibrary<oe::dt::GameModifierDefinition> singleton. GameModifiers = the run mutators / 'negative modes' (No boss timer, No minimap, More experience, Day only, ...). Defs load from *.gamemodifierdef.ot via the additive dir-scan/UsedRscList path, same as enemy defs. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2934,7 +2934,7 @@
    "name": "Library_IngredientDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b5a8",
+   "va": "0x140f2b5b8",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtIngredientDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2945,7 +2945,7 @@
    "name": "Library_MapDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b3b0",
+   "va": "0x140f2b3c0",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtMapDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2956,7 +2956,7 @@
    "name": "Library_MelodyDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b688",
+   "va": "0x140f2b698",
    "status": "va",
    "note": "vftable of oCTLibrary<MelodyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2967,7 +2967,7 @@
    "name": "Library_RewardDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b448",
+   "va": "0x140f2b458",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtRewardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2978,7 +2978,7 @@
    "name": "Library_TileDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2c8e8",
+   "va": "0x140f2c8f8",
    "status": "va",
    "note": "vftable of oCTLibrary<oCDtTileDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -2989,7 +2989,7 @@
    "name": "Library_VersionDefinition_vftable",
    "kind": "data",
    "category": "library",
-   "va": "0x140f2b370",
+   "va": "0x140f2b380",
    "status": "va",
    "note": "vftable of oCTLibrary<oe::dt::VersionDefinition> singleton (LiveOps version manifest). ⚠ ADDRESS CORRECTED 2026-09-17: the VA recorded here pointed at the RTTI TYPE DESCRIPTOR of this class, not at its vftable — its +0 is type_info's vftable and +0x10 onward is the mangled name, so any consumer reading it as a vftable would have compared against ASCII. Nothing consumed it, so this was inert rather than broken. Re-derived from RTTI (type descriptor → complete object locator → vftable) and checked by scripts/audit_va_globals.py.",
    "refs": [
@@ -3879,7 +3879,7 @@
    "name": "P2PSession_StateNames",
    "kind": "data",
    "category": "netcode",
-   "va": "0x140eee910",
+   "va": "0x140eee920",
    "status": "va",
    "signature": "struct { const char* s; uint32 len; } [14]  // 0x10 stride",
    "note": "State-name table P2PSession_SetState logs through. 0x10 stride, {ptr,len}; the len field is |0x80000000 (the engine's inline-string-view tag), so mask it off. Entries 0..6 are the P2P SESSION states, 7..13 a second connection enum -- see P2PSession_SetState for both lists. Useful for decoding a state integer read out of ctx+0x70 without hardcoding the names. [2026-11-17 patch 2a88a3bd5647: 0x140eee910, single locator vote hand-checked: same string table (ConnectingToServer, ConnectingToHost, ConnectingToPeers, Pending ...).]"
@@ -5355,7 +5355,7 @@
    "name": "XpComponent_vftable",
    "kind": "data",
    "category": "hero",
-   "va": "0x140f24878",
+   "va": "0x140f24888",
    "status": "va",
    "note": "Vftable of the hero's XP/level component. CORRECTED 2026-07-18 from 0x140f23200, which was NOT a vtable: it lands 0x50 INSIDE this vtable (slot 10 of 30), so the exact-match scan `*(comp)==va` could never hit -- that single constant is why R.xp returned nil across 5 playtests. Real class is oCDtEntityCpntGroupLevel (hash 0x15888c02, size 0x170, ctor 0x1402e1de0); there is no `Xp*` class in the 5993-vtable dump. CONFIRMED 2026-07-19: the component is NOT on the hero -- exactly one instance exists, on EntitySettings/Common_Settings/Group_Scaling.entity.ot ('[Dt Group Level] Group_Scaling\\\\Hero Group'), which is why component scans of hero entities found nothing. Progress is a POINTER at +0x108 -> {u32 level @0, u32 xp @4}. Reachable via the game-scene-context registry (ctx+0x58 array, +0x60 count), not by entity walking. Symbol keeps the XpComponent_* name for loader/SDK compatibility.",
    "refs": [
@@ -5377,7 +5377,7 @@
    "name": "g_GlobalEntityValueSceneContext_Tester_vftable",
    "kind": "data",
    "category": "entity-values",
-   "va": "0x140f0b5d8",
+   "va": "0x140f0b5e8",
    "status": "va",
    "note": "Vftable of oCTKindOfTypeTester<oCGlobalEntityValueSceneContext, oIGameSceneContext>, read from MSVC RTTI (the complete object locator one qword before the vftable names the class exactly). This is the ONE missing piece between the loader and roughly a hundred engine-authored gameplay values.\n\nTHE RECIPE, read off the reroll-counter writer at 0x1403aaa0d..0x1403aaa4f and not guessed:\n  1. Stack-construct the tester: two `lea` writes to the SAME slot, the second (this vftable) overwriting the first (oITTester<oIGameSceneContext>, 0x140f11fd8) -- ctor then vftable fixup, so the SECOND is the live one. Taking the first is the obvious mistake here, and it yields a tester that matches nothing and returns null.\n  2. ctx = GameScene_FindContextByTester(gameScene, &tester)  [status=ok, pattern-resolved]\n  3. EntityValue_Get(ctx, &out, crcKey)                       [status=ok, pattern-resolved]\nBoth functions already resolve today; only this VA is build-specific, so a capability built on it must gate on va_globals_trusted the way the event payload decode does.\n\nWHAT IT UNLOCKS -- 117 named values harvested from the four registration routines (EntityValueRegistry_RegisterAll plus three siblings, 177 call sites). These are the ENGINE's own answers to questions mods currently infer. Highlights: 'Is in sandman shop' (every shop rule), 'Reroll count' (every no-reroll rule), 'Current chapter' (hand-counted today), 'Is in overtime' and 'Is boss awaken', 'Active Enemies Count' (a real in-combat signal instead of a boss/tumor proxy), 'Is Session Host', 'Revive token', 'Current dream shards count'.\n\nNOTE ON is_in_main_menu: the loader currently answers this by sniffing which cooked file was opened in the last 5 seconds (Loader::is_in_main_menu, the HgdzHqzw prefix heuristic). Key 0x181d17fe IS 'Is in main menu' in the Player location family, so that heuristic has an exact replacement once this context is reachable.\n\nHARVEST METHOD, because the naive version is confidently wrong: a registration is a `mov ecx, <key>` plus three string pointers passed through frame slots, and the string register is hoisted OUT of the call block in most cases. Pairing a key with the nearest `lea`, forwards or backwards, produces a table shifted by one entry that looks entirely plausible. Follow the argument set-up instead -- `lea reg,[rip+s]`, then `mov [rbp+N],reg`, then `lea r8,[rbp+N]` -- so r8 is the display name and r9 the category. The self-check is that every row in a family carries the SAME category string, and that consecutive names take consecutive keys.\n\nKEY TABLE (key, display name), grouped by the category the engine itself gives each value:\n  [Day/Night cycle]\n    0x17d8d89b Is day\n    0x17d8d89c Is night\n    0x189e4b06 Play Time (s)\n    0x189e4ed5 Cycle playing\n    0x6b7e633e Current day ratio\n    0x75cc8184 Current night ratio\n    0x17d8d89f Current cycle ratio\n    0x1859c278 Day duration\n    0x1859c279 Night duration\n    0x17d8d8a0 Dawn and dusk half duration (Duration of [Sunrise|Sunset|Moonrise|Moonset])\n    0x8ae3fefe Day/Night phase as FMod param (0.0=day, 1.0=night)\n    0x17de260c Remaining cycle before boss awakens\n    0x18ab6b3b Remaining time before boss awakens\n    0x17de260d Boss time warning duration\n    0x1896a549 Boss time warning ratio\n    0x17de260e Is boss awaken\n    0x1cc8c666 Boss sleep duration\n    0x1e533557 Current hourglass time\n    0x1e5c3007 Current hourglass time ratio\n    0x25c606ac Last map hourglass time ratio\n    0x1cd7923b Overtime duration\n    0x1ce9bb1a Overtime ratio\n    0x1cd79255 Is in overtime\n    0x1cdf6e8e Remaining cycle before Overtime\n    0x1cdf6e90 Remaining time before Overtime\n    0x2fd2db08 Slow hourglass ratio\n    0x81c945ca Night_And_Day_Cycle_Phase\n  [Game]\n    0x189512bc Game Chrono Started\n    0x18bc7252 Local peer index\n    0x162b18c8 Is skill menu open\n    0x162b18c9 Is menu open\n    0x1b4aab3e Is MOs menu open\n    0x165e8282 Is in cinematic\n    0x1984fd23 Skip cinematic\n    0x17081d0b Last second damage ratio received\n    0x171c27b5 Current dream shards count\n    0x18c3664a Active Enemies Count\n    0x1633db76 Revive token\n    0x17a117c6 Random seed\n    0x18700873 Game Difficulty\n    0x19bddb2e Difficulty Xp Modifier\n    0x187afd1d Global Xp Modifier\n    0x1e408ac5 Is in pause\n    0x17147b56 Keyboard and mouse control\n    0x18a8c3b5 Pad control\n    0x18759e35 Is last game win\n    0x187ef01f LastGame Standard Loot Count\n    0x187ef021 Last Game Exceptional Loot Count\n    0x19d94870 Can minimap ping\n    0x1dfeeafa Melody notes in spawning tile\n    0x70f3a3ae Melody power up level max catchup\n  [Player location]\n    0x181d17fd Current chapter\n    0x181d17fe Is in main menu\n    0x181d17ff Is in loading screen\n    0x181d1800 Is in exploration (OutDoor)\n    0x181d180d Is in exploration (InDoor)\n    0x181d1801 Is in tumor fighting\n    0xf122efd2 Is in boss fighting\n    0x1b6fc1fc Is in end credits\n    0xd53e08e5 Is in sandman shop\n    0x1c2c3925 Is book open\n    0x18ab4599 Is game menu open\n    0x18ab57ca Is in safe zone\n    0x1859c61f Is in game scene\n    0x1859c621 Is in book scene\n    0x18ab42d9 Is in victory sequence\n    0x18ab42db Is in defeat sequence\n  [New Game Plus]\n    0x1a7945fc GameModifier : No boss timer\n    0x1a77d42d GameModifier : Less day/night half cycle\n    0x1a77e2e4 GameModifier : More experience (from any source)\n    0x1a793d1a GameModifier : No revive token\n    0x99f27eac GameModifier : No minimap\n    0x1a8a3688 GameModifier : One chapter\n    0x1a8b53b4 GameModifier : Day only\n    0x1a8b53bc GameModifier : Night only\n    0x1ab183ab GameModifier : Random hero at map start\n    0x1ab58780 GameModifier : All same heroes\n    0x1871c2fa Rare Skill Chance Modifier\n    0x187310ec Dream Shard Costs Modifier\n    0x187443de Half Cycle Count Before Boss Awakens Modifier\n    0x187aaecf Camp Difficulty Modifier\n    0x187ab36e Camp Difficulty Modifier Chance To Apply\n  [Multiplayer]\n    0x190648b4 Stormancer Server Endpoint\n    0x1906600b Stormancer App\n    0x190648b0 Stormancer Server Is Live\n    0x1599ae4c Hero Count\n    0x1a124d8d Deathdoor hero Count\n    0x1a124d8e Perma-death hero Count\n    0x186c0ec3 Game Session Size\n    0x15dbeb54 Is Connected to Session\n    0x15dbeb6a Is Session Host\n  [System]\n    0x147d2a83 Build version\n    0x16f76afa Is in play game (F5 or F6)\n    0x16f76b02 Is in edition\n    0x17e9a843 Is in play test (F6)\n    0x186332c8 Game Ui Is Hidden (F7)\n    0x18633ac4 Screenshot Mode\n    0x18e036a2 Max physic anim count\n    0x1c05eff2 Is Christmas play test date\n  [Loading Screen]\n    0x19a5e99c Map Loading Description\n    0x19a5e9a0 Map Loading Sub Description\n    0x19a60066 Map Loading Progress Ratio\n  [Can still be revived (token, friend...)]\n    0x193c75ab Ally kill streak\n    0x18829b99 Hero death door\n  [Cannot be revived (goto observer mode)]\n    0x193c6829 Ally death door\n    0x18829b9a Hero permadeath\n  [Bonus stat changed]\n    0x17df7d9e Editor\\Icon\\dt_damage.png\n  [Damage dealt]\n    0x17df7da0 Editor\\Icon\\gooey-impact.png\n  [Damage received]\n    0x17fdac33 Editor\\Icon\\gooey-impact.png\n  [Ally permadeath]\n    0x12e831f3 Editor\\Icon\\dt_shard_gain.png\n  [Gain dream shards]\n    0x12e831f4 Editor\\Icon\\dt_shard_loss.png\n  [Lose dream shards]\n    0x1a9cac95 Editor\\Icon\\dt_shard_loss.png\n  [Dream shards purchase]\n    0x1b5e6883 Editor\\Icon\\dt_shard_loss.png\n  [Total Dream shards purchase]\n    0x1883f309 Editor\\Icon\\dt_ingredient.png\n  [Gain ingredient(s)]\n    0x1883f30a Editor\\Icon\\dt_ingredient.png\n  [Rank = Meta progression level]\n    0x18b0f2ab Rank = Meta progression level\n  [Platform]\n    0x1b80cf17 Cheat version"
   },
@@ -5428,7 +5428,7 @@
    "name": "oCCustomFlagList_vftable",
    "kind": "data",
    "category": "entity",
-   "va": "0x140f02dc0",
+   "va": "0x140f02dd0",
    "status": "va",
    "note": "vftable of oCCustomFlagList. An empty list is the 0x18-byte struct { vftable @+0x0, list ptr @+0x8 = 0, u64 count @+0x10 = 0 } — used as the sourceTags ctx arg to Hero_ModifyDreamShards. Build it in scratch and rebase the vftable by the live module base. [2026-07-12: confirmed a live vftable for the current build — DATA-xref'd from the oCCustomFlagList ctor FUN_14039ffe0. R.combat stays fail-closed behind _va_ok + _hero_plausible + a pattern-resolved Hero_ModifyDreamShards.]",
    "refs": [
@@ -5439,7 +5439,7 @@
    "name": "oCEntityHitData_vftable",
    "kind": "data",
    "category": "entity",
-   "va": "0x140f14f48",
+   "va": "0x140f14f58",
    "status": "va",
    "note": "vftable of oCEntityHitData (the ~0xb0-byte hit descriptor passed to Entity_DispatchHit / embedded in oCGameNamedEventNetworkDamage). Layout (offsets from the struct base): vft @+0x0, hit handle/id @+0x8, source/instigator entity* @+0x10 (vtable-accessed, refcounted), float/vector block @+0x18..0x90 (positions/normals/direction — defaults copied from 0x140fc6c10/0x140fc6c50/0x140fc6e70/0x140fc7240), u16 flags @+0x88, ptr @+0x90, target entity* @+0xa0 (vtable-accessed, refcounted). Built inline by Entity_ResolveAttackHits; no separate constructor exists.",
    "refs": [
@@ -5450,7 +5450,7 @@
    "name": "oCEntityValueUnion_vftable",
    "kind": "data",
    "category": "entity",
-   "va": "0x140f96c40",
+   "va": "0x140f96c50",
    "status": "va",
    "note": "vftable of oCEntityValueUnion, the ~0x20-byte tagged value returned by EntityValue_Lookup. Layout: vft @+0x0, type tag @+0x8 (4 = inline value), value @+0x10 (inline f32 if tag==4, else (tag & ~1) points to it), u16 @+0x18 = 0xa, byte @+0x1a = 0. Paired base oISerializable::vftable = 0x140efed08. Destruct with FUN_14082ca50.",
    "refs": [
@@ -5461,7 +5461,7 @@
    "name": "oCGameEventNetworkModifier_vftable",
    "kind": "data",
    "category": "entity",
-   "va": "0x140f39180",
+   "va": "0x140f39190",
    "status": "va",
    "note": "vftable of oCGameEventNetworkModifier — the durable stat-modifier named event (leaf of the oCGameNamedEvent -> ...Network -> Modifier chain). Set as the third/most-derived vftable by ModifierEvent_Ctor. Identifies a modifier event when scanning the named-event bus; anchor for building a durable-stat-modifier event from the loader. Verified live 2026-07-13 (LEA @0x14038a01d in ModifierEvent_Ctor).",
    "refs": [
@@ -5472,7 +5472,7 @@
    "name": "oCGameNamedEventChooseMelody_vftable",
    "kind": "data",
    "category": "melodies",
-   "va": "0x140f27140",
+   "va": "0x140f27150",
    "status": "va",
    "note": "vftable of NamedEventChooseMelody (RTTI .?AVNamedEventChooseMelody@dt@oe@@, typedesc 0x14137c2c8). The event the game dispatches when a melody is CHOSEN. 0x60 bytes; its ctor (0x1402da150) lays it out: standard oCGameNamedEvent header (state u32 2 @+0x08, name oCString @+0x20/+0x28/+0x2c, interned id @+0x30 from a cached global 0x1412ef578), then +0x38 u64 = -1, +0x40 u32 = 0, +0x48 u64 = -1, and a second oCString @+0x50/+0x58/+0x5c. Bus id = NamedEvent_Id_FromCrc(0, crc32(\"CHOOSE_MELODY\")) = 1391314199. ⚠ NOTHING constructs this inline: the only three references to the vftable are the ctor, the copy ctor (0x1402da240) and a network-deserialisation factory (0x140313cd0, which allocates exactly 0x60), so the game builds it through a class-id factory table and the MEANING of the payload fields is NOT readable from an emitter. DISPROVED 2026-10-10 (static read of the handler): the GUID-at-+0x38/+0x48 hypothesis was wrong. The hero handler 0x140399090 takes the oCString at +0x50 {ptr, len|flags @+0x58} and 0x1403afa90 compares it with each live MelodyDefinition's *(*(def+0x48)+0x18) name string; the match goes to the registry lookup 0x14025ac40, then 0x1403988c0 applies it. So the melody is named by that string. Backs R.melody.choose(name) (rsmm/melody.lua), which reads the live strings and sends one verbatim; the first R.melody.choose(lo, hi) left +0x50 empty and could never match.",
    "refs": [
@@ -5483,7 +5483,7 @@
    "name": "oCGameNamedEventRemoveMelody_vftable",
    "kind": "data",
    "category": "melodies",
-   "va": "0x140f23e40",
+   "va": "0x140f23e50",
    "status": "va",
    "note": "vftable of NamedEventRemoveMelody (typedesc 0x14137bc38); same shape and origin as oCGameNamedEventChooseMelody_vftable (ctor 0x1402da320, copy 0x1402da410, factory 0x140313d20). Bus id = NamedEvent_Id_FromCrc(0, crc32(\"REMOVE_MELODY\")) = 2162471170. Hero handler 0x140399150 reads the same +0x50 name string as CHOOSE_MELODY. Backs R.melody.remove(name) (rsmm/melody.lua).",
    "refs": [
@@ -5688,7 +5688,7 @@
    "name": "oCDtNamedEventGainReroll_vftable",
    "kind": "data",
    "category": "event",
-   "va": "0x140f278c8",
+   "va": "0x140f278d8",
    "status": "va",
    "note": "vftable of oCDtNamedEventGainReroll, the GAIN_REROLL named event (bus id = NamedEvent_Id_FromCrc(0, crc32(\"GAIN_REROLL\") = 0x96065360)). 0x58 bytes; its ctor (0x1402e6eb0, reached from the class registrar's metaclass construct slot via thunk 0x140303560) lays it out: standard oCGameNamedEvent header (state u32 2 @+0x08, name oCString @+0x20/+0x28/+0x2c, interned id @+0x30), then +0x38 u64 = -1, +0x40 u32 = 0, +0x48 u64 = -1, +0x50 u16 = 0. The game's sender (Reroll_GrantToHeroes, 0x1402eb030) writes the reroll COUNT into +0x50 and dispatches to each target hero's dispatcher (entity+0x4d8), or NamedEvent_NetSendToPeer to a remote owner. The hero-bound handler (Hero_GainRerollHandler) adds it to the hero's reroll counter. Backs R.reroll.add, PROVEN IN GAME 2026-10-10 (counter 3 -> 6, rerolls usable on the offer screen).",
    "refs": [
@@ -5699,7 +5699,7 @@
    "name": "oCNamedEventNetworkWithData_vftable",
    "kind": "data",
    "category": "event",
-   "va": "0x140f10910",
+   "va": "0x140f10920",
    "status": "va",
    "note": "vftable of oCNamedEventNetworkWithData (RTTI name, docs/_re/out_new/vftables.jsonl), the named event that carries ONE typed value: an oCEntityValueUnion embedded at +0x50 (union vft @+0x50, storage @+0x58 with 4 = inline, inline value @+0x60, type byte @+0x68: 0 = f32, 1 = int32, 2 = bool; read off the handlers, not the union symbol's note). Header as every named event, then +0x38 = -1, +0x40 = 0, +0x48 = -1; 0x70 bytes. Class chain oCGameNamedEvent (0x140f05aa8) -> oCGameNamedEventNetwork (0x140f09d98) -> this. Layout read off the game's own sender in HeroStats_OnDamageTaken (0x1403a6900..0x1403a6a80): it stack-builds one named CLEAR_PRIMARY_CD, InitAsType(union, 2), writes bool 1 and dispatches it to entity+0x4d8. The ability family subscribes to it in AbilityController_Ctor (0x1402c9e2c.., on owner+0x4d8, then a switch on the slot 0..6): CLEAR_CD / CLEAR_<SLOT>_CD -> 0x1402cce40 (IsKindOf this class, requires type 2 and a true byte), REDUCE_CD / REDUCE_<SLOT>_CD -> 0x1402cd140 (cooldown at controller+0x6c minus the f32 (type 0) or int (type 1) value), ADD_<SLOT>_CHARGE -> 0x1402ccf30 (int count, type 1; default 1, negative -> 0; only when the ability has charges), REMOVE_<SLOT>_CHARGE -> 0x1402cd040 (removes one, reads no payload). Activity events (ACTIVITY_*/SOLO_ACTIVITY_*) also use this class with type 5 (String). Backs R.ability. PROVEN IN GAME 2026-10-10: CLEAR_CD made the ultimate ready again at once. MEASURED in game: type 1 is a 16-byte type InitAsType allocates OUT of line (storage = heap pointer, not 4), and the charge handler reads its first int32 there.",
    "refs": [
@@ -5710,7 +5710,7 @@
    "name": "oCDtNamedEventGainDreamShards_vftable",
    "kind": "data",
    "category": "event",
-   "va": "0x140f23cf8",
+   "va": "0x140f23d08",
    "status": "va",
    "note": "vftable of oCDtNamedEventGainDreamShards, the GAIN_DREAM_SHARDS event a pickup sends. 0x60 bytes; ctor 0x1402e6ce0 (NamedEvent_GainDreamShards_Ctor): standard header, +0x38/+0x48 = -1, +0x40 = 0, then +0x50 u64 source net id = -1, +0x58 i32 amount = 0, +0x5c u8 picked-up = 1, +0x5d u8 purchase = 0. Hero handler 0x1403a72b0 (subscribed in NamedEvent_HeroSubscribeAll): a positive amount is multiplied by the hero's shard-gain values 0x173900d6 and 0x1d788952, tagged 'PickedUpByMyself' (+0x5c, when +0x50 is the hero's own id) and/or 'Purchase' (+0x5d), then passed to Hero_ModifyDreamShards with those tags. Backs R.shards.gain, PROVEN IN GAME 2026-10-10 (+50 took the counter 0 -> 50 in the same frame).",
    "refs": [
@@ -5721,7 +5721,7 @@
    "name": "oCGameEventGainIngredient_vftable",
    "kind": "data",
    "category": "event",
-   "va": "0x140f27958",
+   "va": "0x140f27968",
    "status": "va",
    "note": "vftable of oCGameEventGainIngredient, the GAIN_INGREDIENT event. 0x58 bytes; ctor 0x1402da4f0: standard header, +0x38/+0x48 = -1, +0x40 = 0, +0x50 u32 ingredient id = 0, +0x54 i16 count = 0. Hero handler 0x14039acc0 tail-calls 0x14039a970(hero, id, count), which finds the IngredientDefinition whose +0x290 u32 equals the id (name oCString at +0x298: Bean, Key, Note, Stone, Straw, Wood) and adds, or removes for a negative count, against the hero HUD mirror's list (hero+0x1d80, entries at +0x48/+0x50). Backs R.ingredient, PROVEN IN GAME 2026-10-10 (add(\"Key\", 2) showed two more keys; remove not yet exercised).",
    "refs": [
@@ -6548,7 +6548,7 @@
    "name": "InputKeyGameOption_vftable",
    "kind": "data",
    "category": "options",
-   "va": "0x140f021b0",
+   "va": "0x140f021c0",
    "status": "va",
    "note": "[2026-11-19: relocated 0x140efd440 -> 0x140f021b0 for the 2026-11-17 patch (2a88a3bd5647); the remap left it at the b9c3 address. Matched the b9c3 referencing instructions (rip disp wildcarded) uniquely in the new .text: 1 site + RTTI .?AVInputKeyGameOption@oe@@.] vftable of InputKeyGameOption, the 0x30-byte key option: +0x0 vftable, +0x8 u32 id (spinlock hash key), +0x10 name oCString {char*, u32 len|0x80000000, u32 cap} = the ini key, +0x20 u8, +0x21 u8 registered, +0x28 u32 current key id, +0x2c u32 default key id (ctor FUN_1401b5e70 zeroes all of it). Slots: 3 Serialize 0x1401012c0 (hands the serializer +0x10 name and +0x28 value), 4 ResetToDefault 0x140101350 (+0x28 = +0x2c under the lock), 5 IsDefault 0x140101320, 6 SetValue 0x140101290 (+0x28 = *arg under the lock, no listeners). hook_keybinds.cpp builds mod keybind options on it. Read 2026-11-10 on b9c3.",
    "refs": [
@@ -7059,7 +7059,7 @@
    "name": "g_CameraModifier_vftable",
    "kind": "data",
    "category": "camera",
-   "va": "0x140f67b20",
+   "va": "0x140f67b30",
    "status": "va",
    "note": "[2026-11-19: relocated 0x140f62ea0 -> 0x140f67b20 for the 2026-11-17 patch (2a88a3bd5647); the remap left it at the b9c3 address. Matched the b9c3 referencing instructions (rip disp wildcarded) uniquely in the new .text: 3/3 + RTTI .?AVoCCameraModifier@@.] vftable of oCCameraModifier (the base class; slot 2 destructor FUN_14065fdd0, slot 3 Apply). The root of the camera tree, embedded at CameraSceneContext+0x78, is exactly this class (stored by the context ctor FUN_1401c8c40). hook_input.cpp uses it with g_CameraSceneContext_vftable to recognise the root inside CameraModifier_Evaluate.",
    "refs": [
@@ -7070,7 +7070,7 @@
    "name": "g_ZoomCameraModifier_vftable",
    "kind": "data",
    "category": "camera",
-   "va": "0x140f678d0",
+   "va": "0x140f678e0",
    "status": "va",
    "note": "[2026-11-19: relocated 0x140f62b38 -> 0x140f678d0 for the 2026-11-17 patch (2a88a3bd5647); the remap left it at the b9c3 address. Matched the b9c3 referencing instructions (rip disp wildcarded) uniquely in the new .text: 1/1 + RTTI .?AVoCZoomCameraModifier@@.] vftable of oCZoomCameraModifier (0x38 bytes; slot 2 destructor FUN_1406618d0, slot 3 Apply FUN_140661960). +0x30 f32 zoom factor. Apply: f = lerp(1, zoom, weight); eye = look_at + (eye - look_at) * f, so below 1 moves the camera in. Ctor FUN_140667370 (registered by reflection, class id 0x115fa237, no direct code caller): base fields +8 dir 1, +9 0, elapsed 0, duration 1.0, weight 1.0, curve 0, no children, then this vftable and factor 1.0. hook_input.cpp builds its zoom modifiers with the same field values in loader-owned memory.",
    "refs": [
@@ -7081,7 +7081,7 @@
    "name": "g_CameraSceneContext_vftable",
    "kind": "data",
    "category": "camera",
-   "va": "0x140f0f6a0",
+   "va": "0x140f0f6b0",
    "status": "va",
    "note": "[2026-11-19: relocated 0x140f0a910 -> 0x140f0f6a0 for the 2026-11-17 patch (2a88a3bd5647); the remap left it at the b9c3 address. Matched the b9c3 referencing instructions (rip disp wildcarded) uniquely in the new .text: 2/2 + RTTI .?AVCameraSceneContext@oe@@.] vftable of oe::CameraSceneContext (ctor FUN_1401c8c40; reached through GameScene_FindContextByTester with tester vftable 0x140f093a8). +0x28 oCCallScheduleStep whose callback FUN_1406add60 evaluates the root every frame; +0x78 the embedded root oCCameraModifier; +0xb8/+0xbc/+0xc0 hold 10.0 / 20.0 / 1.0 (meaning unknown).",
    "refs": [

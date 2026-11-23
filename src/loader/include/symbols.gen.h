@@ -8,7 +8,7 @@ namespace Sym {
 constexpr std::uintptr_t kPreferredBase = 0x140000000ull;
 // sha256 of the game exe these addresses were derived for ('' = unknown);
 // the loader's va-gate trusts absolute data addresses only on that exe.
-constexpr const char* kSymbolMapExeSha256 = "2a88a3bd564781935a3158154cf5f8f697b56d85d9c2b79ba5ef92cf960d68ef";
+constexpr const char* kSymbolMapExeSha256 = "e04db5c457dd301016e2f22d18bd780b368ae9e3a34653fa363457b42dd17a68";
 
 // --- analytics ---
 constexpr std::uintptr_t AnalyticsBag_SetInt = 0x140204830ull;
@@ -45,9 +45,9 @@ constexpr std::uintptr_t CameraModifier_RemoveChild = 0x140660800ull;
 constexpr const char* CameraModifier_RemoveChild_Pattern = "CameraModifier_RemoveChild";
 constexpr std::uintptr_t TopDownCamera_Activate = 0x1407e6a70ull;
 constexpr const char* TopDownCamera_Activate_Pattern = "TopDownCamera_Activate";
-constexpr std::uintptr_t g_CameraModifier_vftable = 0x140f67b20ull;
-constexpr std::uintptr_t g_CameraSceneContext_vftable = 0x140f0f6a0ull;
-constexpr std::uintptr_t g_ZoomCameraModifier_vftable = 0x140f678d0ull;
+constexpr std::uintptr_t g_CameraModifier_vftable = 0x140f67b30ull;
+constexpr std::uintptr_t g_CameraSceneContext_vftable = 0x140f0f6b0ull;
+constexpr std::uintptr_t g_ZoomCameraModifier_vftable = 0x140f678e0ull;
 
 // --- combat ---
 constexpr std::uintptr_t CharacterController_ClearStagger = 0x1403c38a0ull;
@@ -159,7 +159,7 @@ constexpr const char* Vector_InsertRange_Pattern = "Vector_InsertRange";
 // --- entity ---
 constexpr std::uintptr_t EnemyController_Ctor = 0x140392340ull;
 constexpr const char* EnemyController_Ctor_Pattern = "EnemyController_Ctor";
-constexpr std::uintptr_t EnemyController_vftable = 0x140f36f30ull;
+constexpr std::uintptr_t EnemyController_vftable = 0x140f36f40ull;
 constexpr std::uintptr_t EntityPool_AllocNode = 0x14068fbb0ull;
 constexpr const char* EntityPool_AllocNode_Pattern = "EntityPool_AllocNode";
 constexpr std::uintptr_t EntitySpawner_InstantiateRecord = 0x14072fd80ull;
@@ -225,10 +225,10 @@ constexpr const char* MapCtx_LinkPairedSpawners_Pattern = "MapCtx_LinkPairedSpaw
 constexpr std::uintptr_t ModifierEvent_Ctor = 0x140392650ull;
 constexpr const char* ModifierEvent_Ctor_Pattern = "ModifierEvent_Ctor";
 constexpr std::uintptr_t g_MagicalObjectComponentMeta = 0x141469098ull;
-constexpr std::uintptr_t oCCustomFlagList_vftable = 0x140f02dc0ull;
-constexpr std::uintptr_t oCEntityHitData_vftable = 0x140f14f48ull;
-constexpr std::uintptr_t oCEntityValueUnion_vftable = 0x140f96c40ull;
-constexpr std::uintptr_t oCGameEventNetworkModifier_vftable = 0x140f39180ull;
+constexpr std::uintptr_t oCCustomFlagList_vftable = 0x140f02dd0ull;
+constexpr std::uintptr_t oCEntityHitData_vftable = 0x140f14f58ull;
+constexpr std::uintptr_t oCEntityValueUnion_vftable = 0x140f96c50ull;
+constexpr std::uintptr_t oCGameEventNetworkModifier_vftable = 0x140f39190ull;
 
 // --- entity-values ---
 constexpr std::uintptr_t EntityValueRegistry_RegisterAll = 0x1401d3e80ull;
@@ -241,7 +241,7 @@ constexpr std::uintptr_t SceneContextValue_SetFloat = 0x1402041c0ull;
 constexpr const char* SceneContextValue_SetFloat_Pattern = "SceneContextValue_SetFloat";
 constexpr std::uintptr_t SceneContextValue_SetInt = 0x140202e00ull;
 constexpr const char* SceneContextValue_SetInt_Pattern = "SceneContextValue_SetInt";
-constexpr std::uintptr_t g_GlobalEntityValueSceneContext_Tester_vftable = 0x140f0b5d8ull;
+constexpr std::uintptr_t g_GlobalEntityValueSceneContext_Tester_vftable = 0x140f0b5e8ull;
 
 // --- event ---
 constexpr std::uintptr_t Analytics_SubmitNamedEvent = 0x1401f4940ull;
@@ -284,10 +284,10 @@ constexpr std::uintptr_t NamedEvent_NetSendToPeer = 0x140720340ull;
 constexpr const char* NamedEvent_NetSendToPeer_Pattern = "NamedEvent_NetSendToPeer";
 constexpr std::uintptr_t Reroll_GrantToHeroes = 0x1402e5c60ull;
 constexpr const char* Reroll_GrantToHeroes_Pattern = "Reroll_GrantToHeroes";
-constexpr std::uintptr_t oCDtNamedEventGainDreamShards_vftable = 0x140f23cf8ull;
-constexpr std::uintptr_t oCDtNamedEventGainReroll_vftable = 0x140f278c8ull;
-constexpr std::uintptr_t oCGameEventGainIngredient_vftable = 0x140f27958ull;
-constexpr std::uintptr_t oCNamedEventNetworkWithData_vftable = 0x140f10910ull;
+constexpr std::uintptr_t oCDtNamedEventGainDreamShards_vftable = 0x140f23d08ull;
+constexpr std::uintptr_t oCDtNamedEventGainReroll_vftable = 0x140f278d8ull;
+constexpr std::uintptr_t oCGameEventGainIngredient_vftable = 0x140f27968ull;
+constexpr std::uintptr_t oCNamedEventNetworkWithData_vftable = 0x140f10920ull;
 
 // --- gameplay ---
 constexpr std::uintptr_t DayNightCycle_InitCycle = 0x1401e6630ull;
@@ -313,7 +313,7 @@ constexpr const char* XpComponent_SetXp_Pattern = "XpComponent_SetXp";
 constexpr std::uintptr_t XpComponent_TypeTester = 0x141478140ull;
 constexpr std::uintptr_t XpComponent_XpForLevel = 0x1402dd860ull;
 constexpr const char* XpComponent_XpForLevel_Pattern = "XpComponent_XpForLevel";
-constexpr std::uintptr_t XpComponent_vftable = 0x140f24878ull;
+constexpr std::uintptr_t XpComponent_vftable = 0x140f24888ull;
 
 // --- heroes ---
 constexpr std::uintptr_t ChallengeUnlock_IsUnlocked = 0x1402abd70ull;
@@ -406,21 +406,21 @@ constexpr std::uintptr_t HeroDef_PostLoad = 0x14031b5f0ull;
 constexpr const char* HeroDef_PostLoad_Pattern = "HeroDef_PostLoad";
 constexpr std::uintptr_t IngredientDef_PostLoad = 0x14031eab0ull;
 constexpr const char* IngredientDef_PostLoad_Pattern = "IngredientDef_PostLoad";
-constexpr std::uintptr_t Library_AchievementDefinition_vftable = 0x140f28d98ull;
-constexpr std::uintptr_t Library_ChallengeDefinition_vftable = 0x140f2b568ull;
-constexpr std::uintptr_t Library_DreamShardDefinition_vftable = 0x140f2b408ull;
-constexpr std::uintptr_t Library_EnemyCampDifficultyDefinition_vftable = 0x140f2c5d0ull;
-constexpr std::uintptr_t Library_EnemyCampTierDefinition_vftable = 0x140f2c610ull;
-constexpr std::uintptr_t Library_EnemyDefinition_vftable = 0x140f2cb10ull;
-constexpr std::uintptr_t Library_EnemyTribeDefinition_vftable = 0x140f2c7c8ull;
-constexpr std::uintptr_t Library_EntitySettingsResource_vftable = 0x140f77ba8ull;
-constexpr std::uintptr_t Library_GameModifierDefinition_vftable = 0x140f2b940ull;
-constexpr std::uintptr_t Library_IngredientDefinition_vftable = 0x140f2b5a8ull;
-constexpr std::uintptr_t Library_MapDefinition_vftable = 0x140f2b3b0ull;
-constexpr std::uintptr_t Library_MelodyDefinition_vftable = 0x140f2b688ull;
-constexpr std::uintptr_t Library_RewardDefinition_vftable = 0x140f2b448ull;
-constexpr std::uintptr_t Library_TileDefinition_vftable = 0x140f2c8e8ull;
-constexpr std::uintptr_t Library_VersionDefinition_vftable = 0x140f2b370ull;
+constexpr std::uintptr_t Library_AchievementDefinition_vftable = 0x140f28da8ull;
+constexpr std::uintptr_t Library_ChallengeDefinition_vftable = 0x140f2b578ull;
+constexpr std::uintptr_t Library_DreamShardDefinition_vftable = 0x140f2b418ull;
+constexpr std::uintptr_t Library_EnemyCampDifficultyDefinition_vftable = 0x140f2c5e0ull;
+constexpr std::uintptr_t Library_EnemyCampTierDefinition_vftable = 0x140f2c620ull;
+constexpr std::uintptr_t Library_EnemyDefinition_vftable = 0x140f2cb20ull;
+constexpr std::uintptr_t Library_EnemyTribeDefinition_vftable = 0x140f2c7d8ull;
+constexpr std::uintptr_t Library_EntitySettingsResource_vftable = 0x140f77bb8ull;
+constexpr std::uintptr_t Library_GameModifierDefinition_vftable = 0x140f2b950ull;
+constexpr std::uintptr_t Library_IngredientDefinition_vftable = 0x140f2b5b8ull;
+constexpr std::uintptr_t Library_MapDefinition_vftable = 0x140f2b3c0ull;
+constexpr std::uintptr_t Library_MelodyDefinition_vftable = 0x140f2b698ull;
+constexpr std::uintptr_t Library_RewardDefinition_vftable = 0x140f2b458ull;
+constexpr std::uintptr_t Library_TileDefinition_vftable = 0x140f2c8f8ull;
+constexpr std::uintptr_t Library_VersionDefinition_vftable = 0x140f2b380ull;
 constexpr std::uintptr_t MapDef_PostLoad = 0x14031ee10ull;
 constexpr const char* MapDef_PostLoad_Pattern = "MapDef_PostLoad";
 constexpr std::uintptr_t MapDef_RegisterAssetLoader = 0x14031ec70ull;
@@ -455,13 +455,13 @@ constexpr std::uintptr_t oCString_Dtor = 0x14010a8d0ull;
 constexpr const char* oCString_Dtor_Pattern = "oCString_Dtor";
 
 // --- melodies ---
-constexpr std::uintptr_t HeroMelodyPersistentData_vftable = 0x140f146d0ull;
+constexpr std::uintptr_t HeroMelodyPersistentData_vftable = 0x140f146e0ull;
 constexpr std::uintptr_t MelodyDefinition_Ctor = 0x140322440ull;
 constexpr const char* MelodyDefinition_Ctor_Pattern = "MelodyDefinition_Ctor";
 constexpr std::uintptr_t NamedEvent_ChooseMelody_Ctor = 0x1402d4e20ull;
 constexpr const char* NamedEvent_ChooseMelody_Ctor_Pattern = "NamedEvent_ChooseMelody_Ctor";
-constexpr std::uintptr_t oCGameNamedEventChooseMelody_vftable = 0x140f27140ull;
-constexpr std::uintptr_t oCGameNamedEventRemoveMelody_vftable = 0x140f23e40ull;
+constexpr std::uintptr_t oCGameNamedEventChooseMelody_vftable = 0x140f27150ull;
+constexpr std::uintptr_t oCGameNamedEventRemoveMelody_vftable = 0x140f23e50ull;
 
 // --- netcode ---
 constexpr std::uintptr_t Entity_GetNetComponent = 0x14030d8b0ull;
@@ -492,7 +492,7 @@ constexpr std::uintptr_t P2PSession_OnFcm2NewHost = 0x1408b76e0ull;
 constexpr const char* P2PSession_OnFcm2NewHost_Pattern = "P2PSession_OnFcm2NewHost";
 constexpr std::uintptr_t P2PSession_SetState = 0x14085b4b0ull;
 constexpr const char* P2PSession_SetState_Pattern = "P2PSession_SetState";
-constexpr std::uintptr_t P2PSession_StateNames = 0x140eee910ull;
+constexpr std::uintptr_t P2PSession_StateNames = 0x140eee920ull;
 constexpr std::uintptr_t RakNetConnection_Ctor = 0x140b997b0ull;
 constexpr const char* RakNetConnection_Ctor_Pattern = "RakNetConnection_Ctor";
 constexpr std::uintptr_t RakPeer_Ctor = 0x140add300ull;
@@ -525,7 +525,7 @@ constexpr std::uintptr_t GameOptionsManager_Register = 0x14066ab20ull;
 constexpr const char* GameOptionsManager_Register_Pattern = "GameOptionsManager_Register";
 constexpr std::uintptr_t GameOptionsManager_RequestLoad = 0x140691110ull;
 constexpr const char* GameOptionsManager_RequestLoad_Pattern = "GameOptionsManager_RequestLoad";
-constexpr std::uintptr_t InputKeyGameOption_vftable = 0x140f021b0ull;
+constexpr std::uintptr_t InputKeyGameOption_vftable = 0x140f021c0ull;
 constexpr std::uintptr_t g_GameOptions = 0x14143dd50ull;
 constexpr std::uintptr_t g_GameOptionsManager = 0x14143dd70ull;
 

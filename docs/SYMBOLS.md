@@ -36,9 +36,9 @@ Total: **413** symbols across 29 categories.
 | `CameraModifier_Evaluate` | `0x1406604e0` | ✅ ok |  | void(void* modifier, const float* dt, void* camState, float parentWeight) |
 | `CameraModifier_RemoveChild` | `0x140660800` | ✅ ok | ✔ | void(void* parent, void* modifier) |
 | `TopDownCamera_Activate` | `0x1407e6a70` | ✅ ok |  | void(void* topDownCameraCpnt) |
-| `g_CameraModifier_vftable` | `0x140f67b20` | 📍 va |  | [2026-11-19: relocated 0x140f62ea0 -> 0x140f67b20 for the 2026-11-17 patch (2a88a3bd564… |
-| `g_CameraSceneContext_vftable` | `0x140f0f6a0` | 📍 va |  | [2026-11-19: relocated 0x140f0a910 -> 0x140f0f6a0 for the 2026-11-17 patch (2a88a3bd564… |
-| `g_ZoomCameraModifier_vftable` | `0x140f678d0` | 📍 va |  | [2026-11-19: relocated 0x140f62b38 -> 0x140f678d0 for the 2026-11-17 patch (2a88a3bd564… |
+| `g_CameraModifier_vftable` | `0x140f67b30` | 📍 va |  | [2026-11-19: relocated 0x140f62ea0 -> 0x140f67b20 for the 2026-11-17 patch (2a88a3bd564… |
+| `g_CameraSceneContext_vftable` | `0x140f0f6b0` | 📍 va |  | [2026-11-19: relocated 0x140f0a910 -> 0x140f0f6a0 for the 2026-11-17 patch (2a88a3bd564… |
+| `g_ZoomCameraModifier_vftable` | `0x140f678e0` | 📍 va |  | [2026-11-19: relocated 0x140f62b38 -> 0x140f678d0 for the 2026-11-17 patch (2a88a3bd564… |
 
 ## combat
 
@@ -117,7 +117,7 @@ Total: **413** symbols across 29 categories.
 | name | address | status | callable | signature / note |
 |------|---------|--------|----------|------------------|
 | `EnemyController_Ctor` | `0x140392340` | ✅ ok | ✔ | oCDtEntityCpntEnemyController*(oCDtEntityCpntEnemyController* self) |
-| `EnemyController_vftable` | `0x140f36f30` | 📍 va |  | Vftable of oCDtEntityCpntEnemyController. Derived from MSVC RTTI (type descriptor .?AVo… |
+| `EnemyController_vftable` | `0x140f36f40` | 📍 va |  | Vftable of oCDtEntityCpntEnemyController. Derived from MSVC RTTI (type descriptor .?AVo… |
 | `EntityPool_AllocNode` | `0x14068fbb0` | ✅ ok |  | void*(void* pool) |
 | `EntitySpawner_InstantiateRecord` | `0x14072fd80` | ✅ ok |  | void(oCEntityCpntEntitySpawner* self, void* spawnRecord) |
 | `EntitySpawner_SpawnOne` | `0x14072ef50` | ✅ ok |  | void(oCEntityCpntEntitySpawner* self) |
@@ -151,10 +151,10 @@ Total: **413** symbols across 29 categories.
 | `MapCtx_LinkPairedSpawners` | `0x1401e5680` | ✅ ok |  | void(void* mapSceneContext) |
 | `ModifierEvent_Ctor` | `0x140392650` | ✅ ok | ✔ | void*(void* buf, void* valueDef) |
 | `g_MagicalObjectComponentMeta` | `0x141469098` | 📍 va |  | oCMetaClass* for the magical-object component; passed to Entity_FindMagicalObjectCompon… |
-| `oCCustomFlagList_vftable` | `0x140f02dc0` | 📍 va |  | vftable of oCCustomFlagList. An empty list is the 0x18-byte struct { vftable @+0x0, lis… |
-| `oCEntityHitData_vftable` | `0x140f14f48` | 📍 va |  | vftable of oCEntityHitData (the ~0xb0-byte hit descriptor passed to Entity_DispatchHit … |
-| `oCEntityValueUnion_vftable` | `0x140f96c40` | 📍 va |  | vftable of oCEntityValueUnion, the ~0x20-byte tagged value returned by EntityValue_Look… |
-| `oCGameEventNetworkModifier_vftable` | `0x140f39180` | 📍 va |  | vftable of oCGameEventNetworkModifier — the durable stat-modifier named event (leaf of … |
+| `oCCustomFlagList_vftable` | `0x140f02dd0` | 📍 va |  | vftable of oCCustomFlagList. An empty list is the 0x18-byte struct { vftable @+0x0, lis… |
+| `oCEntityHitData_vftable` | `0x140f14f58` | 📍 va |  | vftable of oCEntityHitData (the ~0xb0-byte hit descriptor passed to Entity_DispatchHit … |
+| `oCEntityValueUnion_vftable` | `0x140f96c50` | 📍 va |  | vftable of oCEntityValueUnion, the ~0x20-byte tagged value returned by EntityValue_Look… |
+| `oCGameEventNetworkModifier_vftable` | `0x140f39190` | 📍 va |  | vftable of oCGameEventNetworkModifier — the durable stat-modifier named event (leaf of … |
 
 ## entity-values
 
@@ -165,7 +165,7 @@ Total: **413** symbols across 29 categories.
 | `SceneContextValue_SetBool` | `0x140202c70` | ✅ ok | ✔ | void(void* sceneContext, uint32_t crcKey, bool value) |
 | `SceneContextValue_SetFloat` | `0x1402041c0` | ✅ ok | ✔ | void(void* sceneContext, uint32_t crcKey, float value) |
 | `SceneContextValue_SetInt` | `0x140202e00` | ✅ ok | ✔ | void(void* sceneContext, uint32_t crcKey, int32_t value) |
-| `g_GlobalEntityValueSceneContext_Tester_vftable` | `0x140f0b5d8` | 📍 va |  | Vftable of oCTKindOfTypeTester<oCGlobalEntityValueSceneContext, oIGameSceneContext>, re… |
+| `g_GlobalEntityValueSceneContext_Tester_vftable` | `0x140f0b5e8` | 📍 va |  | Vftable of oCTKindOfTypeTester<oCGlobalEntityValueSceneContext, oIGameSceneContext>, re… |
 
 ## event
 
@@ -191,10 +191,10 @@ Total: **413** symbols across 29 categories.
 | `NamedEvent_NetSend` | `0x1407202b0` | ✅ ok | ✔ | void(void* net_event_cpnt, oCGameNamedEvent* ev) |
 | `NamedEvent_NetSendToPeer` | `0x140720340` | ✅ ok | ✔ | void(void* net_event_cpnt, oCGameNamedEvent* ev, uint64_t* peer_session) |
 | `Reroll_GrantToHeroes` | `0x1402e5c60` | ✅ ok |  | The game's own reroll grant: builds a GainReroll event on the stack with the count (an … |
-| `oCDtNamedEventGainDreamShards_vftable` | `0x140f23cf8` | 📍 va |  | vftable of oCDtNamedEventGainDreamShards, the GAIN_DREAM_SHARDS event a pickup sends. 0… |
-| `oCDtNamedEventGainReroll_vftable` | `0x140f278c8` | 📍 va |  | vftable of oCDtNamedEventGainReroll, the GAIN_REROLL named event (bus id = NamedEvent_I… |
-| `oCGameEventGainIngredient_vftable` | `0x140f27958` | 📍 va |  | vftable of oCGameEventGainIngredient, the GAIN_INGREDIENT event. 0x58 bytes; ctor 0x140… |
-| `oCNamedEventNetworkWithData_vftable` | `0x140f10910` | 📍 va |  | vftable of oCNamedEventNetworkWithData (RTTI name, docs/_re/out_new/vftables.jsonl), th… |
+| `oCDtNamedEventGainDreamShards_vftable` | `0x140f23d08` | 📍 va |  | vftable of oCDtNamedEventGainDreamShards, the GAIN_DREAM_SHARDS event a pickup sends. 0… |
+| `oCDtNamedEventGainReroll_vftable` | `0x140f278d8` | 📍 va |  | vftable of oCDtNamedEventGainReroll, the GAIN_REROLL named event (bus id = NamedEvent_I… |
+| `oCGameEventGainIngredient_vftable` | `0x140f27968` | 📍 va |  | vftable of oCGameEventGainIngredient, the GAIN_INGREDIENT event. 0x58 bytes; ctor 0x140… |
+| `oCNamedEventNetworkWithData_vftable` | `0x140f10920` | 📍 va |  | vftable of oCNamedEventNetworkWithData (RTTI name, docs/_re/out_new/vftables.jsonl), th… |
 
 ## gameplay
 
@@ -216,7 +216,7 @@ Total: **413** symbols across 29 categories.
 | `XpComponent_SetXp` | `0x1402de260` | ✅ ok | ✔ | void(void*, uint32_t) |
 | `XpComponent_TypeTester` | `0x141478140` | 📍 va |  | Type-tester global (DAT_141476e00) used by the XP component's own IsKindOf/parent-resol… |
 | `XpComponent_XpForLevel` | `0x1402dd860` | ✅ ok | ✔ | uint32_t(void*, uint32_t) |
-| `XpComponent_vftable` | `0x140f24878` | 📍 va |  | Vftable of the hero's XP/level component. CORRECTED 2026-07-18 from 0x140f23200, which … |
+| `XpComponent_vftable` | `0x140f24888` | 📍 va |  | Vftable of the hero's XP/level component. CORRECTED 2026-07-18 from 0x140f23200, which … |
 
 ## heroes
 
@@ -285,21 +285,21 @@ Total: **413** symbols across 29 categories.
 | `HasGameModifierStateMachine_Register` | `0x1401900b0` | ✅ ok |  | void(void) |
 | `HeroDef_PostLoad` | `0x14031b5f0` | ✅ ok | ✔ | bool(void* definition) |
 | `IngredientDef_PostLoad` | `0x14031eab0` | ✅ ok | ✔ | bool(void* definition) |
-| `Library_AchievementDefinition_vftable` | `0x140f28d98` | 📍 va |  | vftable of oCTLibrary<oe::dt::AchievementDefinition> singleton. ⚠ ADDRESS CORRECTED 202… |
-| `Library_ChallengeDefinition_vftable` | `0x140f2b568` | 📍 va |  | vftable of oCTLibrary<oe::dt::ChallengeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-… |
-| `Library_DreamShardDefinition_vftable` | `0x140f2b408` | 📍 va |  | vftable of oCTLibrary<oCDtDreamShardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
-| `Library_EnemyCampDifficultyDefinition_vftable` | `0x140f2c5d0` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyCampDifficultyDefinition> singleton. ⚠ ADDRESS CORRECTED… |
-| `Library_EnemyCampTierDefinition_vftable` | `0x140f2c610` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyCampTierDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-… |
-| `Library_EnemyDefinition_vftable` | `0x140f2cb10` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: t… |
-| `Library_EnemyTribeDefinition_vftable` | `0x140f2c7c8` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyTribeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
-| `Library_EntitySettingsResource_vftable` | `0x140f77ba8` | 📍 va |  | vftable of oCTLibrary<oCEntitySettingsResource> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
-| `Library_GameModifierDefinition_vftable` | `0x140f2b940` | 📍 va |  | vftable of oCTLibrary<oe::dt::GameModifierDefinition> singleton. GameModifiers = the ru… |
-| `Library_IngredientDefinition_vftable` | `0x140f2b5a8` | 📍 va |  | vftable of oCTLibrary<oCDtIngredientDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
-| `Library_MapDefinition_vftable` | `0x140f2b3b0` | 📍 va |  | vftable of oCTLibrary<oCDtMapDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the… |
-| `Library_MelodyDefinition_vftable` | `0x140f2b688` | 📍 va |  | vftable of oCTLibrary<MelodyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the … |
-| `Library_RewardDefinition_vftable` | `0x140f2b448` | 📍 va |  | vftable of oCTLibrary<oCDtRewardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: … |
-| `Library_TileDefinition_vftable` | `0x140f2c8e8` | 📍 va |  | vftable of oCTLibrary<oCDtTileDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: th… |
-| `Library_VersionDefinition_vftable` | `0x140f2b370` | 📍 va |  | vftable of oCTLibrary<oe::dt::VersionDefinition> singleton (LiveOps version manifest). … |
+| `Library_AchievementDefinition_vftable` | `0x140f28da8` | 📍 va |  | vftable of oCTLibrary<oe::dt::AchievementDefinition> singleton. ⚠ ADDRESS CORRECTED 202… |
+| `Library_ChallengeDefinition_vftable` | `0x140f2b578` | 📍 va |  | vftable of oCTLibrary<oe::dt::ChallengeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-… |
+| `Library_DreamShardDefinition_vftable` | `0x140f2b418` | 📍 va |  | vftable of oCTLibrary<oCDtDreamShardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
+| `Library_EnemyCampDifficultyDefinition_vftable` | `0x140f2c5e0` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyCampDifficultyDefinition> singleton. ⚠ ADDRESS CORRECTED… |
+| `Library_EnemyCampTierDefinition_vftable` | `0x140f2c620` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyCampTierDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-… |
+| `Library_EnemyDefinition_vftable` | `0x140f2cb20` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: t… |
+| `Library_EnemyTribeDefinition_vftable` | `0x140f2c7d8` | 📍 va |  | vftable of oCTLibrary<oCDtEnemyTribeDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
+| `Library_EntitySettingsResource_vftable` | `0x140f77bb8` | 📍 va |  | vftable of oCTLibrary<oCEntitySettingsResource> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
+| `Library_GameModifierDefinition_vftable` | `0x140f2b950` | 📍 va |  | vftable of oCTLibrary<oe::dt::GameModifierDefinition> singleton. GameModifiers = the ru… |
+| `Library_IngredientDefinition_vftable` | `0x140f2b5b8` | 📍 va |  | vftable of oCTLibrary<oCDtIngredientDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-… |
+| `Library_MapDefinition_vftable` | `0x140f2b3c0` | 📍 va |  | vftable of oCTLibrary<oCDtMapDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the… |
+| `Library_MelodyDefinition_vftable` | `0x140f2b698` | 📍 va |  | vftable of oCTLibrary<MelodyDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: the … |
+| `Library_RewardDefinition_vftable` | `0x140f2b458` | 📍 va |  | vftable of oCTLibrary<oCDtRewardDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: … |
+| `Library_TileDefinition_vftable` | `0x140f2c8f8` | 📍 va |  | vftable of oCTLibrary<oCDtTileDefinition> singleton. ⚠ ADDRESS CORRECTED 2026-09-17: th… |
+| `Library_VersionDefinition_vftable` | `0x140f2b380` | 📍 va |  | vftable of oCTLibrary<oe::dt::VersionDefinition> singleton (LiveOps version manifest). … |
 | `MapDef_PostLoad` | `0x14031ee10` | ✅ ok | ✔ | bool(void* definition) |
 | `MapDef_RegisterAssetLoader` | `0x14031ec70` | ✅ ok |  | void(void* assetClassDesc) |
 | `MelodyDef_PostLoad` | `0x140322870` | ✅ ok | ✔ | bool(void* definition) |
@@ -322,11 +322,11 @@ Total: **413** symbols across 29 categories.
 
 | name | address | status | callable | signature / note |
 |------|---------|--------|----------|------------------|
-| `HeroMelodyPersistentData_vftable` | `0x140f146d0` | 📍 va |  | vftable of HeroMelodyPersistentData ("Dt Hero Controller Owned Melody Persistent Data",… |
+| `HeroMelodyPersistentData_vftable` | `0x140f146e0` | 📍 va |  | vftable of HeroMelodyPersistentData ("Dt Hero Controller Owned Melody Persistent Data",… |
 | `MelodyDefinition_Ctor` | `0x140322440` | ✅ ok |  | void*(void* self) |
 | `NamedEvent_ChooseMelody_Ctor` | `0x1402d4e20` | ✅ ok | ✔ | oe::dt::NamedEventChooseMelody*(void* buf) |
-| `oCGameNamedEventChooseMelody_vftable` | `0x140f27140` | 📍 va |  | vftable of NamedEventChooseMelody (RTTI .?AVNamedEventChooseMelody@dt@oe@@, typedesc 0x… |
-| `oCGameNamedEventRemoveMelody_vftable` | `0x140f23e40` | 📍 va |  | vftable of NamedEventRemoveMelody (typedesc 0x14137bc38); same shape and origin as oCGa… |
+| `oCGameNamedEventChooseMelody_vftable` | `0x140f27150` | 📍 va |  | vftable of NamedEventChooseMelody (RTTI .?AVNamedEventChooseMelody@dt@oe@@, typedesc 0x… |
+| `oCGameNamedEventRemoveMelody_vftable` | `0x140f23e50` | 📍 va |  | vftable of NamedEventRemoveMelody (typedesc 0x14137bc38); same shape and origin as oCGa… |
 
 ## netcode
 
@@ -346,7 +346,7 @@ Total: **413** symbols across 29 categories.
 | `Netcode_SessionCtx_LocalGuid` | `0x1408b6700` | ✅ ok |  | oCDtP2PSessionSceneContext::vft[0x88] — returns THIS machine's session id. Ghidra 2026-… |
 | `P2PSession_OnFcm2NewHost` | `0x1408b76e0` | ✅ ok |  | The game's ID_FCM2_NEW_HOST handler -- i.e. where RakNet's FullyConnectedMesh2 host ELE… |
 | `P2PSession_SetState` | `0x14085b4b0` | ✅ ok |  | void(oCDtP2PSessionSceneContext* ctx, int newState) |
-| `P2PSession_StateNames` | `0x140eee910` | 📍 va |  | struct { const char* s; uint32 len; } [14]  // 0x10 stride |
+| `P2PSession_StateNames` | `0x140eee920` | 📍 va |  | struct { const char* s; uint32 len; } [14]  // 0x10 stride |
 | `RakNetConnection_Ctor` | `0x140b997b0` | ✅ ok |  | Stormancer::RakNetConnection constructor. Ghidra 2026-08-21: installs Stormancer::IConn… |
 | `RakPeer_Ctor` | `0x140add300` | ✅ ok |  | RakNet::RakPeer* (RakNet::RakPeer* this) |
 | `RakPeer_DefaultTimeoutStore` | `0x140ade1b0` | ✅ ok |  | (code location, not callable) |
@@ -371,7 +371,7 @@ Total: **413** symbols across 29 categories.
 | `GameModifierUi_PadSelectedSlots` | `0x14035b760` | ✅ ok | ✔ | void(void* uiController, void* unknown, void* selectedVector) |
 | `GameOptionsManager_Register` | `0x14066ab20` | ✅ ok | ✔ | void(GameOptionsManager* mgr, u8 category, GameOption* option) |
 | `GameOptionsManager_RequestLoad` | `0x140691110` | ✅ ok | ✔ | void(void* unused, FileRequest* req /* = mgr+8 */) |
-| `InputKeyGameOption_vftable` | `0x140f021b0` | 📍 va |  | [2026-11-19: relocated 0x140efd440 -> 0x140f021b0 for the 2026-11-17 patch (2a88a3bd564… |
+| `InputKeyGameOption_vftable` | `0x140f021c0` | 📍 va |  | [2026-11-19: relocated 0x140efd440 -> 0x140f021b0 for the 2026-11-17 patch (2a88a3bd564… |
 | `g_GameOptions` | `0x14143dd50` | 📍 va |  | [2026-07-10: re-derived post 2026-07-09 patch (was 0x141436510); ctor is now FUN_1401ca… |
 | `g_GameOptionsManager` | `0x14143dd70` | 📍 va |  | [2026-11-19: relocated 0x141436a38 -> 0x14143dd70 for the 2026-11-17 patch (2a88a3bd564… |
 
