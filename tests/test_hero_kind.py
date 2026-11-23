@@ -759,6 +759,11 @@ def test_every_hero_tab_block_builds_on_scarlet():
     for part in ("Kit Power Shot 3", "Kit Power Hit 4 Radius", "Kit Special Heal",
                  "Kit Power Shot 1 Burn Time", "Kit Ultimate Moment 5 Timer"):
         assert part in names, part
+    # `explode` sizes the area the splash hits ("Splash Radius", read by the
+    # splash traverser), not only its knockback radius ("Splash Radius Value")
+    aimed = {s["node"] for s in steps if "retarget" in s and "Explode" in s["retarget"]}
+    assert any(n.endswith("|Splash Radius") for n in aimed), aimed
+    assert any(n.endswith("|Splash Radius Value") for n in aimed), aimed
     with pytest.raises(HK.KitError, match="0.5..30"):
         HK.expand({"power": {"steps": [{"hit": {"radius": 99}}]}}, corpus.read(_RED), "Hero_Red")
 

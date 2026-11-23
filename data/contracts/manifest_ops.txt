@@ -11,6 +11,8 @@ ability:event
 ability:label_format
 ability:level_linear
 ability:link
+ability:no_damage
+ability:notify_owner
 ability:override
 ability:owner_read
 ability:percent
@@ -26,6 +28,7 @@ ability:sound_volume
 ability:swap_ref
 ability:switch_off
 ability:talent_number
+ability:targets
 ability:unlink_reads
 terrain:flatten
 terrain:lower

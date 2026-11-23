@@ -14,6 +14,9 @@ slots, overridden:
 * ``Projectile Attack Selector``: the piercing attack (passes through and hits
   each enemy once) or the plain one (stops at the first hit);
 * ``Lifetime Duration``: seconds before it expires;
+* ``Splash Value`` / ``Splash Radius``: ``splash`` m of area damage where it
+  hits, the base's own splash (Piper's Big Shots switches it on the same way:
+  Splash Value 1, a radius); 0 leaves it off;
 * ``Alive Fx Default`` / ``Impact Fx Default``: the effect it trails while
   flying and bursts with when it lands, each an ``oCEntityCpntFxSetup``
   sub-object naming one ``.vfx.ot`` (the trail's own written as a copy of the
@@ -43,7 +46,7 @@ _SAMPLES = "samples"
 #: A shipped thrown prop's mesh pitch (Red's spike: pi/2 about X) and size.
 PITCH, SIZE = math.pi / 2, 1.5
 FIELDS = {"model", "albedo", "mra", "normal", "scale", "lifetime", "trail", "impact",
-          "pierce", "size", "pitch"}
+          "pierce", "size", "pitch", "splash"}
 
 
 class ProjectileError(ValueError):
@@ -211,7 +214,8 @@ def _trail_tuning(obj: bytearray, flag_at: int) -> None:
 
 def build(read, *, stem: str, mesh: str, material: str, lifetime: float = 1.0,
           trail: str = "", impact: str = "", pierce: bool = True,
-          size: float = SIZE, pitch: float = PITCH, modifier_type: int | None = None) -> bytes:
+          size: float = SIZE, pitch: float = PITCH, modifier_type: int | None = None,
+          splash: float = 0.0) -> bytes:
     """The projectile entity ``stem`` (cooked bytes). ``read`` reads a shipped
     entity by reference; ``mesh``/``material`` are cooked 3D paths of the
     mod's own; ``trail``/``impact`` name ``.vfx.ot`` effects (an empty trail
@@ -245,6 +249,11 @@ def build(read, *, stem: str, mesh: str, material: str, lifetime: float = 1.0,
             if bytes(p).count(old) != 1:
                 raise ProjectileError("the attack selector does not name the plain attack once")
             p[:] = bytes(p).replace(old, new)
+        if splash < 0:
+            raise ProjectileError(f"projectile {stem}: splash is a radius in m (0: none)")
+        if splash:
+            HF.fill_slot(ef, base, "Splash Value", value=1.0)
+            HF.fill_slot(ef, base, "Splash Radius", value=float(splash))
         HF.fill_slot(ef, base, "Impact Fx Default")
         setup = _fx_ids(ef, "Impact Fx Default")[0]
         if impact:

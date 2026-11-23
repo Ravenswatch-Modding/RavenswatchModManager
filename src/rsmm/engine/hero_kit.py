@@ -691,6 +691,14 @@ def _moves(slot: str, spec: dict, g: EG.EntityGraph, alt: tuple[str, ...],
                         setv(sp, PROJ_MODEL, key.title(), target, float(block[key]) * scale)
                 if block.get("explode") is not None:
                     setv(sp, PROJ_MODEL, "Explodes", "Splash Value", 1.0)
+                    # The area the splash hits (and its effect's scale) is
+                    # "Splash Radius": the Splash Attack Traverser's shape reads
+                    # it through Splash Radius Selector. "Splash Radius Value"
+                    # (PROJ_VALUES) is only the splash damage's knockback
+                    # radius, so `explode` alone hit the base's 3 m whatever
+                    # radius it was given.
+                    setv(sp, PROJ_MODEL, "Explode Area", "Splash Radius",
+                         float(block["explode"]))
                 for key, (flag, dur) in PROJ_STATUS.items():
                     v = block.get(key)
                     if v:

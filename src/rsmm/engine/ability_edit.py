@@ -113,6 +113,34 @@ One step per table::
     replace_ref = { "Step 2" = "Step 3" } combo's steps), its links to the
                                           named parts re-pointed
 
+Building blocks: one step that expands into the clone / set / link steps a
+mod used to write by hand (expanded before the steps run, so a mistake in one
+reports the building block's own step number)::
+
+    targets = "Spread"                    "Spread Target Computer": picks up to
+    count = 3                             ``count`` enemies (0: every one) within
+    radius = 4.5                          ``radius`` m around the entity, through
+    to = "Event Initialize"               its own "Spread Traverser" / "Spread
+    hit = "Spread Damage"                 Radius" / "Spread Max Targets" (copied
+                                          whole from Kintaro's quest lightning, so
+                                          no other hero's part has to be patched
+                                          in). ``to`` (optional): a state whose
+                                          ``activates`` switches them on. ``hit``
+                                          (optional): a damage part; adds "Spread
+                                          Target Attack", which hits the picked
+                                          enemies with it (activate it yourself,
+                                          when the hit should land)
+
+    notify_owner = "MY_MOD_EVENT"         the owning hero receives named event
+    to = "Event On Bomb Bleed Kill"       MY_MOD_EVENT every time the state runs
+                                          (a talent's ``on = ...`` listener on the
+                                          hero hears it)
+
+    no_damage = "Attacking Damage"        the damage part deals nothing: no
+                                          damage, crit, stagger or push; its
+                                          debuff list (bytes_36) is kept, so a
+                                          zero-damage hit can still plant one
+
 ``entity = "FX"`` (or a full stem) on any step targets another member of the
 family, e.g. ``Hero_Piper_FX``; the default is the gameplay entity.
 
@@ -133,14 +161,84 @@ _OPS = ("clone", "set", "link", "add_link", "remove_link", "percent", "add_subob
         "append_operand", "add_cinebloc", "animatic_speed", "animatic_clip", "sound_volume",
         "add_selector", "unlink_reads",
         "swap_ref", "scale_by_talent", "talent_number", "owner_read", "scale_with_level",
-        "level_linear", "add_status", "read", "label_format")
+        "level_linear", "add_status", "read", "label_format",
+        # building blocks (expanded by _expand before the loop)
+        "targets", "notify_owner", "no_damage")
 #: Every key a step may carry; anything else is a typo that would otherwise be
 #: ignored silently (a `rename` the old clone did not read left its copies
 #: under the default suffix, and the next step found nothing).
 _KEYS = {*_OPS, "value", "to", "entity", "as", "suffix", "from", "rename",
          "donor_index", "donor", "replace_ref", "node", "from_kind", "condition", "talent",
          "values", "tag", "flag", "factor", "base", "status", "switch", "duration",
-         "accessor", "text", "inputs"}
+         "accessor", "text", "inputs", "count", "radius", "hit"}
+
+#: `targets`: Kintaro's quest lightning carries the whole pick-targets set,
+#: linked among itself (computer -> traverser -> radius, computer -> max
+#: targets, attack -> computer). Juliet's ricochet computer, the donor mods
+#: reached for first, ships wired to a traverser whose shape is no radius, so
+#: every use had to patch in Kintaro's (or Red's bomb's) shape as well.
+_TARGETS_FROM = "Kintaro"
+_TARGETS_DONOR = "Skill Attack Quest Lightning "
+_TARGETS_PARTS = ("Target Computer", "Traverser", "Radius", "Max Targets")
+#: Geppetto's dummy's sender: an event sent to the entity's owner (the hero).
+_NOTIFY_FROM = "Heroes/Hero_Geppetto/Hero_Geppetto_Dummy"
+_NOTIFY_DONOR = "Owner DUMMY_DESTROYED Event Sender"
+#: A damage part made harmless: base damage, its multiplier, crit (off, 0, 0),
+#: stagger, push (-1: none) and the three hit-reaction switches. Measured on
+#: Blood Wolf's orb contact detector and spread seed (Pam, in game 2026-11).
+_NO_DAMAGE = (("value_2", 0.0), ("value_4", 0.0), ("value_26", False), ("value_27", 0.0),
+              ("value_28", 0.0), ("value_31", 0.0), ("value_35", -1), ("value_38", False),
+              ("value_39", False), ("value_40", False))
+
+
+def _expand(step: dict, n: int) -> list[dict]:
+    """A building-block step as the plain steps it stands for (any other step
+    as itself). ``entity`` carries over to every step it expands into."""
+    if not isinstance(step, dict):
+        return [step]
+    on = {"entity": step["entity"]} if "entity" in step else {}
+    if "targets" in step:
+        extra = set(step) - {"targets", "count", "radius", "to", "hit", "entity"}
+        name = step["targets"]
+        count, radius = step.get("count", 1), step.get("radius")
+        if extra or not isinstance(name, str) or not name.strip():
+            raise AbilityEditError(f"ability step {n}: targets = '<name>', count = <n>, "
+                                   "radius = <m> (to, hit optional)")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise AbilityEditError(f"ability step {n}: targets count is a whole number "
+                                   "(0: every enemy in range)")
+        if isinstance(radius, bool) or not isinstance(radius, int | float) or radius <= 0:
+            raise AbilityEditError(f"ability step {n}: targets radius is a distance in m above 0")
+        parts = [*_TARGETS_PARTS, *(["Target Attack"] if step.get("hit") else [])]
+        out = [
+            {"clone": [_TARGETS_DONOR + p for p in parts], "from": _TARGETS_FROM,
+             "rename": {_TARGETS_DONOR + p: f"{name} {p}" for p in parts}},
+            {"set": f"{name} Radius.value", "value": float(radius)},
+            {"set": f"{name} Max Targets.value", "value": count},
+            # Kintaro's delay between strikes lives in another entity
+            {"link": f"{name} Target Computer.ref_12", "to": ""}]
+        if step.get("hit"):
+            out.append({"link": f"{name} Target Attack.ref_4", "to": str(step["hit"])})
+        if step.get("to"):
+            out += [{"add_link": f"{step['to']}.activates", "to": f"{name} {p}"}
+                    for p in ("Radius", "Max Targets", "Traverser", "Target Computer")]
+        return [{**on, **s} for s in out]
+    if "notify_owner" in step:
+        event = step["notify_owner"]
+        if set(step) - {"notify_owner", "to", "entity"} or not isinstance(event, str) \
+                or not event.strip() or not step.get("to"):
+            raise AbilityEditError(f"ability step {n}: notify_owner = '<EVENT>', "
+                                   "to = <state that sends it>")
+        part = f"Owner {event} Sender"
+        return [{**on, **s} for s in (
+            {"clone": [_NOTIFY_DONOR], "from": _NOTIFY_FROM, "rename": {_NOTIFY_DONOR: part}},
+            {"set": f"{part}.event", "value": event},
+            {"add_link": f"{step['to']}.activates", "to": part})]
+    if "no_damage" in step:
+        if set(step) - {"no_damage", "entity"} or not isinstance(step["no_damage"], str):
+            raise AbilityEditError(f"ability step {n}: no_damage = '<damage part>'")
+        return [{**on, "set": f"{step['no_damage']}.{f}", "value": v} for f, v in _NO_DAMAGE]
+    return [step]
 
 
 class AbilityEditError(ValueError):
@@ -286,7 +384,10 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
             edits[stem] = EntityFile(files[stem], stem)
         return edits[stem]
 
-    for n, step in enumerate(steps, 1):
+    # A building block keeps its own step number (its errors and its one
+    # clone's seed), so the steps after it number as they did before.
+    flat = [(n, s) for n, st in enumerate(steps, 1) for s in _expand(st, n)]
+    for n, step in flat:
         if not isinstance(step, dict):
             raise AbilityEditError(f"ability step {n} is not a table")
         # `percent` is also scale_by_talent's / talent_number's bool option;

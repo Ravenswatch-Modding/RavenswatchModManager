@@ -1228,6 +1228,22 @@ to    = "State Secondary Ability Echo"
     `replace_ref` and puts the copy IN PLACE of entry `i`, so whatever picks
     that entry (an Fx selector) now gets the copy. Both refuse a sub-object
     that owns sub-objects of its own.
+  - Building blocks, each one step that writes what used to take a dozen:
+    - `targets = "Spread"` + `radius = 4.5`, `count = 3` (0: every enemy in
+      range): "Spread Target Computer" picks that many enemies around the
+      entity, with its own "Spread Traverser", "Spread Radius" and "Spread Max
+      Targets", copied whole from Kintaro's quest lightning. `to = "<state>"`
+      switches them on in that state; `hit = "<damage part>"` adds "Spread
+      Target Attack", which hits the picked enemies (activate it when the hit
+      should land). Use it instead of copying Juliet's ricochet target
+      computer: hers is wired to a traverser that is no radius, so every copy
+      needed another hero's shape patched in.
+    - `notify_owner = "MY_EVENT"` + `to = "<state>"`: the owning hero receives
+      named event MY_EVENT each time the state runs (a bomb telling its hero it
+      killed something, for a talent's listener).
+    - `no_damage = "<damage part>"`: the part deals no damage, crit, stagger or
+      push; its debuff list stays, so a zero-damage contact can still plant a
+      debuff.
   - An animation's timeline: `set = "Anim Part.cinebloc[i].start"` moves when
     bloc `i` fires (seconds), and `link = "Anim Part.cinebloc[i]"` with
     `to = ""` unlinks the part that bloc acts on (or `to` another part).
@@ -1459,7 +1475,9 @@ Projectiles of the hero's own, `[content.frame.projectiles.<id>]`, are fired
 with `fire = "own:<id>"`: each is the engine's generic hero projectile (flight,
 hit, despawn) wearing your `model` (a static glb, +Y = flight) and `albedo` /
 `mra` / `normal`, with its own `scale`, `lifetime`, `trail` and `impact`
-effects (any shipped `.vfx.ot`). Speed, damage, size, explode, knockback and
+effects (any shipped `.vfx.ot`), and `splash = <m>` for area damage of that
+radius wherever it hits (the projectile base's own splash, as Piper's Big
+Shots). Speed, damage, size, explode, knockback and
 statuses are set per shot in the `fire` step:
 
 ```toml

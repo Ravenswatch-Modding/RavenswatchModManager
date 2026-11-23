@@ -2121,6 +2121,7 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
                 "trail": str(spec.get("trail") or ""), "impact": str(spec.get("impact") or ""),
                 "pierce": bool(spec.get("pierce", True)),
                 "size": float(spec.get("size", PF.SIZE)),
+                "splash": float(spec.get("splash", 0.0)),
                 "pitch": math.radians(float(spec["pitch"])) if "pitch" in spec else PF.PITCH}
             try:
                 own_projectiles[ref] = PF.build(read, stem=stem, **proj_args[str(pid)])

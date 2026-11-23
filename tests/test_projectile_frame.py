@@ -91,3 +91,19 @@ def test_a_projectile_counts_as_the_damage_of_the_button_that_fires_it():
     assert sel.override is not None and struct.unpack_from("<i", sel.body, 78)[0] == 5
     plain = EG.parse(PF.build(_read, stem="Hero_T_Axe", mesh="a.fbx", material=""))
     assert "Modifier Type Selector" not in {c.name for c in plain.components}
+
+
+@needs_corpus
+def test_splash_switches_on_the_base_splash():
+    """`splash` fills the base's own splash slots the way Piper's Big Shots
+    does (Splash Value 1, a radius); without it neither slot is overridden."""
+    def values(raw):
+        ef = EntityFile(raw, "P")
+        return {c.name: next(f.text for f in EF.fields(c) if f.name == "value")
+                for c in ef.graph().components if c.name in ("Splash Value", "Splash Radius")}
+    kw = {"stem": "Hero_T_P", "mesh": _RED_MESH, "material": _RED_MAT}
+    assert values(PF.build(_read, **kw)) == {}
+    assert values(PF.build(_read, splash=2.5, **kw)) == {"Splash Value": "f32 1",
+                                                         "Splash Radius": "f32 2.5"}
+    with pytest.raises(PF.ProjectileError):
+        PF.build(_read, splash=-1, **kw)
