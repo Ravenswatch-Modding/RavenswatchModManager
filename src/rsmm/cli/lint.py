@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -264,13 +265,20 @@ def lint_one(entry: Path) -> tuple[int, int]:
     dec2enc = decoded_to_encoded()
     assets = entry / "assets"
     raw_files = 0
+    # Files the mod's own [[content]] emitted (a new hero's entities, art,
+    # clips): new assets by design, which apply registers in UsedRscList, so
+    # "not in asset_map" is no sign of a typo there.
+    try:
+        emitted = set(json.loads((entry / ".rsmm_emitted.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        emitted = set()
     if assets.is_dir():
         for f in assets.rglob("*"):
             if not f.is_file():
                 continue
             p = f.relative_to(assets).as_posix()
             raw_files += 1
-            if _is_special_decoded(p):
+            if _is_special_decoded(p) or p in emitted:
                 continue
             # Same resolver `apply` installs through, so lint cannot warn
             # about a path that would in fact install (resource caches, sound
