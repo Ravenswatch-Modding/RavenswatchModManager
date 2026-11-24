@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Ravenswatch Mod Manager",
-        "width": 1280,
-        "height": 800,
+        "width": 1366,
+        "height": 768,
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,

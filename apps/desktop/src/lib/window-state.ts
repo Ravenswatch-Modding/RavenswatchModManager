@@ -1,8 +1,8 @@
 /**
  * Remember the main window's size and position across launches.
  *
- * `tauri.conf.json` hardcodes 1280x800 centred, so every launch threw away
- * whatever the user had arranged. The official `tauri-plugin-window-state`
+ * `tauri.conf.json` defaults to 1366x768 centred on first launch. This restores
+ * the user's saved geometry on later launches. The official `tauri-plugin-window-state`
  * would cover this, but its allow/deny lists take exact window labels and the
  * overlay windows are `overlay-<modId>` — created at runtime, one per mod, and
  * already persisting their own geometry in `lib/overlay-windows.ts`. Rather
