@@ -290,7 +290,10 @@ const SPEC = {
     next: ENUM("ability", "until the next use of this ability") },
   action: { on: ENUM("trigger", "fires each time this happens while the talent is owned"), hits: { t: "hits" }, steps: { t: "steps" } },
   talent: { title: txt("the card's title"), description: { t: "area", hint: "{0} = the number, &…~ scales with rarity, #WORD@ highlights" },
-    icon: UI, starter: { t: "bool", hint: "in the pick at the start of a run" }, add_stats: { t: "stats" },
+    icon: UI, starter: { t: "bool", hint: "in the pick at the start of a run" },
+    show_counter: { t: "bool", hint: "the number badge quest and stack talents show" },
+    unlock_rank: { t: "int", init: 2, hint: "hero rank 0..9 it opens at in the book; 0 = always open. Leave the field out for the base game's pattern" },
+    add_stats: { t: "stats" },
     actions: { t: "list", of: "action", title: (a) => a.on ? "on " + a.on : "action" } },
   ultimate: { title: txt(), description: { t: "area" }, icon: UI, add_stats: { t: "stats" },
     actions: { t: "list", of: "action", title: (a) => a.on ? "on " + a.on : "action" } },
@@ -315,7 +318,8 @@ const SPEC = {
   weapon: { from: ENUM("hero", "the shipped hero whose hand weapon layout it uses"), model: GLB("art/props", "handle along +Y, grip at the origin", "weapon"),
     albedo: { ...PNG("art/props"), starter: "weapon" }, mesh: txt("a shipped weapon mesh (instead of a model)", "dl-wmesh"),
     material: txt("the shipped material it is drawn with", "dl-wmat") },
-  memoir: { title: txt(), text: { t: "area" } },
+  memoir: { title: txt(), text: { t: "area" },
+    unlock_rank: { t: "int", init: 2, hint: "hero rank 0..9 the page opens at; 0 = always open. Leave the field out for 2,4,6,8,9,9,9" } },
 };
 // Step blocks: a step is named by its first key.
 const STEP_SPEC = {
@@ -600,6 +604,7 @@ function record(obj, keys, spec, opts = {}) {
   return wrap;
 }
 function defaultFor(sp) {
+  if (sp.init !== undefined) return sp.init;
   switch (sp.t) {
     case "bool": return true;
     case "num": case "int": return 0;

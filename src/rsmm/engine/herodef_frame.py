@@ -341,7 +341,8 @@ def encode(h: Herodef) -> bytes:
 #: The classes a written herodef uses, in the shipped table order (format
 #: metadata: each class's engine id, version and parent, read from the game).
 _CLASSES = ("oCDtHeroDefinition", "oCDtDefinition", "oIResource", "oISerializable", SKILL,
-            STORY, SKIN, _LOCK, _LISTENER, _FILTER, _FLAGS, _SPAWNER, _PICKER)
+            STORY, SKIN, _LOCK, _LISTENER, _FILTER, _FLAGS, _SPAWNER, _PICKER,
+            "oIGameUnlockConditionSettings", RANK)
 #: Format constants every shipped herodef has (13/13), and the most common
 #: value where heroes differ (flags whose meaning is not known yet).
 _HEAD = bytes.fromhex("000000000101")
@@ -359,6 +360,8 @@ class Talent:
     controller: str            # "Skill Controller Attack Chop"
     controller_guid: bytes     # the hero's controller (Hero_Common's for an ultimate row)
     ultimate: bool = False
+    #: hero rank the row unlocks at in the book (None = always open)
+    rank: int | None = None
 
 
 @dataclass
@@ -368,6 +371,8 @@ class Page:
     footer: tuple[str, str]
     footer_selected: tuple[str, str]
     corner: tuple[str, str]
+    #: hero rank the page unlocks at (None = always open)
+    rank: int | None = None
 
 
 @dataclass
@@ -422,17 +427,27 @@ def build(rec: Record, class_source: bytes) -> bytes:
                                   c.parent_id) for c in (by_name[n] for n in _CLASSES)]
     names = list(_CLASSES)
     objects: list[tuple[str, dict | bytes]] = []
+    ranks: list[tuple[list, int]] = []      # (object list, rank) of each locked row/page
+
+    def lock(rank: int | None) -> Lock:
+        # A shipped lock names one HeroRank condition object (13/13 heroes);
+        # its id is that object's position, filled in once all are placed.
+        k = Lock()
+        if rank is not None:
+            ranks.append((k.ids, rank))
+        return k
+
     for t in rec.talents:
         objects.append((SKILL, {
             "cls": names.index(SKILL), "z": 0, "name": t.controller,
-            "controller": t.controller_guid, "lock": Lock(),
+            "controller": t.controller_guid, "lock": lock(t.rank),
             "guid": _guid(rec.hid, f"row:{t.controller}"),
             "tail": _ULTIMATE_TAIL if t.controller.endswith(_TAIL_ROW) else bytes(9)}))
     rows = list(range(len(objects)))
     for i, p in enumerate(rec.pages):
         objects.append((STORY, {
             "cls": names.index(STORY), "title": p.title, "desc": p.desc, "extra": Text(),
-            "footer": p.footer, "footer_selected": p.footer_selected, "lock": Lock(),
+            "footer": p.footer, "footer_selected": p.footer_selected, "lock": lock(p.rank),
             "corner": p.corner, "guid": _guid(rec.hid, f"page:{i}"), "tail": bytes(6)}))
     pages = list(range(len(rows), len(objects)))
     for i, k in enumerate(rec.skins):
@@ -442,6 +457,11 @@ def build(rec: Record, class_source: bytes) -> bytes:
             "lock": Lock(), "mid": bytes(2), "desc": k.desc, "mid2": bytes(1),
             "desc2": k.desc}))
     skins = list(range(len(rows) + len(pages), len(objects)))
+    for ids, rank in ranks:
+        ids.append(len(objects))
+        objects.append((RANK, {
+            "cls": names.index(RANK), "text": Text.of(_COMMON, "Book_Page_Skill_Unlock_Lvl", 128),
+            "hero": ("Definitions", f"Heroes\\{rec.hid}.herodef.ot"), "rank": rank}))
     root = {
         "head": _HEAD, "sort": rec.sort, "portrait": rec.portrait, "name": rec.name,
         "book_standard": rec.book[0], "book_active": rec.book[1],

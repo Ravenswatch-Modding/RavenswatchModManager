@@ -36,7 +36,8 @@ TOP_KEYS = ("kind", "id", "name", "description", "memoirs", "frame")
 BUTTON_EXTRA = ("name", "description", "icon", "icon_disabled", "steps", "add_stats")
 #: Ability.parse keys the SDK fills itself, or that are temporary: not offered.
 BUTTON_HIDDEN = frozenset({"bank", "name_key", "desc_key", "variant"})
-TALENT_KEYS = ("name", "title", "description", "icon", "starter", "add_stats", "actions")
+TALENT_KEYS = ("name", "title", "description", "icon", "starter", "show_counter", "unlock_rank",
+               "add_stats", "actions")
 ULTIMATE_KEYS = ("title", "description", "icon", "add_stats", "actions")
 #: A talent bonus (hero_frame.talent_effects -> talent_add_stat.add_stat).
 ADD_STAT_KEYS = ("stat", "values", "percent", "during", "after", "on", "seconds",
@@ -45,7 +46,7 @@ ACTION_KEYS = ("on", "hits", "steps")
 ANIMATION_KEYS = ("source", "clip", "template", "strict")
 SLOT_KEYS = ("clip", "duration", "value", "bone", "texture")
 LAYER_EXTRA = ("texture", "soft")
-MEMOIR_KEYS = ("title", "text")
+MEMOIR_KEYS = ("title", "text", "unlock_rank")
 WEAPON_KEYS = ("from", "model", "albedo", "mesh", "material")
 #: Hero_Common's six ultimate controllers: the cards every hero fills.
 ULTIMATE_CARDS = ("Ultimate Power 1", "Ultimate 1 Upgrade 1", "Ultimate 1 Upgrade 2",
@@ -673,7 +674,7 @@ def problems(hero: dict, root: Path | None = None) -> list[str]:
             say(f"frame.projectiles.{name}: no {', '.join(extra)}")
     for n, m in enumerate(hero.get("memoirs") or []):
         if not isinstance(m, dict) or set(m) - set(MEMOIR_KEYS):
-            say(f"memoirs[{n}]: {{ title, text }}")
+            say(f"memoirs[{n}]: {{ title, text, unlock_rank }}")
     return out
 
 

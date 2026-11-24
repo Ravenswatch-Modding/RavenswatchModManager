@@ -124,6 +124,9 @@ each piece is wired the way it is. NOT YET PROVEN IN GAME.
         reads as a page still to write when ``placeholder`` is set. Once any
         page is the hero's own, the pages lose the base's voice-over (the
         recordings are named after the base) and are silent.
+        A hero written from scratch (``frame``) also takes ``unlock_rank``
+        (0..9, 0 = open) per page; by default its 7 pages open at ranks
+        2, 4, 6, 8, 9, 9, 9 as every shipped hero's do.
     ``kit`` (table)  the hero builder's blocks: ``form`` (``"wolf"`` /
         ``"human"`` for Scarlet-type heroes), and per slot (``attack``,
         ``power``, ``special``, ``defense``, ``ultimate``, ``ultimate2``,
@@ -221,6 +224,49 @@ _NEUTRAL_MAPS = {"_MRA.TGA": ("samples", "Dielectric_Rough.tga"),
 #: that name would still collide with the alias. (Kintaro was one until he
 #: shipped in Update 6; the shipped-hero check covers him now.)
 _RESERVED_IDS = frozenset({"Common", "Kintaro", "Alice"})
+
+
+#: Book locks every shipped hero shares (13/13, Update 6): the 22 talents keep
+#: 10 rows open and lock two each at ranks 2,3,4,5,7,8; the ultimate rows lock
+#: by name; the 7 story pages unlock at 2,4,6,8,9,9,9 (the last two also wait
+#: on campaign progress there, which a scratch hero does not copy).
+_TALENT_RANKS = (2, 2, 3, 3, 4, 4, 5, 5, 7, 7, 8, 8)
+_ULTIMATE_RANKS = {"Ultimate Power 2": 6, "Ultimate 2 Upgrade 1": 6,
+                   "Ultimate 1 Upgrade 2": 9, "Ultimate 2 Upgrade 2": 9}
+_PAGE_RANKS = (2, 4, 6, 8, 9, 9, 9)
+#: the highest rank a shipped book lock names (13/13 heroes)
+_MAX_RANK = 9
+#: level-up talents a shipped book always leaves open (5-6 beside the starters)
+_MIN_OPEN = 6
+
+
+def _unlock_rank(spec: dict, where: str, hid: str, default: int | None = None) -> int | None:
+    """A row's or page's ``unlock_rank``: the hero rank it opens at in the
+    book; 0 opens it from the start."""
+    if "unlock_rank" not in spec:
+        return default
+    v = spec["unlock_rank"]
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= _MAX_RANK:
+        raise ContentError(f"hero {hid}: {where}.unlock_rank is a hero rank 0..{_MAX_RANK} "
+                           "(0 = open)")
+    if v and spec.get("starter"):
+        raise ContentError(f"hero {hid}: {where} is a starter: a locked one is never dealt "
+                           "at the start of a run")
+    return v or None
+
+
+def _default_talent_ranks(rows: list, talents: list) -> None:
+    """The shipped lock pattern on talents that set no ``unlock_rank``: the
+    starting picks stay open (a locked one could never be dealt at the start),
+    and the last twelve others take ranks 2..8 in list order, later talents
+    later, as the base game's books do. At least six level-up talents stay
+    open, so a smaller hero locks fewer (the lowest ranks first)."""
+    free = [row for row, t in zip(rows, talents, strict=True)
+            if "unlock_rank" not in t and not t.get("starter")]
+    n = min(len(_TALENT_RANKS), max(0, len(free) - _MIN_OPEN))
+    free = free[len(free) - n:]
+    for row, rank in zip(free, _TALENT_RANKS[:n], strict=True):
+        row.rank = rank
 
 
 def _rel(hero: str) -> str:
@@ -1842,11 +1888,15 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
             "pool": HF.POOL_STARTER if t.get("starter") else HF.POOL_LEVEL_UP,
             # the number badge quest / stack talents show on their card
             "show_counter": bool(t.get("show_counter"))}))
-        rows.append(HDF.Talent(f"Skill Controller {name}", g))
+        rows.append(HDF.Talent(f"Skill Controller {name}", g,
+                               rank=_unlock_rank(t, f"frame.talents[{n}]", hid)))
+    _default_talent_ranks(rows, frame.get("talents") or [])
     hc = HF.common(read)
     for c in hc.graph().components:
         if c.name.startswith("Skill Controller Ultimate"):
-            rows.append(HDF.Talent(c.name, c.guid, ultimate=True))
+            rows.append(HDF.Talent(c.name, c.guid, ultimate=True,
+                                   rank=_ULTIMATE_RANKS.get(c.name.removeprefix(
+                                       "Skill Controller "))))
     # Its ultimate cards, on Hero_Common's own six controllers (left alone they
     # are blank cards); an upgrade's effects hang off a state of its own.
     ultimates = []
@@ -2458,7 +2508,9 @@ def _emit_scratch(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
             HDF.Text.of(bank, key(f"Memoir{n}_Desc", m.get("text", ""))),
             art_page["footer"] if art_page else ("", ""),
             art_page["footer_selected"] if art_page else ("", ""),
-            art_page["corner"] if art_page else ("", "")))
+            art_page["corner"] if art_page else ("", ""),
+            _unlock_rank(m, f"memoirs[{n}]", hid,
+                         _PAGE_RANKS[min(n, len(_PAGE_RANKS)) - 1])))
     rig_skin = next((d for c, d in rig_rec.objects if c == HDF.SKIN), None)
     # Its UI art: each picture its own when the frame gives one (a PNG in the
     # mod), else the rig's.

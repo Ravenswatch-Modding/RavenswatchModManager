@@ -1506,7 +1506,18 @@ steps = [ { fire = "own:Bean", angles = [0, 90, 180, 270], speed = 14, root = 2 
 A talent card is dealt at level-up; give 4 or 5 of them `starter = true` for
 the pick at the start of a run (a hero with none shows "available in an
 upcoming update" on every starting card). `show_counter = true` puts the number
-badge quest and stack talents use on the card. A hit's `fx` sets the burst's look
+badge quest and stack talents use on the card.
+
+A hero written from scratch unlocks its book the way the base game's heroes do.
+Starters are always open; of the other talents, the last twelve open at hero
+ranks 2, 2, 3, 3, 4, 4, 5, 5, 7, 7, 8 and 8, in list order, and at least six
+always stay open (a smaller hero locks fewer, lowest ranks first). The ultimate
+rows lock as every hero's do, and the story pages (`memoirs`) open at ranks 2, 4,
+6, 8, 9, 9 and 9. Set `unlock_rank = <n>` (0 to 9; `0` = always open) on a
+talent or a memoir to choose its rank yourself; a starter cannot be locked. A
+hero cloned from a base keeps the base's locks and takes no `unlock_rank`.
+
+A hit's `fx` sets the burst's look
 (any shipped `.vfx.ot`; the default is the shared explosion, a fire burst).
 
 A talent's `actions` take the same: `{ on = "special", hits = [...], steps =

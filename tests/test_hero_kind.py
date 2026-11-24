@@ -1219,6 +1219,68 @@ def test_a_scratch_heros_talents_take_effects(tmp_path):
 
 @needs_corpus
 @needs_install
+def test_a_scratch_heros_book_locks_follow_the_shipped_pattern(tmp_path):
+    """Starters stay open; the last twelve other talents lock at ranks 2..8 in
+    order, six always stay open; ``unlock_rank`` wins (0..9, never on a
+    starter); ultimates and story pages lock as shipped."""
+    from rsmm.engine import herodef_frame as HDF
+    from rsmm.sdk.content import ContentError
+
+    def emit(hid, talents, memoirs=()):
+        return heros.emit("m", ContentDef(kind="hero", id=hid, fields={
+            "memoirs": list(memoirs),
+            "frame": {"rig": "Hero_Kintaro",
+                      "mesh": "Characters\\Heroes\\Kintaro\\Kintaro_GEO.fbx",
+                      "material": "Characters\\Heroes\\Kintaro\\Textures\\M_Kintaro.mat.ot",
+                      "talents": talents}}), tmp_path / hid)
+
+    talents = [{"name": "Attack Start", "starter": True},
+               {"name": "Attack Pinned", "unlock_rank": 0},
+               {"name": "Dash Late", "unlock_rank": 9}]
+    talents += [{"name": f"Basic Extra {n}"} for n in range(18)]
+    files = emit("Lock", talents, [{"title": "a", "text": "b"}] * 8)
+    gen = next(p for p in files if p.name == "Lock.herodef.ot.DtHeroDefinition.gen")
+    h = HDF.decode(gen.read_bytes())
+
+    def ranks(cls):
+        out = {}
+        for c, d in h.objects:
+            if c == cls:
+                conds = [h.objects[i] for i in d["lock"].ids]
+                assert all(k == HDF.RANK and v["hero"] == ("Definitions", "Heroes\\Lock.herodef.ot")
+                           for k, v in conds)
+                out[d.get("name", len(out))] = [v["rank"] for _k, v in conds]
+        return out
+
+    rows = {k.removeprefix("Skill Controller "): v for k, v in ranks(HDF.SKILL).items()}
+    assert rows["Attack Start"] == rows["Attack Pinned"] == []
+    assert rows["Dash Late"] == [9]
+    assert all(rows[f"Basic Extra {n}"] == [] for n in range(6))
+    assert [rows[f"Basic Extra {n}"][0] for n in range(6, 18)] == [2, 2, 3, 3, 4, 4, 5, 5,
+                                                                 7, 7, 8, 8]
+    assert rows["Ultimate Power 1"] == rows["Ultimate 1 Upgrade 1"] == []
+    assert rows["Ultimate Power 2"] == rows["Ultimate 2 Upgrade 1"] == [6]
+    assert rows["Ultimate 1 Upgrade 2"] == rows["Ultimate 2 Upgrade 2"] == [9]
+    assert list(ranks(HDF.STORY).values()) == [[2], [4], [6], [8], [9], [9], [9], [9]]
+    # byte-stable: what the reader takes back out writes the same file
+    assert HDF.encode(h) == gen.read_bytes()
+
+    # a small hero keeps six level-up talents open, locking the rest low first
+    small = emit("Small", [{"name": f"Basic Small {n}"} for n in range(8)])
+    hs = HDF.decode(next(p for p in small if p.name.startswith("Small.herodef")).read_bytes())
+    got = [[hs.objects[i][1]["rank"] for i in d["lock"].ids] for c, d in hs.objects
+           if c == HDF.SKILL and "Small" in d["name"]]
+    assert got == [[]] * 6 + [[2], [2]]
+
+    for bad, msg in (({"name": "Attack X", "unlock_rank": 10}, "0..9"),
+                     ({"name": "Attack X", "unlock_rank": True}, "0..9"),
+                     ({"name": "Attack X", "starter": True, "unlock_rank": 2}, "starter")):
+        with pytest.raises(ContentError, match=msg):
+            emit("Bad", [bad])
+
+
+@needs_corpus
+@needs_install
 def test_blood_wolf_pet_talent_upgrade_branching(tmp_path):
     """Blood Wolf pet upgrade:
     - Base pet (DirewolfClaw) spawns by default, bursts on death after 8s
