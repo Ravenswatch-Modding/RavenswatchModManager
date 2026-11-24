@@ -361,3 +361,43 @@ def test_owner_read_activates_in_event_init_on_melody_zone():
     g = {c.name: c for c in EG.parse(res.files["Hero_Red_Zone"], "Hero_Red_Zone").components}
     assert g["Event Init"].refs[0].guid == g["Zone Mult Reader"].guid
     assert any(r.guid == g["Zone Mult Reader"].guid for r in g["Damage Multiplier Value"].refs)
+
+
+@needs_corpus
+def test_replace_subobject_supports_collector_selector_lists():
+    """``replace_subobject`` handles ``oCEntityCollectorSelectorSettings`` fields
+    like ``NamedEventSender.targets[0]`` and ``Modifier.sources?[0]``."""
+    from rsmm.engine import corpus
+    from rsmm.engine.entity_graph_edit import EntityFile
+    rel = "EntitySettings/Character_Common/Character_Common.entity.ot.EntitySettingsResource.gen"
+    cc = corpus.read(rel)
+    assert cc is not None
+    out = AE.apply(
+        {"Character_Common": cc},
+        [
+            {"clone": ["ROSE_SEED_EXPLODE Event Sender"],
+             "rename": {"ROSE_SEED_EXPLODE Event Sender": "Test All Heroes Sender"}},
+            {"replace_subobject": "Test All Heroes Sender.targets[0]",
+             "donor": "Shatter Applies VULNERABLE Modifier.sources?[0]"},
+        ],
+        main="Character_Common",
+        seed="test:collector",
+    ).files["Character_Common"]
+    ef = EntityFile(out, "Character_Common")
+    c = ef.component("Test All Heroes Sender")
+    subs = ef.subtree({c.index - 1})
+    assert len(subs) == 1
+    assert ef._class(subs[0]) == "oCDtHeroEntityCollectorSettings"
+    assert b"Hero_Romeo" not in ef.objects[subs[0]]
+
+
+@needs_corpus
+def test_read_supports_bool_value_slots():
+    """``read`` can wire a bool value slot (union type 2) with an explicit accessor."""
+    out = _apply([
+        {"read": "Trait Ability Controller.value_10",
+         "to": "Is Trait Ability Active Condition",
+         "accessor": 0x103b05af},
+    ])
+    assert 0x103b05af in _accessors(out, "Trait Ability Controller",
+                                    "Is Trait Ability Active Condition")

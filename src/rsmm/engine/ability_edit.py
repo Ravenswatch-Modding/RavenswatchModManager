@@ -154,7 +154,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import entity_check as CK
-from .entity_graph_edit import EntityEditError, EntityFile, id_list_pad
+from .entity_graph_edit import EntityEditError, EntityFile, id_list_bounds
 
 _OPS = ("clone", "set", "link", "add_link", "remove_link", "percent", "add_subobject",
         "replace_subobject", "switch_off", "override", "retarget", "retarget_targets", "event",
@@ -880,9 +880,9 @@ def _list_ids(ef: EntityFile, part: str, fld: str) -> list[int]:
     f = next((x for x in EF.fields(c) if x.name == fld), None)
     if f is None:
         raise AbilityEditError(f"{part!r} has no field {fld!r}")
-    pad = id_list_pad(c.cls, fld)
+    pad, tail = id_list_bounds(c, f)
     n = int.from_bytes(c.body[f.offset + pad:f.offset + pad + 4], "little")
-    if f.size != pad + 4 + 4 * n:
+    if f.size != pad + 4 + 4 * n + tail:
         raise AbilityEditError(f"{part}.{fld} is not an id list")
     return [int.from_bytes(c.body[f.offset + pad + 4 + 4 * i:f.offset + pad + 8 + 4 * i], "little")
             for i in range(n)]
