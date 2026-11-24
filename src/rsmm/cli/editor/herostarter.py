@@ -673,12 +673,34 @@ def recreate(req: Request) -> dict:
     # Its talents: every card of the hero, by its own name and icon; what each
     # does is a stand-in of its column (the card says what it really does here).
     cards = C.talent_cards(folder)
+    # The shipped book's locks, so the copy opens the same rows and pages at
+    # the same ranks (0 written out: the default pattern must not re-lock it).
+    try:
+        raw = heros.EP.corpus_read(heros._rel(heros.HD.stem(folder) or folder))
+        shipped = HDF.decode(raw) if raw else None
+    except Exception as e:           # noqa: BLE001 — the copy keeps the default locks
+        shipped, raw = None, None
+        notes.append(f"book locks: {e}")
+
+    def rank_of(d: dict) -> int:
+        return next((shipped.objects[i][1]["rank"] for i in d["lock"].ids
+                     if shipped.objects[i][0] == HDF.RANK), 0)
+
+    row_rank = {d["name"]: rank_of(d) for c, d in (shipped.objects if shipped else ())
+                if c == HDF.SKILL}
+    # A card's row in the shipped book: "Skill Controller <source>", with a stray
+    # extra "Skill" (Kintaro's quest) or trailing space (Aladdin) allowed for.
+    rows_by = {re.sub(r"^Skill Controller (Skill )?", "", n).strip(): n for n in row_rank}
     turn: dict[str, int] = {}
     talents, ultimates, starters = [], {}, set()
     ult_upgrades = []
     for c in cards:
         base_key, source = str(c.get("base") or ""), str(c.get("source") or "")
-        column = source.split(" ", 1)[0]
+        # The card's column is in its text key (Skill_<Column>_...): Red's and
+        # Piper's controllers still carry older words (Basic, Primary, Secondary,
+        # Defensive) that are no column of the book.
+        keyed = base_key.startswith("Skill_") and base_key.count("_") > 1
+        column = base_key.split("_")[1] if keyed else source.split(" ", 1)[0]
         if base_key.startswith("Skill_Ultimate"):
             m = re.fullmatch(r"Skill_Ultimate_(\d)(?:_(\w+))?", base_key)
             if m and m.group(1) == "1":
@@ -691,14 +713,23 @@ def recreate(req: Request) -> dict:
             continue
         if column not in _TALENT_FX:
             continue
+        row = rows_by.get(re.sub(r"^Skill ", "", source).strip())
+        if row_rank and row is None:
+            continue                  # a card the text keeps but the book no longer has
+        name = source if source.split(" ", 1)[0] == column else \
+            f"{column} {source.split(' ', 1)[-1]}"
         stat, line, values = _TALENT_FX[column][turn.get(column, 0) % len(_TALENT_FX[column])]
         turn[column] = turn.get(column, 0) + 1
-        t = {"name": source, "title": c["name"], "description": "• " + line,
+        t = {"name": name, "title": c["name"], "description": "• " + line,
              "add_stats": [{"stat": stat, "values": values,
                             **({"percent": False} if stat in _FLAT else {})}]}
-        if column in ("Attack", "Power", "Passive") and column not in starters:
+        rank = row_rank.get(row, 0)
+        if column in ("Attack", "Power", "Passive") and column not in starters and not rank:
+            # a starter of its column among the rows the shipped book leaves open
             t["starter"] = True
             starters.add(column)
+        elif row is not None:
+            t["unlock_rank"] = rank
         word = re.sub(r"\W+", "_", source)
         icon = _shipped_picture(root, ui, _talent_icon(pics, c), f"talent_{word}")
         if icon:
@@ -736,8 +767,7 @@ def recreate(req: Request) -> dict:
     # Its book: the hero's own seven pages.
     memoirs = base["memoirs"]
     try:
-        raw = heros.EP.corpus_read(heros._rel(heros.HD.stem(folder) or folder))
-        pages = [d for c, d in HDF.decode(raw).objects if c == HDF.STORY] if raw else []
+        pages = [d for c, d in shipped.objects if c == HDF.STORY] if shipped else []
         books: dict[str, dict] = {}
         got = []
         for d in pages:
@@ -745,7 +775,7 @@ def recreate(req: Request) -> dict:
             books.setdefault(bank, _bank(bank))
             title, body_ = books[bank].get(d["title"].key, ""), books[bank].get(d["desc"].key, "")
             if title or body_:
-                got.append({"title": title, "text": body_})
+                got.append({"title": title, "text": body_, "unlock_rank": rank_of(d)})
         memoirs = got or memoirs
     except Exception as e:           # noqa: BLE001 — the book keeps the starter's page
         notes.append(f"book: {e}")

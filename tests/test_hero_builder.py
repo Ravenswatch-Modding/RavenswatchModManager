@@ -89,6 +89,22 @@ def test_a_sound_hero_has_no_problems_and_broken_references_are_named(mods):
     assert "starts with its column" in got and "a second talent named 'Attack X'" in got
 
 
+def test_the_check_refuses_the_unlock_ranks_the_build_refuses(mods):
+    nyx = _block(mods)
+    nyx["frame"]["talents"] = [
+        {"name": "Attack Start", "starter": True, "unlock_rank": 2},
+        {"name": "Attack Late", "unlock_rank": 12},
+        {"name": "Attack Fine", "unlock_rank": 3},
+        {"name": "Attack Open", "starter": True, "unlock_rank": 0}]
+    nyx["memoirs"] = [{"title": "a", "text": "b", "unlock_rank": -1},
+                      {"title": "a", "text": "b", "unlock_rank": 4}]
+    got = [p for p in HB.problems(nyx, mods / "m") if "unlock_rank" in p or "starter" in p]
+    assert got == ["frame.talents[0] is a starter: a locked one is never dealt at the start "
+                   "of a run",
+                   "frame.talents[1].unlock_rank is a hero rank 0..9 (0 = open)",
+                   "memoirs[0].unlock_rank is a hero rank 0..9 (0 = open)"]
+
+
 def test_the_check_refuses_ids_and_keys_the_build_refuses(mods):
     bad = {"kind": "hero", "id": "9lives", "base": "Red", "frame": {"rig": "Hero_Nobody"}}
     got = "\n".join(HB.problems(bad))

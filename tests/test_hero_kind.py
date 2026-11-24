@@ -1272,6 +1272,25 @@ def test_a_scratch_heros_book_locks_follow_the_shipped_pattern(tmp_path):
            if c == HDF.SKILL and "Small" in d["name"]]
     assert got == [[]] * 6 + [[2], [2]]
 
+    # talents pinned open count toward the six: two pinned, so four of 8 lock
+    pin = emit("Pin", [{"name": f"Basic Pin {n}", "unlock_rank": 0} for n in range(2)]
+               + [{"name": f"Basic Free {n}"} for n in range(8)])
+    hp = HDF.decode(next(p for p in pin if p.name.startswith("Pin.herodef")).read_bytes())
+    got = [[hp.objects[i][1]["rank"] for i in d["lock"].ids] for c, d in hp.objects
+           if c == HDF.SKILL and "Free" in d["name"]]
+    assert got == [[]] * 4 + [[2], [2], [3], [3]]
+    # the unlock text is the shipped book's own row
+    assert {v["text"].key for k, v in hp.objects if k == HDF.RANK} == {"Book_Page_Skill_Unlock_Lvl"}
+
+    # nothing locked: no lock classes in the table (no shipped table lists an unused class)
+    rec = HDF.decode(gen.read_bytes())
+    assert HDF.RANK in rec.names
+    from rsmm.engine import herodefs
+    bare = HDF.Record(hid="Bare", sort=0, name=HDF.Text(), desc=HDF.Text(), portrait=("", ""),
+                      book=(("", ""),) * 4, new_hero=("", ""), codex=[], talents=[], pages=[],
+                      skins=[], lowres="")
+    assert HDF.RANK not in HDF.decode(HDF.build(bare, EP.corpus_read(herodefs.rel("Piper")))).names
+
     for bad, msg in (({"name": "Attack X", "unlock_rank": 10}, "0..9"),
                      ({"name": "Attack X", "unlock_rank": True}, "0..9"),
                      ({"name": "Attack X", "starter": True, "unlock_rank": 2}, "starter")):

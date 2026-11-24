@@ -263,7 +263,9 @@ def _default_talent_ranks(rows: list, talents: list) -> None:
     open, so a smaller hero locks fewer (the lowest ranks first)."""
     free = [row for row, t in zip(rows, talents, strict=True)
             if "unlock_rank" not in t and not t.get("starter")]
-    n = min(len(_TALENT_RANKS), max(0, len(free) - _MIN_OPEN))
+    # talents pinned open (unlock_rank = 0) count toward the ones kept open
+    pinned = sum(1 for t in talents if t.get("unlock_rank") == 0 and not t.get("starter"))
+    n = min(len(_TALENT_RANKS), len(free), max(0, len(free) + pinned - _MIN_OPEN))
     free = free[len(free) - n:]
     for row, rank in zip(free, _TALENT_RANKS[:n], strict=True):
         row.rank = rank

@@ -341,8 +341,10 @@ def encode(h: Herodef) -> bytes:
 #: The classes a written herodef uses, in the shipped table order (format
 #: metadata: each class's engine id, version and parent, read from the game).
 _CLASSES = ("oCDtHeroDefinition", "oCDtDefinition", "oIResource", "oISerializable", SKILL,
-            STORY, SKIN, _LOCK, _LISTENER, _FILTER, _FLAGS, _SPAWNER, _PICKER,
-            "oIGameUnlockConditionSettings", RANK)
+            STORY, SKIN, _LOCK, _LISTENER, _FILTER, _FLAGS, _SPAWNER, _PICKER)
+#: Added after them only when a row or page is locked: no shipped table names a
+#: class no object uses.
+_LOCK_CLASSES = ("oIGameUnlockConditionSettings", RANK)
 #: Format constants every shipped herodef has (13/13), and the most common
 #: value where heroes differ (flags whose meaning is not known yet).
 _HEAD = bytes.fromhex("000000000101")
@@ -418,14 +420,21 @@ def build(rec: Record, class_source: bytes) -> bytes:
     read only for its class table's format metadata (ids, versions)."""
     src = cooked.parse(class_source)
     by_name = {c.name: c for c in src.classes}
-    missing = [n for n in _CLASSES if n not in by_name]
+    locked = any(x.rank is not None for x in [*rec.talents, *rec.pages])
+    classes = _CLASSES + (_LOCK_CLASSES if locked else ())
+    missing = [n for n in classes if n not in by_name]
     if missing:
         raise HerodefError(f"class metadata missing: {missing}")
     cf = cooked.CookedFile(variant=src.variant, hdr_a=src.hdr_a, flags=src.flags,
                            extra=src.extra, type_tag=src.type_tag)
     cf.classes = [cooked.ClassDef(c.name, c.class_id, c.version_major, c.version_minor,
-                                  c.parent_id) for c in (by_name[n] for n in _CLASSES)]
-    names = list(_CLASSES)
+                                  c.parent_id) for c in (by_name[n] for n in classes)]
+    names = list(classes)
+    # The "unlocks at level N" text the shipped book shows, read from the same
+    # herodef (its row moves if a game patch reorders Common~GAM.xls).
+    unlock_text = next((d["text"] for c, d in decode(class_source).objects
+                        if c == RANK and isinstance(d, dict)),
+                       Text.of(_COMMON, "Book_Page_Skill_Unlock_Lvl", 128)) if locked else None
     objects: list[tuple[str, dict | bytes]] = []
     ranks: list[tuple[list, int]] = []      # (object list, rank) of each locked row/page
 
@@ -460,7 +469,7 @@ def build(rec: Record, class_source: bytes) -> bytes:
     for ids, rank in ranks:
         ids.append(len(objects))
         objects.append((RANK, {
-            "cls": names.index(RANK), "text": Text.of(_COMMON, "Book_Page_Skill_Unlock_Lvl", 128),
+            "cls": names.index(RANK), "text": unlock_text,
             "hero": ("Definitions", f"Heroes\\{rec.hid}.herodef.ot"), "rank": rank}))
     root = {
         "head": _HEAD, "sort": rec.sort, "portrait": rec.portrait, "name": rec.name,

@@ -139,4 +139,22 @@ def test_a_game_hero_rebuilt_from_scratch_owns_every_file_it_names(mods, install
                  *(a["source"] for a in f["animations"].values())]:
         assert (mods / "m" / path).is_file(), path
     assert len(f["talents"]) == 22 and len(got["memoirs"]) == 7
+    # its book locks are the shipped hero's own, not the default pattern
+    assert [m["unlock_rank"] for m in got["memoirs"]] == [2, 4, 6, 8, 9, 9, 9]
+    assert all(isinstance(t.get("unlock_rank"), int) for t in f["talents"] if not t.get("starter"))
+    assert sorted(t["unlock_rank"] for t in f["talents"] if t.get("unlock_rank")) == \
+        [2, 2, 3, 3, 4, 4, 5, 5, 7, 7, 8, 8]
     assert f["abilities"]["special"]["name"] == "Passionate Kiss"    # the game's own card name
+
+
+@needs_corpus
+def test_a_rebuilt_hero_takes_the_shipped_books_talents_in_their_real_columns(mods):
+    """Red's controllers carry older words (Basic, Primary, Secondary,
+    Defensive): each card's column comes from its text key, so none is
+    dropped; cards the text keeps but the book no longer lists stay out."""
+    f = HS.recreate(_req(mods, rig="Hero_Red"))["frame"]
+    names = {t["name"] for t in f["talents"]}
+    assert {"Attack Cleave", "Power Bleed", "Special Ignite", "Defense Combo"} <= names
+    assert "Attack Crit Chance With Combo Points" not in names     # a card cut from the book
+    assert all(n.split(" ", 1)[0] in HB.COLUMNS for n in names)
+    assert len(f["talents"]) >= 21

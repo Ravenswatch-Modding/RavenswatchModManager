@@ -508,11 +508,19 @@ def problems(hero: dict, root: Path | None = None) -> list[str]:
     """What ``rsmm apply`` would refuse about ``hero``, found without building."""
     from rsmm.engine import hero_ability as HA
     from rsmm.engine import hero_kit as HK
+    from rsmm.sdk.content import ContentError
     from rsmm.sdk.kinds import heros
     out: list[str] = []
     say = out.append
     sch = schema()
     hid = str(hero.get("id") or "")
+
+    def check_rank(spec: dict, where: str) -> None:
+        # the build's own rule (0..9, never on a starter), said without building
+        try:
+            heros._unlock_rank(spec, where, hid)
+        except ContentError as e:
+            say(str(e).removeprefix(f"hero {hid}: "))
     if not _ID.match(hid):
         say("id: letters and digits, starting with a letter (e.g. JackSelf)")
     elif hid in heros._RESERVED_IDS or hid in heros.shipped_heroes():
@@ -637,6 +645,7 @@ def problems(hero: dict, root: Path | None = None) -> list[str]:
             say(f"{where}: its name starts with its column ({', '.join(COLUMNS)})")
         if extra := sorted(set(t) - set(TALENT_KEYS)):
             say(f"{where}: no {', '.join(extra)}")
+        check_rank(t, where)
         check_stats(t.get("add_stats"), f"{where}.add_stats")
         check_actions(t.get("actions"), f"{where}.actions")
     for uname, u in (f.get("ultimates") or {}).items():
@@ -675,6 +684,8 @@ def problems(hero: dict, root: Path | None = None) -> list[str]:
     for n, m in enumerate(hero.get("memoirs") or []):
         if not isinstance(m, dict) or set(m) - set(MEMOIR_KEYS):
             say(f"memoirs[{n}]: {{ title, text, unlock_rank }}")
+        else:
+            check_rank(m, f"memoirs[{n}]")
     return out
 
 
