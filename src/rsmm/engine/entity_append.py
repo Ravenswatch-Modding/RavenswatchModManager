@@ -423,11 +423,16 @@ class _Accessors:
             raise EntityAppendError(
                 f"no value picker in this file reads a {cls} — cannot choose "
                 f"an accessor for it")
+        own_type = self.value_type(guid)
+        if own_type is None and cls == "oCEntityCpntGetValueSettings":
+            # A GetValue in this file holds no number of its own: it reads one
+            # on another entity, so the slot's type is the best evidence. Any
+            # other unknown (a node inherited from a parent) stays unknown.
+            own_type = prefer
         if prefer is not None and prefer not in {t for _acc, t in pairs} \
-                and self.value_type(guid) in (None, prefer):
+                and own_type == prefer:
             # this file never reads the class with the slot's (and the
-            # target's own, or an external GetValue's unknown) type; a shipped
-            # read of that type tells the accessor
+            # target's own) type; a shipped read of that type tells the accessor
             shipped = {pt: n for pt, n in (_shipped_accessors().get(cls) or {}).items()
                        if pt[1] == prefer}
             if shipped:
@@ -451,8 +456,11 @@ class _Accessors:
 #: bases and the heroes the kit takes its layouts from. An accessor is fixed
 #: per class and value type, so any shipped read of the class tells it.
 _ACCESSOR_SOURCES = ("Character_Common/Character_Common", "Heroes/Hero_Common/Hero_Common",
-                     "Heroes/Hero_SunWukong/Hero_SunWukong", "Heroes/Hero_Piper/Hero_Piper",
-                     "Enemies/NPC_Common/Ally_Model", "Heroes/Hero_Pets/Hero_Pet_Model")
+                     "Heroes/Hero_SunWukong/Hero_SunWukong", "Heroes/Hero_Piper/Hero_Piper")
+#: The summon bases, read only for a (class, type) the sources above never
+#: read: counting them in would move some heroes' existing picks (a listener's
+#: type-0 accessor did).
+_SUMMON_ACCESSOR_SOURCES = ("Enemies/NPC_Common/Ally_Model", "Heroes/Hero_Pets/Hero_Pet_Model")
 
 
 @cache
@@ -460,13 +468,23 @@ def _shipped_accessors() -> dict:
     from collections import Counter
 
     from . import corpus
-    out: dict[str, Counter] = {}
-    for ref in _ACCESSOR_SOURCES:
-        raw = corpus.read(f"EntitySettings/{ref}.entity.ot.EntitySettingsResource.gen")
-        if raw is None:
-            continue
-        for cls, c in _Accessors(cooked.parse(raw)).by_class.items():
-            out.setdefault(cls, Counter()).update(c)
+
+    def reads(sources) -> dict[str, Counter]:
+        out: dict[str, Counter] = {}
+        for ref in sources:
+            raw = corpus.read(f"EntitySettings/{ref}.entity.ot.EntitySettingsResource.gen")
+            if raw is None:
+                continue
+            for cls, c in _Accessors(cooked.parse(raw)).by_class.items():
+                out.setdefault(cls, Counter()).update(c)
+        return out
+
+    out = reads(_ACCESSOR_SOURCES)
+    for cls, c in reads(_SUMMON_ACCESSOR_SOURCES).items():
+        have = {t for _acc, t in out.get(cls, ())}
+        for (acc, t), n in c.items():
+            if t not in have:
+                out.setdefault(cls, Counter())[acc, t] += n
     return out
 
 

@@ -724,12 +724,21 @@ def _owner_read(ef: EntityFile, step: dict, seed: str, files: dict[str, bytes],
     have = {c.name for c in ef.graph().components}
     init = (TS.startup_state(ef.graph(), owner_ref, but=name)
             or next((n for n in ("Child Event Initialize", "Event Initialize", "Event Init")
-                     if n in have),
+                     if n in have and _is_startup_state(ef, n)),
                     None))
     if init is None:
         raise AbilityEditError(f"owner_read: {ef.name} has no start-up state to switch "
                                f"{name!r} on")
     ef.insert_ref(init, "activates", 0, name)
+
+
+def _is_startup_state(ef: EntityFile, name: str) -> bool:
+    """``name`` is a state with an ``activates`` list (a fallback picked by
+    name alone could be an event or a tester of that name)."""
+    from . import entity_fields as EF
+    c = ef.component(name)
+    return (c.cls == "oCEntityCpntStateSettings"
+            and any(f.name == "activates" for f in EF.fields(c)))
 
 
 #: Character_Common values the level steps read, kept together so a game patch
@@ -929,10 +938,23 @@ def _override(ef: EntityFile, step: dict, seed: str, read,
     if anc.override is not None and target not in ancestors:
         raise AbilityEditError(f"override: {src.name}'s {name!r} overrides {anc.override.path}, "
                                f"which is not an ancestor of {ef.name}")
-    if any(c.name == name or (c.override and c.override.guid == target)
+    # An override of an override targets the ROOT part: 1638 shipped nested
+    # overrides do, 84 name the intermediate one. Older mods wrote the
+    # intermediate GUID, so a part overriding either counts as a duplicate.
+    if any(c.name == name or (c.override and c.override.guid in (target, anc.guid))
            for c in ef.graph().components):
         raise AbilityEditError(f"override: {ef.name} already has a part {name!r} "
                                "(set it directly)")
+    if src.name not in set(ancestors.values()):
+        # A donor's part keeps its links as they are; any that name the donor's
+        # own parts would bind to nothing here.
+        own = {c.guid for c in ef.graph().components}
+        loose = [r.path for r in anc.refs
+                 if r.guid != bytes(16) and r.guid not in own and r.guid not in ancestors]
+        if loose:
+            raise AbilityEditError(f"override: {src.name}'s {name!r} links to "
+                                   f"{', '.join(loose)}, which {ef.name} neither has "
+                                   "nor inherits")
     ef.clone([name], rename={name: name}, seed=seed, source=src)
     if anc.override is not None:
         ef.set_override(name, anc.override.guid, anc.override.path)

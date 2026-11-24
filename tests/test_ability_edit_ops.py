@@ -361,4 +361,3 @@ def test_owner_read_activates_in_event_init_on_melody_zone():
     g = {c.name: c for c in EG.parse(res.files["Hero_Red_Zone"], "Hero_Red_Zone").components}
     assert g["Event Init"].refs[0].guid == g["Zone Mult Reader"].guid
     assert any(r.guid == g["Zone Mult Reader"].guid for r in g["Damage Multiplier Value"].refs)
-

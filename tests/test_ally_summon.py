@@ -561,6 +561,11 @@ def test_add_status_duration_from_getvalue_stays_f32():
         refs={"Hero_Mark": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
               "Hero_Mark_Summon1_Model": m_ref},
     )
+    # The f32 read below is right only because the value it reads is f32.
+    from rsmm.engine.entity_parts import F32
+    hero = res.files["Hero_Mark"]
+    sel = next(c for c in EG.parse(hero).components if c.name == "Mark Dur Selector")
+    assert EA._Accessors(cooked.parse(hero)).value_type(sel.guid) == F32
     raw = res.files["Hero_Mark_Summon1_Model"]
     cf = cooked.parse(raw)
     acc = EA._Accessors(cf)
@@ -626,3 +631,53 @@ def test_override_preserves_root_guid_for_nested_and_donor_overrides():
     assert start_v.override is not None
     assert start_v.override.guid == bytes.fromhex("e614ed86a0c541459df31a6d3eff5ea3")
     assert bytes.fromhex("01012cdd55fd") in start_v.body
+
+
+@needs_corpus
+def test_summon_accessor_sources_keep_hero_winners(monkeypatch):
+    """Adding the summon bases to _ACCESSOR_SOURCES must not change which
+    accessor a scratch hero already gets for any (class, type) it could read."""
+    from rsmm.engine import entity_append as EA
+
+    def winners() -> dict:
+        EA._shipped_accessors.cache_clear()
+        out = {}
+        for cls, c in EA._shipped_accessors().items():
+            for (acc, t), n in c.items():
+                if (cls, t) not in out or n > out[cls, t][1]:
+                    out[cls, t] = (acc, n)
+        return {k: v[0] for k, v in out.items()}
+
+    full = winners()
+    monkeypatch.setattr(EA, "_SUMMON_ACCESSOR_SOURCES", ())
+    hero_only = winners()
+    EA._shipped_accessors.cache_clear()
+    assert {k: full[k] for k in hero_only} == hero_only
+
+
+@needs_corpus
+def test_override_from_donor_refuses_links_to_donor_only_parts():
+    """A donor (not an ancestor) part whose links name the donor's own parts
+    would bind to nothing in the copy: ``override`` refuses it."""
+    from rsmm.engine import ability_edit as AE
+    from rsmm.engine import ally_summon as AS
+    red = corpus.read(
+        "EntitySettings/Heroes/Hero_Red/Hero_Red.entity.ot.EntitySettingsResource.gen")
+    m_ref = "Heroes\\Hero_Loose\\Hero_Loose_Summon1_Model.entity.ot"
+    v_ref = "Heroes\\Hero_Loose\\Hero_Loose_Summon1.entity.ot"
+    built = AS.build("Enemies\\Wolves\\Standard_Wolf_Dire.entity.ot",
+                     m_ref, v_ref, "test:loose:summon", base=AS.ALLY_MODEL)
+
+    def read(r: str):
+        if r in built:
+            return built[r]
+        return corpus.read(f"EntitySettings/{r.replace(chr(92), '/')}.EntitySettingsResource.gen")
+
+    with pytest.raises(AE.AbilityEditError, match="neither has nor inherits"):
+        AE.apply(
+            {"Hero_Loose": red, "Hero_Loose_Summon1_Model": built[m_ref]},
+            [{"entity": "Summon1_Model", "override": "Additive Hit Clip Selector",
+              "from": "Enemies/Baba_Yaga_Boss/Baba_Yaga_Boss"}],
+            main="Hero_Loose", seed="test:loose", read=read,
+            refs={"Hero_Loose": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
+                  "Hero_Loose_Summon1_Model": m_ref})
