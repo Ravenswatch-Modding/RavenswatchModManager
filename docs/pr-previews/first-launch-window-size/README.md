@@ -5,7 +5,7 @@ After: this PR's default window dimensions.
 
 Both screenshots show the real desktop Library browser preview at
 `/?preview=library&view=list`, with the same fictional mods, English, default
-appearance, expanded sidebar, and scroll position. Both browser sessions have
+appearance and bundled fonts, expanded sidebar, and scroll position. Both browser sessions have
 no saved `rsmm.window.main` geometry.
 
 The viewport matches the corresponding `tauri.conf.json` window dimensions:
