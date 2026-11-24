@@ -35,6 +35,7 @@ import {
   filterLibraryRows,
   groupByCategory,
 } from '../lib/library-filter';
+import { useListingViewState } from '../lib/listing-view-state';
 import { localModsQueryOptions } from '../lib/local-mods-query';
 import type { ModCategory } from '../lib/mod-types';
 import { registryCardLabels } from '../lib/registry-labels';
@@ -119,11 +120,13 @@ function LibraryPage() {
   const activeProfileId = useApp((s) => s.activeProfileId);
   const search = Route.useSearch();
   const view = search.view ?? 'list';
-  const [query, setQuery] = useState('');
+  const { query, category, status, sort } = useListingViewState((s) => s.library);
+  const updateView = useListingViewState((s) => s.updateLibrary);
+  const setQuery = (query: string) => updateView({ query });
+  const setCategory = (category: ModCategory | 'all') => updateView({ category });
+  const setStatus = (status: LibraryStatusFilter) => updateView({ status });
+  const setSort = (sort: LibrarySort) => updateView({ sort });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [category, setCategory] = useState<ModCategory | 'all'>('all');
-  const [status, setStatus] = useState<LibraryStatusFilter>('all');
-  const [sort, setSort] = useState<LibrarySort>('load-order');
   const [dirtyConfigs, setDirtyConfigs] = useState<Set<string>>(new Set());
   const localModsState = useApp((s) => s.localMods);
   // Library is *profile-scoped*: a mod is in the user's library iff

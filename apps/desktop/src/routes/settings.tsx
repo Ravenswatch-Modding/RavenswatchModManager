@@ -1,13 +1,26 @@
 import { DiscordIcon, GitHubIcon } from '@rsmm/ui/brand-icons';
 import { createFileRoute } from '@tanstack/react-router';
 import { invoke } from '@tauri-apps/api/core';
-import { Activity, ChevronDown, EyeOff, ShieldAlert, Sparkles, Trash2 } from 'lucide-react';
+import {
+  Activity,
+  ChevronDown,
+  ChevronLeft,
+  EyeOff,
+  Gamepad2,
+  Info,
+  Palette,
+  Settings2,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AboutPanels } from '../components/about-panels';
-import { Button, Fleuron, MonoTag, Panel, SectionHeader } from '../components/chrome';
+import { Button, Fleuron, MonoTag, SectionHeader } from '../components/chrome';
 import { CommandsPanel } from '../components/commands-panel';
 import { GameLogPanel } from '../components/game-log-panel';
 import { useLaunch } from '../components/launch';
+import { useExitSettings } from '../components/settings-navigation';
 import { useToast } from '../components/toast';
 import { UpdaterSettings } from '../components/updater';
 import {
@@ -39,6 +52,7 @@ import {
   setLoaderFlags,
 } from '../lib/rsmm';
 import { useApp } from '../store';
+import './settings.css';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -72,19 +86,31 @@ const DENSITY_CHOICES: { value: Density; label: string; hint: string }[] = [
  * different group.
  */
 const TABS = [
-  { id: 'general', label: msg('General'), hint: msg('Paths, mod sources, updates') },
+  {
+    id: 'general',
+    label: msg('General'),
+    icon: Settings2,
+    hint: msg('Paths, mod sources, updates'),
+  },
   {
     id: 'appearance',
     label: msg('Appearance'),
+    icon: Palette,
     hint: msg('Language, typeface, density, motion, content'),
   },
-  { id: 'game', label: msg('Game'), hint: msg('Online server, loader features, graphics') },
+  {
+    id: 'game',
+    label: msg('Game'),
+    icon: Gamepad2,
+    hint: msg('Online server, loader features, graphics'),
+  },
   {
     id: 'diagnostics',
     label: msg('Diagnostics'),
+    icon: Activity,
     hint: msg('Game log, launcher log, commands, privacy'),
   },
-  { id: 'about', label: msg('About'), hint: msg('Version, release notes, credits') },
+  { id: 'about', label: msg('About'), icon: Info, hint: msg('Version, release notes, credits') },
 ] as const;
 
 type SettingsTab = (typeof TABS)[number]['id'];
@@ -97,82 +123,130 @@ function isTab(value: unknown): value is SettingsTab {
 
 function SettingsPage() {
   const t = useT();
+  const exitSettings = useExitSettings();
   const requestedTab = Route.useSearch().tab;
   const tab: SettingsTab = isTab(requestedTab) ? requestedTab : 'general';
   const navigate = Route.useNavigate();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // A category opens at its heading even when the previous one was scrolled.
+  // Leave hash links to the router so diagnostics links still reach their section.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset the page on category changes.
+  useEffect(() => {
+    if (!window.location.hash)
+      contentRef.current?.closest('.settings-detail-scroll')?.scrollTo({ top: 0 });
+  }, [tab]);
   // Keep links and the command palette in sync even when Settings is already
   // open. Replacing the URL avoids a history entry for every tab selection.
   const setTab = (next: SettingsTab) => {
     void navigate({ search: { tab: next }, hash: '', replace: true });
   };
 
+  const category = TABS.find((item) => item.id === tab) ?? TABS[0];
+
   return (
-    <div className="space-y-app">
-      <SectionHeader
-        title={t('Settings')}
-        className="items-center"
-        right={
-          <div className="flex flex-wrap items-center justify-end gap-6">
+    <div className="settings-page">
+      <div className="settings-layout">
+        <aside className="settings-sidebar" aria-label={t('Settings')}>
+          <div className="settings-sidebar-content">
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              aria-label={t('Settings')}
+              className="settings-sidebar-title font-fraktur text-2xl leading-none focus:outline-none"
+            >
+              <button
+                type="button"
+                className="settings-back"
+                onClick={exitSettings}
+                aria-label={t('Back')}
+                title={t('Back')}
+              >
+                <ChevronLeft className="settings-nav-icon" aria-hidden="true" />
+                <span className="settings-back-label" aria-hidden="true">
+                  <span className="settings-back-default">{t('Settings')}</span>
+                  <span className="settings-back-hover">{t('Back')}</span>
+                </span>
+              </button>
+            </h1>
+            <SettingsSidebar value={tab} onChange={setTab} />
+          </div>
+          <div className="settings-community flex flex-wrap items-center gap-4">
             <a
               href="https://discord.gg/dZbsKBWjSF"
+              aria-label={t('Discord')}
+              title={t('Discord')}
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center gap-2 rounded py-1 text-sm font-semibold text-smoke transition-colors duration-150 hover:text-parchment"
             >
               <DiscordIcon className="h-5 w-5 shrink-0" />
-              {t('Discord')}
+              <span className="settings-community-label">{t('Discord')}</span>
             </a>
             <a
               href="https://github.com/Ravenswatch-Modding/RavenswatchModManager"
+              aria-label={t('Github')}
+              title={t('Github')}
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center gap-2 rounded py-1 text-sm font-semibold text-smoke transition-colors duration-150 hover:text-parchment"
             >
               <GitHubIcon className="h-5 w-5 shrink-0" />
-              {t('Github')}
+              <span className="settings-community-label">{t('Github')}</span>
             </a>
           </div>
-        }
-      />
+        </aside>
+        <div className="settings-detail-scroll">
+          <div className="settings-detail">
+            <SectionHeader title={t(category.label)} className="items-center" />
 
-      <SettingsTabs value={tab} onChange={setTab} />
-
-      <div
-        role="tabpanel"
-        id={`settings-panel-${tab}`}
-        aria-labelledby={`settings-tab-${tab}`}
-        className="space-y-app"
-      >
-        {tab === 'general' ? (
-          <>
-            <PathsPanel />
-            <SourcesPanel />
-            <UpdatesPanel />
-          </>
-        ) : null}
-        {tab === 'appearance' ? <AppearancePanel /> : null}
-        {tab === 'game' ? (
-          <>
-            <OnlineServerPanel />
-            <LoaderFlagsPanel />
-            <GraphicsPanel />
-          </>
-        ) : null}
-        {tab === 'diagnostics' ? (
-          <>
-            <GameLogPanel />
-            <LauncherLogPanel />
-            <CommandsPanel />
-            <PrivacyPanel />
-          </>
-        ) : null}
-        {tab === 'about' ? <AboutPanels /> : null}
+            <div
+              ref={contentRef}
+              role="tabpanel"
+              id={`settings-panel-${tab}`}
+              aria-labelledby={`settings-tab-${tab}`}
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: A tabpanel is a keyboard destination, including About's non-interactive content.
+              tabIndex={0}
+              className="settings-content"
+            >
+              {tab === 'general' ? (
+                <>
+                  <PathsPanel />
+                  <SourcesPanel />
+                  <UpdatesPanel />
+                </>
+              ) : null}
+              {tab === 'appearance' ? <AppearancePanel /> : null}
+              {tab === 'game' ? (
+                <>
+                  <OnlineServerPanel />
+                  <LoaderFlagsPanel />
+                  <GraphicsPanel />
+                </>
+              ) : null}
+              {tab === 'diagnostics' ? (
+                <>
+                  <GameLogPanel />
+                  <LauncherLogPanel />
+                  <CommandsPanel />
+                  <PrivacyPanel />
+                </>
+              ) : null}
+              {tab === 'about' ? <AboutPanels /> : null}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function SettingsTabs({
+function SettingsSidebar({
   value,
   onChange,
 }: {
@@ -180,15 +254,28 @@ function SettingsTabs({
   onChange: (tab: SettingsTab) => void;
 }) {
   const t = useT();
-  // Arrow keys move between tabs, and only the selected tab is a tab stop —
-  // the standard tablist contract, so Tab from the tab strip lands in the
-  // panel rather than walking four buttons first.
+  // Keep one tab stop in the vertical list, with arrow keys between categories.
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-    if (!delta) return;
+    const index = TABS.findIndex((item) => item.id === value);
+    let nextIndex: number;
+    switch (e.key) {
+      case 'ArrowDown':
+        nextIndex = (index + 1) % TABS.length;
+        break;
+      case 'ArrowUp':
+        nextIndex = (index - 1 + TABS.length) % TABS.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = TABS.length - 1;
+        break;
+      default:
+        return;
+    }
     e.preventDefault();
-    const i = TABS.findIndex((t) => t.id === value);
-    const next = TABS[(i + delta + TABS.length) % TABS.length]?.id;
+    const next = TABS[nextIndex]?.id;
     if (!next) return;
     onChange(next);
     document.getElementById(`settings-tab-${next}`)?.focus();
@@ -198,11 +285,13 @@ function SettingsTabs({
     <div
       role="tablist"
       aria-label={t('Settings sections')}
-      className="flex flex-wrap gap-1 border-b border-border"
+      aria-orientation="vertical"
+      className="settings-nav"
       onKeyDown={onKeyDown}
     >
       {TABS.map((tab) => {
         const active = tab.id === value;
+        const Icon = tab.icon;
         return (
           <button
             key={tab.id}
@@ -212,15 +301,12 @@ function SettingsTabs({
             aria-selected={active}
             aria-controls={`settings-panel-${tab.id}`}
             tabIndex={active ? 0 : -1}
-            title={t(tab.hint)}
+            title={`${t(tab.label)} — ${t(tab.hint)}`}
             onClick={() => onChange(tab.id)}
-            className={`font-mono -mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
-              active
-                ? 'border-crimson text-parchment'
-                : 'border-transparent text-ash hover:text-parchment'
-            }`}
+            className="settings-nav-item"
           >
-            {t(tab.label)}
+            <Icon className="settings-nav-icon" aria-hidden="true" />
+            <span className="settings-nav-label">{t(tab.label)}</span>
           </button>
         );
       })}
@@ -234,9 +320,8 @@ function PathsPanel() {
   const update = useApp((s) => s.updateSettings);
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Paths')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Paths')}</h3>
       <Field
         label={t('Game install')}
         value={settings.gameDir}
@@ -256,7 +341,7 @@ function PathsPanel() {
         onChange={(v) => update({ modsDir: v })}
         validate={(v) => validateDirPath(v, t('Mods folder path'))}
       />
-    </Panel>
+    </section>
   );
 }
 
@@ -296,9 +381,8 @@ function SourcesPanel() {
   };
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Mod sources')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Mod sources')}</h3>
       <ul className="space-y-2">
         {settings.sources.map((src) => (
           <li
@@ -332,7 +416,7 @@ function SourcesPanel() {
             }
           }}
           placeholder="https://example.invalid/registry"
-          className="field-grim font-mono flex-1"
+          className="field-grim font-mono min-w-0 flex-1"
           aria-invalid={sourceError ? true : undefined}
         />
         <Button type="button" variant="primary" onClick={addSource}>
@@ -344,23 +428,22 @@ function SourcesPanel() {
           {sourceError}
         </p>
       ) : null}
-    </Panel>
+    </section>
   );
 }
 
 function UpdatesPanel() {
   const t = useT();
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Updates')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Updates')}</h3>
       <p className="font-serif-italic text-ash mb-3">
         {t(
           'RSMM checks for new releases automatically. Checking manually covers the launcher itself, its CLI, and the game loader & Lua SDK planted in your Ravenswatch folder.',
         )}
       </p>
       <UpdaterSettings />
-    </Panel>
+    </section>
   );
 }
 
@@ -432,10 +515,10 @@ function LauncherLogPanel() {
   });
 
   return (
-    <Panel>
+    <section className="settings-section">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-fraktur text-xl text-parchment">{t('Launcher log')}</h3>
+          <h3 className="settings-section-title text-parchment">{t('Launcher log')}</h3>
           <p className="font-serif-italic text-ash mt-1">
             {t('Current run only. Cleared whenever you launch Vanilla or Modded.')}
           </p>
@@ -502,7 +585,7 @@ function LauncherLogPanel() {
           ))}
         </ul>
       )}
-    </Panel>
+    </section>
   );
 }
 
@@ -512,64 +595,64 @@ function AppearancePanel() {
   const update = useApp((s) => s.updateSettings);
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Appearance')}</h3>
-      <Fleuron className="my-3" />
+    <>
       <LanguageControl />
-      <Fleuron className="my-3" />
       <TypographyControls />
-      <Fleuron className="my-3" />
-      <fieldset className="flex flex-col gap-2">
-        <legend className="font-mono mb-2 text-ash">{t('Density')}</legend>
-        {DENSITY_CHOICES.map(({ value, label, hint }) => (
-          <label key={value} className="flex cursor-pointer items-start gap-2 text-parchment">
-            <input
-              type="radio"
-              name="density"
-              checked={settings.density === value}
-              onChange={() => update({ density: value })}
-              className="mt-1 accent-crimson"
-            />
-            <span>
-              <span className="font-serif-italic block">{t(label)}</span>
-              <span className="font-serif-italic block text-sm text-ash">{t(hint)}</span>
+      <section className="settings-section">
+        <fieldset className="flex flex-col gap-2">
+          <legend className="font-mono mb-2 text-ash">{t('Density')}</legend>
+          {DENSITY_CHOICES.map(({ value, label, hint }) => (
+            <label key={value} className="flex cursor-pointer items-start gap-2 text-parchment">
+              <input
+                type="radio"
+                name="density"
+                checked={settings.density === value}
+                onChange={() => update({ density: value })}
+                className="mt-1 accent-crimson"
+              />
+              <span>
+                <span className="font-serif-italic block">{t(label)}</span>
+                <span className="font-serif-italic block text-sm text-ash">{t(hint)}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </section>
+      <section className="settings-section">
+        <label className="flex cursor-pointer items-start gap-3 text-parchment">
+          <input
+            type="checkbox"
+            checked={settings.animations}
+            onChange={(e) => update({ animations: e.target.checked })}
+            className="mt-1 h-4 w-4 accent-crimson"
+          />
+          <span>
+            <span className="font-mono text-sm flex items-center gap-2">
+              {t('Animate the interface')}
             </span>
-          </label>
-        ))}
-      </fieldset>
-      <Fleuron className="my-3" />
-      <label className="flex cursor-pointer items-start gap-3 text-parchment">
-        <input
-          type="checkbox"
-          checked={settings.animations}
-          onChange={(e) => update({ animations: e.target.checked })}
-          className="mt-1 h-4 w-4 accent-crimson"
-        />
-        <span>
+            <span className="font-serif-italic mt-1 block text-sm text-ash">
+              {t(
+                'Page entrances, hover lifts and the button glow. Turn it off for a still interface — useful on a slow machine, or if motion bothers you. If your system already asks for reduced motion, that is honoured whatever this says.',
+              )}
+            </span>
+          </span>
+        </label>
+      </section>
+      <section className="settings-section">
+        <label className="flex cursor-pointer items-center gap-3 text-parchment">
+          <input
+            type="checkbox"
+            checked={settings.showNsfw}
+            onChange={(e) => update({ showNsfw: e.target.checked })}
+            className="h-4 w-4 accent-crimson"
+          />
           <span className="font-mono text-sm flex items-center gap-2">
-            {t('Animate the interface')}
+            <EyeOff className="h-4 w-4 text-crimson" />
+            {t('Show NSFW content')}
           </span>
-          <span className="font-serif-italic mt-1 block text-sm text-ash">
-            {t(
-              'Page entrances, hover lifts and the button glow. Turn it off for a still interface — useful on a slow machine, or if motion bothers you. If your system already asks for reduced motion, that is honoured whatever this says.',
-            )}
-          </span>
-        </span>
-      </label>
-      <Fleuron className="my-3" />
-      <label className="flex cursor-pointer items-center gap-3 text-parchment">
-        <input
-          type="checkbox"
-          checked={settings.showNsfw}
-          onChange={(e) => update({ showNsfw: e.target.checked })}
-          className="h-4 w-4 accent-crimson"
-        />
-        <span className="font-mono text-sm flex items-center gap-2">
-          <EyeOff className="h-4 w-4 text-crimson" />
-          {t('Show NSFW content')}
-        </span>
-      </label>
-    </Panel>
+        </label>
+      </section>
+    </>
   );
 }
 
@@ -579,9 +662,8 @@ function PrivacyPanel() {
   const update = useApp((s) => s.updateSettings);
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Privacy')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Privacy')}</h3>
       <label className="flex cursor-pointer items-start gap-3 text-parchment">
         <input
           type="checkbox"
@@ -620,7 +702,7 @@ function PrivacyPanel() {
           </span>
         </span>
       </label>
-    </Panel>
+    </section>
   );
 }
 
@@ -675,44 +757,43 @@ function LanguageControl() {
   const update = useApp((s) => s.updateSettings);
 
   return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="font-mono mb-2 text-ash">{t('Language')}</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {LOCALE_CHOICES.map((choice: Locale) => {
-          const meta = LOCALES[choice];
-          const active = language === choice;
-          return (
-            <label
-              key={choice}
-              className={`flex cursor-pointer items-start gap-2 border px-3 py-2 ${
-                active ? 'border-gilt/60 bg-gilt/10' : 'border-border hover:border-gilt/30'
-              }`}
-            >
-              <input
-                type="radio"
-                name="language"
-                checked={active}
-                onChange={() => update({ language: choice })}
-                className="mt-1 accent-crimson"
-              />
-              <span className="min-w-0">
-                {/* The native name is never translated — someone looking for
+    <section className="settings-section">
+      <fieldset className="flex flex-col gap-2">
+        <legend className="font-mono mb-2 text-ash">{t('Language')}</legend>
+        <div className="settings-choices">
+          {LOCALE_CHOICES.map((choice: Locale) => {
+            const meta = LOCALES[choice];
+            const active = language === choice;
+            return (
+              <label key={choice} className="settings-choice" data-selected={active}>
+                <input
+                  type="radio"
+                  name="language"
+                  checked={active}
+                  onChange={() => update({ language: choice })}
+                  className="mt-1 accent-crimson"
+                />
+                <span className="min-w-0">
+                  {/* The native name is never translated — someone looking for
                     their own language looks for it written their way. */}
-                <span className="block text-parchment" lang={meta.tag}>
-                  {meta.native}
+                  <span className="block text-parchment" lang={meta.tag}>
+                    {meta.native}
+                  </span>
+                  <span className="font-serif-italic block text-sm text-ash">
+                    {t(meta.english)}
+                  </span>
                 </span>
-                <span className="font-serif-italic block text-sm text-ash">{t(meta.english)}</span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-      <p className="font-serif-italic text-sm text-ash">
-        {t(
-          'Applies immediately. Text that comes from the rsmm command-line tool, from a mod, or from the game itself stays in its own language.',
-        )}
-      </p>
-    </fieldset>
+              </label>
+            );
+          })}
+        </div>
+        <p className="font-serif-italic text-sm text-ash">
+          {t(
+            'Applies immediately. Text that comes from the rsmm command-line tool, from a mod, or from the game itself stays in its own language.',
+          )}
+        </p>
+      </fieldset>
+    </section>
   );
 }
 
@@ -728,20 +809,15 @@ function TypographyControls() {
   const isDefault = font === DEFAULT_FONT && scale === DEFAULT_FONT_SCALE;
 
   return (
-    <div className="space-y-4">
+    <section className="settings-section space-y-6">
       <fieldset className="flex flex-col gap-2">
         <legend className="font-mono mb-2 text-ash">{t('Font')}</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="settings-choices">
           {FONT_CHOICES.map((choice) => {
             const preset = FONT_PRESETS[choice];
             const active = font === choice;
             return (
-              <label
-                key={choice}
-                className={`flex cursor-pointer items-start gap-2 border px-3 py-2 ${
-                  active ? 'border-gilt/60 bg-gilt/10' : 'border-border hover:border-gilt/30'
-                }`}
-              >
+              <label key={choice} className="settings-choice" data-selected={active}>
                 <input
                   type="radio"
                   name="font-family"
@@ -783,7 +859,7 @@ function TypographyControls() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 border border-border px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 py-2">
         {/* A pangram: it exists to show the typeface, so each language wants
             its own specimen rather than a literal translation. */}
         <p className="font-serif-italic min-w-0 text-ash">
@@ -798,7 +874,7 @@ function TypographyControls() {
           {t('Reset')}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -852,9 +928,8 @@ function GraphicsPanel() {
   };
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Graphics')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Graphics')}</h3>
       <p className="font-serif-italic text-ash mb-3">
         <TParts
           text={t(
@@ -883,7 +958,7 @@ function GraphicsPanel() {
           {error}
         </p>
       ) : null}
-    </Panel>
+    </section>
   );
 }
 
@@ -953,9 +1028,8 @@ function OnlineServerPanel() {
   const unchanged = draft.trim() === (state?.url ?? '');
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Online server')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Online server')}</h3>
       <p className="font-serif-italic text-ash mb-3">
         {t(
           'Play online through a community-hosted server instead of the official one. Paste the address the host gave you; it is used from the next game start.',
@@ -1107,7 +1181,7 @@ function OnlineServerPanel() {
           ) : null}
         </div>
       )}
-    </Panel>
+    </section>
   );
 }
 
@@ -1176,9 +1250,8 @@ function LoaderFlagsPanel() {
   };
 
   return (
-    <Panel>
-      <h3 className="font-fraktur text-xl text-parchment">{t('Loader features')}</h3>
-      <Fleuron className="my-3" />
+    <section className="settings-section">
+      <h3 className="mb-4 settings-section-title text-parchment">{t('Loader features')}</h3>
       <p className="font-serif-italic text-ash mb-3">
         {t(
           "Opt-in hooks the script loader installs at launch. Off by default — most mods don't need them. Changes take effect next time you launch Modded.",
@@ -1257,7 +1330,7 @@ function LoaderFlagsPanel() {
           })}
         </ul>
       )}
-    </Panel>
+    </section>
   );
 }
 

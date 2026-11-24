@@ -23,6 +23,7 @@ import {
   filterMods,
 } from '../lib/browse-filter';
 import { useT } from '../lib/i18n-react';
+import { useListingViewState } from '../lib/listing-view-state';
 import { installModIntoProfile, resolveInstallTarget } from '../lib/profile-mods';
 import { registryCardLabels } from '../lib/registry-labels';
 import { activeProfile, useApp } from '../store';
@@ -38,16 +39,20 @@ type Tab = 'mods' | 'collections';
 function BrowsePage() {
   const t = useT();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('mods');
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState<Sort>('popular');
+  const { tab, q, sort, category, tags, hideInstalled, minRating } = useListingViewState(
+    (s) => s.browse,
+  );
+  const updateView = useListingViewState((s) => s.updateBrowse);
+  const setTab = (tab: Tab) => updateView({ tab });
+  const setQ = (q: string) => updateView({ q });
+  const setSort = (sort: Sort) => updateView({ sort });
   // Filters. Derived facets rather than a hardcoded list, so a category or tag
   // that nothing in the index uses is never offered as a dead end.
-  const [category, setCategory] = useState<string | null>(null);
-  const [tags, setTags] = useState<string[]>([]);
-  const [hideInstalled, setHideInstalled] = useState(false);
+  const setCategory = (category: string | null) => updateView({ category });
+  const setTags = (tags: string[]) => updateView({ tags });
+  const setHideInstalled = (hideInstalled: boolean) => updateView({ hideInstalled });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [minRating, setMinRating] = useState(0);
+  const setMinRating = (minRating: number) => updateView({ minRating });
   const installed = useApp((s) => s.installed);
   const profile = useApp(activeProfile);
   const showNsfw = useApp((s) => s.settings.showNsfw);

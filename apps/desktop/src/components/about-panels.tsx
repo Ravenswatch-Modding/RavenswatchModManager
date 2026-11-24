@@ -3,15 +3,15 @@ import pkg from '../../package.json';
 import { BUNDLED_CHANGELOG, type ChangelogEntry, loadChangelog } from '../lib/changelog';
 import { useT } from '../lib/i18n-react';
 import { ChangelogSection } from './changelog-dialog';
-import { MonoTag, Panel } from './chrome';
+import { MonoTag } from './chrome';
 
 /** Releases shown before the panel asks you to expand it. */
 const NOTES_COLLAPSED = 1;
 
 /**
- * The About content, as panels rather than a page.
+ * The About content, as sections within Settings.
  *
- * Rendered inside Settings' "About" tab — one place for "how is this thing
+ * Rendered inside Settings' "About" category — one place for "how is this thing
  * configured, and what is it". `/about` is kept as a redirect so an older link
  * still lands somewhere sensible.
  */
@@ -38,11 +38,11 @@ export function AboutPanels() {
   const buttonClass = 'btn-grim inline-flex items-center justify-center px-3 py-1.5 text-sm';
 
   return (
-    <div className="space-y-6">
-      <Panel className="flex flex-col gap-4">
+    <div className="settings-group">
+      <section className="settings-section flex flex-col gap-4">
         <div className="flex items-start gap-3">
           <div>
-            <h3 className="font-fraktur text-lg text-parchment">
+            <h3 className="settings-section-title text-parchment">
               {t('AI assistance & reverse engineering')}
             </h3>
             <p className="font-serif-italic mt-1 text-ash">
@@ -60,12 +60,12 @@ export function AboutPanels() {
             'Nothing reaches your game on an unverified claim: engine addresses are resolved by byte-pattern scan against your own copy of the game and re-verified before the loader is planted, CI re-derives the generated loader and SDK artifacts and fails on drift, a capability is only marked confirmed once it has been proven in a real run, and the loader bundle is cryptographically signed. Every file RSMM replaces is backed up, and Restore returns the install to stock.',
           )}
         </p>
-      </Panel>
+      </section>
 
-      <Panel className="flex flex-col gap-4">
+      <section className="settings-section flex flex-col gap-4">
         <div className="flex items-baseline justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="font-fraktur text-lg text-parchment">{t('Release notes')}</h3>
+            <h3 className="settings-section-title text-parchment">{t('Release notes')}</h3>
             <p className="font-serif-italic mt-1 text-ash">
               {showAll
                 ? t('Every release this build knows about ({n}).', { n: entries.length })
@@ -98,11 +98,11 @@ export function AboutPanels() {
             <ChangelogSection key={entry.version} entry={entry} />
           ))}
         </div>
-      </Panel>
+      </section>
 
-      <Panel className="flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="font-fraktur text-base text-parchment">{t('Credits')}</h4>
+      <section className="settings-section flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-64">
+          <h4 className="settings-section-title text-parchment">{t('Credits')}</h4>
           <p className="text-smoke font-serif-italic">
             {t('Created by the RSMM community · Licensed under the project license')}
           </p>
@@ -119,7 +119,7 @@ export function AboutPanels() {
             {t('View license')}
           </a>
         </div>
-      </Panel>
+      </section>
     </div>
   );
 }

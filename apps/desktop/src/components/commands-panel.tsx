@@ -225,16 +225,20 @@ export function CommandsPanel() {
   };
 
   return (
-    <section id="commands" aria-labelledby="commands-heading" className="scroll-mt-6 space-y-4">
-      <Panel>
-        <h3 id="commands-heading" className="font-fraktur text-xl text-parchment">
+    <section
+      id="commands"
+      aria-labelledby="commands-heading"
+      className="settings-group scroll-mt-6"
+    >
+      <div className="settings-section">
+        <h3 id="commands-heading" className="settings-section-title text-parchment">
           {t('Commands')}
         </h3>
         <p className="font-serif-italic mt-1 text-ash">
           {t('Run the common rsmm lifecycle commands from one place.')}
         </p>
         <Fleuron className="my-3" />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="settings-command-grid">
           {commands.map((command) => (
             <Panel key={command.id} variant="inset" className="p-4">
               <div className="flex items-start justify-between gap-3">
@@ -272,12 +276,12 @@ export function CommandsPanel() {
             </Panel>
           ))}
         </div>
-      </Panel>
+      </div>
 
-      <Panel>
+      <div className="settings-section">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h4 className="font-fraktur text-xl text-parchment">{t('Command log')}</h4>
+            <h4 className="settings-section-title text-parchment">{t('Command log')}</h4>
             <p className="font-serif-italic mt-1 text-ash">
               {t('Outputs from the last commands you ran in this page.')}
             </p>
@@ -333,7 +337,7 @@ export function CommandsPanel() {
             ))
           )}
         </div>
-      </Panel>
+      </div>
     </section>
   );
 }

@@ -169,6 +169,7 @@ export const zhCN: Record<string, string> = {
   'Applying…': '正在应用…',
   Audio: '音频',
   Author: '作者',
+  Back: '返回',
   'Backup folder': '备份文件夹',
   'Backup folder path': '备份文件夹路径',
   Balance: '平衡性',

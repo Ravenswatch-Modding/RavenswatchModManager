@@ -1,6 +1,12 @@
 import { CachedImage } from '@rsmm/ui';
 import type { QueryClient } from '@tanstack/react-query';
-import { Link, Outlet, createRootRouteWithContext, useLocation } from '@tanstack/react-router';
+import {
+  Link,
+  Outlet,
+  createRootRouteWithContext,
+  useLocation,
+  useRouter,
+} from '@tanstack/react-router';
 import { ArrowUp, ChevronDown, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AccountStrip } from '../components/account-strip';
@@ -18,6 +24,7 @@ import { WindowMaximizeIcon } from '../components/icons/WindowMaximizeIcon';
 import { WindowMinimizeIcon } from '../components/icons/WindowMinimizeIcon';
 import { WindowRestoreIcon } from '../components/icons/WindowRestoreIcon';
 import { LaunchProvider, useLaunch } from '../components/launch';
+import { SettingsExitProvider } from '../components/settings-navigation';
 import { SidebarTooltip } from '../components/sidebar-tooltip';
 import { StartupSelfHeal } from '../components/startup-self-heal';
 import { DialogProvider, ToastProvider } from '../components/toast';
@@ -431,11 +438,28 @@ function WindowControls() {
 function RootLayout() {
   const t = useT();
   const location = useLocation();
+  const router = useRouter();
+  const settingsOpen = location.pathname === '/settings';
+  const returnHref = useRef('/');
   const nav = useNav();
   const collapsed = useApp((s) => s.settings.sidebarCollapsed);
   const update = useApp((s) => s.updateSettings);
   const mainRef = useRef<HTMLElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
+
+  const exitSettings = () => {
+    void router.navigate({ href: returnHref.current, replace: true }).then(() => {
+      sidebarRef.current
+        ?.querySelector<HTMLAnchorElement>('a[href="/settings"]')
+        ?.focus({ preventScroll: true });
+    });
+  };
+
+  // Remember the actual page, including filters. A direct Settings link falls
+  // back to Library; the legacy About redirect must never become the return path.
+  useEffect(() => {
+    if (!settingsOpen && location.pathname !== '/about') returnHref.current = location.href;
+  }, [settingsOpen, location.pathname, location.href]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-scroll on navigation
   useEffect(() => {
@@ -459,93 +483,95 @@ function RootLayout() {
         <LaunchProvider>
           <StartupSelfHeal />
           <div className="flex h-screen w-screen overflow-hidden">
-            <aside
-              ref={sidebarRef}
-              data-collapsed={collapsed}
-              onClick={(event) => {
-                // The empty rail expands; its links, menus and actions keep their own behavior.
-                if (
-                  collapsed &&
-                  event.target instanceof Element &&
-                  event.currentTarget.contains(event.target) &&
-                  !event.target.closest('button, a, [role="menu"]')
-                ) {
-                  update({ sidebarCollapsed: false });
-                }
-              }}
-              className={`app-sidebar relative z-40 flex shrink-0 flex-col border-r border-border transition-[width] duration-150 ease-grimoire ${
-                collapsed ? 'w-[var(--sidebar-collapsed-width)]' : 'w-72'
-              }`}
-            >
-              <div
-                className="sidebar-section shrink-0 py-app"
-                data-tauri-drag-region={collapsed ? undefined : true}
+            {settingsOpen ? null : (
+              <aside
+                ref={sidebarRef}
+                data-collapsed={collapsed}
+                onClick={(event) => {
+                  // The empty rail expands; its links, menus and actions keep their own behavior.
+                  if (
+                    collapsed &&
+                    event.target instanceof Element &&
+                    event.currentTarget.contains(event.target) &&
+                    !event.target.closest('button, a, [role="menu"]')
+                  ) {
+                    update({ sidebarCollapsed: false });
+                  }
+                }}
+                className={`app-sidebar relative z-40 flex shrink-0 flex-col border-r border-border transition-[width] duration-150 ease-grimoire ${
+                  collapsed ? 'w-[var(--sidebar-collapsed-width)]' : 'w-72'
+                }`}
               >
                 <div
-                  className="sidebar-header"
+                  className="sidebar-section shrink-0 py-app"
                   data-tauri-drag-region={collapsed ? undefined : true}
                 >
-                  <div className="sidebar-brand">
-                    <CachedImage
-                      src="/logo.png"
-                      alt="Ravenswatch Mod Manager"
-                      className="sidebar-logo"
-                    />
-                  </div>
                   <div
-                    className="sidebar-expanded-content min-w-0 overflow-hidden font-serif-italic text-lg leading-none text-parchment"
-                    aria-hidden={collapsed}
-                    data-tauri-drag-region
+                    className="sidebar-header"
+                    data-tauri-drag-region={collapsed ? undefined : true}
                   >
-                    <span className="block truncate">Ravenswatch</span>
-                    <span className="block truncate text-sm leading-none text-ash">
-                      Mod Manager
-                    </span>
+                    <div className="sidebar-brand">
+                      <CachedImage
+                        src="/logo.png"
+                        alt="Ravenswatch Mod Manager"
+                        className="sidebar-logo"
+                      />
+                    </div>
+                    <div
+                      className="sidebar-expanded-content min-w-0 overflow-hidden font-serif-italic text-lg leading-none text-parchment"
+                      aria-hidden={collapsed}
+                      data-tauri-drag-region
+                    >
+                      <span className="block truncate">Ravenswatch</span>
+                      <span className="block truncate text-sm leading-none text-ash">
+                        Mod Manager
+                      </span>
+                    </div>
+                    {collapsed ? null : <SidebarSearch collapsed={false} />}
+                    <button
+                      type="button"
+                      onClick={() => update({ sidebarCollapsed: !collapsed })}
+                      aria-label={
+                        collapsed ? t('Expand the sidebar') : t('Collapse the sidebar to icons')
+                      }
+                      aria-expanded={!collapsed}
+                      data-sidebar-tooltip={
+                        collapsed ? t('Expand the sidebar') : t('Collapse the sidebar to icons')
+                      }
+                      className="sidebar-toggle flex items-center justify-center text-ash transition-colors duration-150 hover:bg-char/40 hover:text-parchment"
+                    >
+                      {collapsed ? <PanelLeftOpen aria-hidden /> : <PanelLeftClose aria-hidden />}
+                    </button>
                   </div>
-                  {collapsed ? null : <SidebarSearch collapsed={false} />}
-                  <button
-                    type="button"
-                    onClick={() => update({ sidebarCollapsed: !collapsed })}
-                    aria-label={
-                      collapsed ? t('Expand the sidebar') : t('Collapse the sidebar to icons')
-                    }
-                    aria-expanded={!collapsed}
-                    data-sidebar-tooltip={
-                      collapsed ? t('Expand the sidebar') : t('Collapse the sidebar to icons')
-                    }
-                    className="sidebar-toggle flex items-center justify-center text-ash transition-colors duration-150 hover:bg-char/40 hover:text-parchment"
-                  >
-                    {collapsed ? <PanelLeftOpen aria-hidden /> : <PanelLeftClose aria-hidden />}
-                  </button>
                 </div>
-              </div>
 
-              <nav
-                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-1"
-                data-tauri-drag-region={collapsed ? undefined : true}
-              >
-                <div className="sidebar-section sidebar-nav-content flex flex-col gap-app-sm">
-                  {nav.map((n) => (
-                    <Fragment key={n.to}>
-                      <NavLink {...n} collapsed={collapsed} />
-                      {collapsed && n.to === '/' ? <SidebarSearch collapsed /> : null}
-                    </Fragment>
-                  ))}
+                <nav
+                  className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-1"
+                  data-tauri-drag-region={collapsed ? undefined : true}
+                >
+                  <div className="sidebar-section sidebar-nav-content flex flex-col gap-app-sm">
+                    {nav.map((n) => (
+                      <Fragment key={n.to}>
+                        <NavLink {...n} collapsed={collapsed} />
+                        {collapsed && n.to === '/' ? <SidebarSearch collapsed /> : null}
+                      </Fragment>
+                    ))}
+                  </div>
+                </nav>
+
+                <SidebarLaunch collapsed={collapsed} />
+                <div className="sidebar-section shrink-0 pb-app">
+                  <NavLink {...SETTINGS_NAV} collapsed={collapsed} />
                 </div>
-              </nav>
-
-              <SidebarLaunch collapsed={collapsed} />
-              <div className="sidebar-section shrink-0 pb-app">
-                <NavLink {...SETTINGS_NAV} collapsed={collapsed} />
-              </div>
-              <AccountStrip collapsed={collapsed} />
-              <SidebarTooltip sidebarRef={sidebarRef} />
-            </aside>
+                <AccountStrip collapsed={collapsed} />
+                <SidebarTooltip sidebarRef={sidebarRef} />
+              </aside>
+            )}
 
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {/* Reserve native dragging space independently of the sidebar.
                   Keeping it in flow also leaves update banners clickable. */}
-              {inTauri() ? (
+              {inTauri() && !settingsOpen ? (
                 <div
                   aria-hidden="true"
                   data-tauri-drag-region
@@ -553,9 +579,27 @@ function RootLayout() {
                 />
               ) : null}
               <WindowControls />
+              {settingsOpen ? (
+                <header className="settings-shell-header" data-tauri-drag-region>
+                  <button
+                    type="button"
+                    className="settings-brand-link"
+                    title={t('Back')}
+                    onClick={exitSettings}
+                  >
+                    <span className="sidebar-brand">
+                      <CachedImage src="/logo.png" alt="" className="sidebar-logo" />
+                    </span>
+                    <span className="settings-brand-wordmark font-serif-italic text-lg leading-none text-parchment">
+                      <span className="block">Ravenswatch</span>
+                      <span className="block text-sm leading-none text-ash">Mod Manager</span>
+                    </span>
+                  </button>
+                </header>
+              ) : null}
               <UpdaterBanner />
               <ChannelStatusBanner />
-              {LIBRARY_PREVIEW ? (
+              {LIBRARY_PREVIEW && !settingsOpen ? (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-app py-2 text-sm text-ash">
                   <span>Library preview · sample mods · reload to reset</span>
                   <a
@@ -569,22 +613,30 @@ function RootLayout() {
               <main
                 ref={mainRef}
                 // Clear the 7rem footer fade, with another 1rem below the last item.
-                className="rsmm-main min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-app pt-app pb-32"
+                className={
+                  settingsOpen
+                    ? 'settings-main min-h-0 flex-1 overflow-hidden'
+                    : 'rsmm-main min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-app pt-app pb-32'
+                }
               >
-                <div className="w-full animate-page-in">
-                  <Outlet />
+                <div className={settingsOpen ? 'h-full min-h-0 w-full' : 'w-full animate-page-in'}>
+                  <SettingsExitProvider value={exitSettings}>
+                    <Outlet />
+                  </SettingsExitProvider>
                 </div>
               </main>
               {/* Fades and blurs what scrolls under the version footer. */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-28 bg-gradient-to-t from-[hsl(var(--pitch))] via-[hsl(var(--pitch)/0.7)] to-transparent backdrop-blur-sm [mask-image:linear-gradient(to_top,black_35%,transparent)]"
-              />
+              {settingsOpen ? null : (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-28 bg-gradient-to-t from-[hsl(var(--pitch))] via-[hsl(var(--pitch)/0.7)] to-transparent backdrop-blur-sm [mask-image:linear-gradient(to_top,black_35%,transparent)]"
+                />
+              )}
             </div>
 
             <CommandPalette />
             {LIBRARY_PREVIEW ? null : <FirstRunDialogs />}
-            <VersionFooter />
+            {settingsOpen ? null : <VersionFooter />}
           </div>
         </LaunchProvider>
       </DialogProvider>

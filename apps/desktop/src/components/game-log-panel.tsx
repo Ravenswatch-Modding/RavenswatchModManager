@@ -347,8 +347,8 @@ export function GameLogPanel() {
     <section id="game-log" aria-labelledby="game-log-heading" className="scroll-mt-6 space-y-4">
       <HealthBanner health={health} onReEnable={onReEnable} />
 
-      <Panel>
-        <h3 id="game-log-heading" className="font-fraktur text-xl text-parchment">
+      <div className="settings-section">
+        <h3 id="game-log-heading" className="settings-section-title text-parchment">
           {t('Game log')}
         </h3>
         <p className="font-serif-italic mt-1 text-ash">
@@ -541,7 +541,7 @@ export function GameLogPanel() {
         {meta?.path ? (
           <p className="font-data mt-2 break-all text-xs text-ash">{meta.path}</p>
         ) : null}
-      </Panel>
+      </div>
 
       {sharing ? (
         <ShareLogDialog

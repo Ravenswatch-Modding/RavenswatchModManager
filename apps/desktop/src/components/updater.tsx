@@ -754,8 +754,8 @@ function VersionRow({
   hint?: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 py-1">
-      <span className="font-serif-italic text-parchment shrink-0">{label}</span>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
+      <span className="font-serif-italic min-w-0 text-parchment">{label}</span>
       <span className="flex-1 border-b border-dotted border-oxblood/40" aria-hidden />
       <span className="font-data text-sm text-gilt shrink-0">{value}</span>
       {hint ? (
