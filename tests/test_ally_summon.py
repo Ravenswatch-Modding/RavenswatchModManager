@@ -656,9 +656,11 @@ def test_summon_accessor_sources_keep_hero_winners(monkeypatch):
 
 
 @needs_corpus
-def test_override_from_donor_refuses_links_to_donor_only_parts():
+def test_override_from_donor_checks_donor_only_links_after_the_last_step():
     """A donor (not an ancestor) part whose links name the donor's own parts
-    would bind to nothing in the copy: ``override`` refuses it."""
+    binds to nothing in the copy: refused, unless a later step re-points or
+    clears the link (here: a summon takes a donor's life bar spawner and clears
+    its game_ui the step after)."""
     from rsmm.engine import ability_edit as AE
     from rsmm.engine import ally_summon as AS
     red = corpus.read(
@@ -673,11 +675,17 @@ def test_override_from_donor_refuses_links_to_donor_only_parts():
             return built[r]
         return corpus.read(f"EntitySettings/{r.replace(chr(92), '/')}.EntitySettingsResource.gen")
 
-    with pytest.raises(AE.AbilityEditError, match="neither has nor inherits"):
-        AE.apply(
-            {"Hero_Loose": red, "Hero_Loose_Summon1_Model": built[m_ref]},
-            [{"entity": "Summon1_Model", "override": "Additive Hit Clip Selector",
-              "from": "Enemies/Baba_Yaga_Boss/Baba_Yaga_Boss"}],
+    override = {"entity": "Summon1_Model", "override": "Life Bar Spawner",
+                "from": "Heroes/Hero_SunWukong/Hero_SunWukong_Ultimate_1_AI_Clone"}
+    clear = {"entity": "Summon1_Model", "link": "Life Bar Spawner.game_ui", "to": ""}
+
+    def run(steps):
+        return AE.apply(
+            {"Hero_Loose": red, "Hero_Loose_Summon1_Model": built[m_ref]}, steps,
             main="Hero_Loose", seed="test:loose", read=read,
             refs={"Hero_Loose": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
                   "Hero_Loose_Summon1_Model": m_ref})
+
+    with pytest.raises(AE.AbilityEditError, match="still links to .*Game Ui"):
+        run([override])
+    assert "Hero_Loose_Summon1_Model" in run([override, clear]).files

@@ -374,6 +374,10 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
     EDITED bytes when another of them links to it."""
     read = read or CK._corpus_reader
     edits: dict[str, EntityFile] = {}
+    #: (step, stem, part, {GUID: label}): links an override copied from a
+    #: donor that name the donor's own parts; a later step may still re-point
+    #: or clear them, so they are judged after the last step.
+    loose: list[tuple[int, str, str, dict[bytes, str]]] = []
 
     def member(step: dict) -> EntityFile:
         want = str(step.get("entity") or main)
@@ -421,7 +425,8 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
                 TW.TalentWriter(ef, f"{seed}:{n}", "Kit").state(str(step["event"]),
                                                                  flags=TW.EVENT)
             elif op == "override":
-                _override(ef, step, f"{seed}:{n}", read, aliases)
+                if links := _override(ef, step, f"{seed}:{n}", read, aliases):
+                    loose.append((n, ef.name, str(step["override"]), links))
             elif op == "retarget":
                 _retarget(ef, step, read)
             elif op == "add_cinebloc":
@@ -540,6 +545,17 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
                                                "or 'Part.list' with to = the part it points at")
         except (EntityEditError, KeyError, ValueError) as e:
             raise AbilityEditError(f"ability step {n} ({op}): {e}") from e
+
+    for n, stem, part, links in loose:
+        try:
+            left = [links[r.guid] for r in edits[stem].component(part).refs if r.guid in links]
+        except KeyError:
+            continue                    # the part was removed again
+        if left:
+            raise AbilityEditError(
+                f"ability step {n} (override): {stem}'s {part!r} still links to "
+                f"{', '.join(left)}, which {stem} neither has nor inherits; re-point or "
+                f"clear it (link = \"{part}.<field>\", to = ...)")
 
     out = Result(dict(files))
     edited_map: dict[str, bytes] = {}
@@ -915,7 +931,7 @@ def _replace_subobject(ef: EntityFile, step: dict, read) -> None:
 
 
 def _override(ef: EntityFile, step: dict, seed: str, read,
-              aliases: dict[bytes, str] | None = None) -> None:
+              aliases: dict[bytes, str] | None = None) -> dict[bytes, str]:
     """Give this entity its own version of an ANCESTOR's part: a copy marked as
     that part's override, so the engine builds it INSTEAD of the ancestor's
     (a plain clone would be a second part built next to it). ``from`` is the
@@ -945,22 +961,21 @@ def _override(ef: EntityFile, step: dict, seed: str, read,
            for c in ef.graph().components):
         raise AbilityEditError(f"override: {ef.name} already has a part {name!r} "
                                "(set it directly)")
+    loose: dict[bytes, str] = {}
     if src.name not in set(ancestors.values()):
         # A donor's part keeps its links as they are; any that name the donor's
-        # own parts would bind to nothing here.
+        # own parts bind to nothing here unless a later step re-points them
+        # (apply checks after the last step).
         own = {c.guid for c in ef.graph().components}
-        loose = [r.path for r in anc.refs
-                 if r.guid != bytes(16) and r.guid not in own and r.guid not in ancestors]
-        if loose:
-            raise AbilityEditError(f"override: {src.name}'s {name!r} links to "
-                                   f"{', '.join(loose)}, which {ef.name} neither has "
-                                   "nor inherits")
+        loose = {r.guid: r.path for r in anc.refs
+                 if r.guid != bytes(16) and r.guid not in own and r.guid not in ancestors}
     ef.clone([name], rename={name: name}, seed=seed, source=src)
     if anc.override is not None:
         ef.set_override(name, anc.override.guid, anc.override.path)
     else:
         path = anc.path if anc.group else anc.name
         ef.set_override(name, anc.guid, f"[{kind_label(anc.cls)}] {src.name}\\{path}")
+    return loose
 
 
 def _retarget(ef: EntityFile, step: dict, read) -> None:
