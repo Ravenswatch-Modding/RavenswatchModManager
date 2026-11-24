@@ -867,7 +867,9 @@ export const zhCN: Record<string, string> = {
   name: '名称',
   'new profile': '新建方案',
   'not installed — launch Modded once': '未安装——先启动一次模组版',
-  nsfw: '成人',
+  NSFW: '成人',
+  'This mod contains mature content intended for adults (18+) only.':
+    '此模组包含仅适合成年人（18 岁及以上）的成人内容。',
   ok: '通过',
   'oldest lines dropped': '已丢弃最早的日志行',
   'oldest lines trimmed': '已截断最早的日志行',

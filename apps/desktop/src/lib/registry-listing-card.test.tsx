@@ -58,4 +58,53 @@ describe('shared listing rows', () => {
     expect(html).toContain('unknown');
     expect(html).not.toMatch(/<img|Private games only|role="link"/);
   });
+
+  it('puts the private indicator before NSFW and outside a web row’s native link', () => {
+    const html = renderToStaticMarkup(
+      <RegistryListingCard
+        listing={{ ...listing, nsfw: true }}
+        privateOnly
+        view="list"
+        href="/registry/shared-row"
+        actions={<button type="button">Install</button>}
+      />,
+    );
+    expect(html).toContain('aria-label="Private games only"');
+    expect(html).toContain('aria-label="NSFW"');
+    expect(html.indexOf('aria-label="Private games only"')).toBeLessThan(
+      html.indexOf('aria-label="NSFW"'),
+    );
+    expect(html).not.toContain('NSFW · Adults only');
+    const link = html.match(/<a\b[^>]*href="\/registry\/shared-row"[^>]*>(.*?)<\/a>/s);
+    expect(link?.[1]).toBe('Shared row');
+    expect(html.match(/<button\b/g)).toHaveLength(3);
+    expect(html).toContain('lucide-lock-keyhole');
+    expect(html).toContain('lucide-rose');
+  });
+
+  it('keeps localized accessible names and independent single-indicator states', () => {
+    const privateHtml = renderToStaticMarkup(
+      <RegistryListingCard
+        listing={listing}
+        privateOnly
+        view="list"
+        labels={{ privateOnly: '仅限私人游戏' }}
+      />,
+    );
+    expect(privateHtml).toContain('aria-label="仅限私人游戏"');
+    expect(privateHtml).not.toContain('lucide-rose');
+    const nsfwHtml = renderToStaticMarkup(
+      <RegistryListingCard listing={{ ...listing, nsfw: true }} view="list" />,
+    );
+    expect(nsfwHtml).toContain('aria-label="NSFW"');
+    expect(nsfwHtml).not.toContain('lucide-lock-keyhole');
+  });
+
+  it('keeps the full private-games label with a lock on grid cards', () => {
+    const html = renderToStaticMarkup(<RegistryListingCard listing={listing} privateOnly />);
+    expect(html).toContain('Private games only');
+    expect(html).toContain('lucide-lock-keyhole');
+    expect(html).not.toContain('lucide-triangle-alert');
+    expect(html).not.toContain('registry-content-indicator');
+  });
 });

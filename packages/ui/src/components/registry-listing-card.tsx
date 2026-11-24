@@ -1,6 +1,7 @@
-import { Download, Layers, Star, TriangleAlert, Users } from 'lucide-react';
+import { Download, Layers, LockKeyhole, Star, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { CachedImage } from './cached-image';
+import { RegistryContentIndicator } from './registry-content-indicator';
 import { RegistryModCover } from './registry-mod-cover';
 
 export interface RegistryListingCardData {
@@ -63,7 +64,9 @@ export function RegistryListingCard({
     preview?: string;
     featured?: string;
     nsfw?: string;
+    nsfwDescription?: string;
     privateOnly?: string;
+    privateOnlyDescription?: string;
     coauthor?: string;
     downloads?: string;
     downloadUnit?: string;
@@ -96,20 +99,43 @@ export function RegistryListingCard({
         </div>
         <div className="mod-card-list-identity">
           <div className="mod-card-list-name">
-            <Heading>{listing.name}</Heading>
+            <Heading>
+              {href ? (
+                <a className="mod-card-list-link" href={href} aria-label={labels.card}>
+                  {listing.name}
+                </a>
+              ) : (
+                listing.name
+              )}
+            </Heading>
             {listing.featured ? (
               <span aria-label={labels.featured ?? 'Featured'}>
                 <Star size={14} aria-hidden />
               </span>
             ) : null}
-            {listing.nsfw ? (
-              <span className="mod-card-mature">{labels.nsfw ?? 'Mature'}</span>
-            ) : null}
-            {privateOnly ? (
-              <span className="mod-card-private-tag inline-flex items-center gap-1">
-                <TriangleAlert size={12} aria-hidden />
-                {labels.privateOnly ?? 'Private games only'}
-              </span>
+            {privateOnly || listing.nsfw ? (
+              <div className="mod-card-list-content-indicators">
+                {privateOnly ? (
+                  <RegistryContentIndicator
+                    kind="private"
+                    label={labels.privateOnly ?? 'Private games only'}
+                    description={
+                      labels.privateOnlyDescription ??
+                      'This mod can only be used in solo and private multiplayer games because it may give an unfair advantage.'
+                    }
+                  />
+                ) : null}
+                {listing.nsfw ? (
+                  <RegistryContentIndicator
+                    kind="nsfw"
+                    label={labels.nsfw ?? 'NSFW'}
+                    description={
+                      labels.nsfwDescription ??
+                      'This mod contains mature content intended for adults (18+) only.'
+                    }
+                  />
+                ) : null}
+              </div>
             ) : null}
             {listBadges ? <div className="mod-card-list-badges">{listBadges}</div> : null}
           </div>
@@ -154,9 +180,7 @@ export function RegistryListingCard({
           className="mod-card mod-card-list"
           data-list-layout={listMetadata !== undefined ? 'custom' : 'registry'}
         >
-          <a className="mod-card-list-link" href={href}>
-            {row}
-          </a>
+          {row}
         </article>
       );
     return (
@@ -243,7 +267,7 @@ export function RegistryListingCard({
           <div className="mod-card-tags">
             {privateOnly ? (
               <span className="mod-card-tag mod-card-private-tag">
-                <TriangleAlert size={14} aria-hidden />
+                <LockKeyhole size={14} aria-hidden />
                 {labels.privateOnly ?? 'Private games only'}
               </span>
             ) : null}

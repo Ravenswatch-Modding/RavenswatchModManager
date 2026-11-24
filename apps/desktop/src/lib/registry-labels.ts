@@ -1,4 +1,4 @@
-import type { RegistryListingGallery, RegistryListingCard, getRegistryMedia } from '@rsmm/ui';
+import type { RegistryListingCard, RegistryListingGallery, getRegistryMedia } from '@rsmm/ui';
 import type { ComponentProps } from 'react';
 import type { TFunction } from './i18n-react';
 
@@ -15,8 +15,12 @@ export function registryCardLabels(
     card: listing.author ? t('{name} by {author}', { name: listing.name, author }) : listing.name,
     preview: t('{name} preview', { name: listing.name }),
     featured: t('Featured'),
-    nsfw: t('nsfw'),
+    nsfw: t('NSFW'),
+    nsfwDescription: t('This mod contains mature content intended for adults (18+) only.'),
     privateOnly: t('Private games only'),
+    privateOnlyDescription: t(
+      'This mod can only be used in solo and private multiplayer games because it may give an unfair advantage.',
+    ),
     coauthor: t('Co-author'),
     downloads: t('{n} dl', { n: (listing.downloads ?? 0).toLocaleString(t.tag) }),
     downloadUnit: (listing.downloads ?? 0) === 1 ? t('download') : t('downloads'),

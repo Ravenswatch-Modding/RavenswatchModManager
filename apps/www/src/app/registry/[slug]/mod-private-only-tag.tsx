@@ -1,5 +1,5 @@
 'use client';
-import { TriangleAlert } from 'lucide-react';
+import { LockKeyhole } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ModPrivateOnlyControls } from './mod-private-only-controls';
 
@@ -58,7 +58,7 @@ export function ModPrivateOnlyTag({ slug }: { slug: string }) {
         aria-controls={open ? popupId : undefined}
         onClick={() => setOpen(true)}
       >
-        <TriangleAlert size={14} aria-hidden />
+        <LockKeyhole size={14} aria-hidden />
         Private games only
       </button>
       {open ? (

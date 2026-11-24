@@ -1,4 +1,4 @@
-import { TriangleAlert } from 'lucide-react';
+import { LockKeyhole } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useT } from '../lib/i18n-react';
@@ -107,7 +107,7 @@ export function PrivateGamesOnlyBadge() {
         onBlur={() => setOpen(false)}
         onClick={() => setOpen(true)}
       >
-        <TriangleAlert aria-hidden />
+        <LockKeyhole aria-hidden />
         {t('Private games only')}
       </button>
       {open

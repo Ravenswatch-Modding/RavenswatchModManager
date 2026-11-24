@@ -234,6 +234,11 @@ inside the package itself.
 | [react-markdown](https://github.com/remarkjs/react-markdown) / [remark-gfm](https://github.com/remarkjs/remark-gfm) | MIT |
 | [serde](https://serde.rs) / serde_json | MIT OR Apache-2.0 |
 
+The [Lucide Rose](https://lucide.dev/icons/rose) in
+`packages/ui/src/components/rose-icon.tsx` backports the unchanged icon geometry
+introduced in Lucide 0.540.0 to the workspace's existing 0.469.0 package. The
+source file includes the Lucide ISC copyright and license notice.
+
 The full transitive lists can be produced with `pnpm licenses list` (in
 `apps/desktop`) and `cargo tree` / `cargo about` (in `apps/desktop/src-tauri`).
 
