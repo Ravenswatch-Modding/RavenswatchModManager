@@ -424,9 +424,10 @@ class _Accessors:
                 f"no value picker in this file reads a {cls} — cannot choose "
                 f"an accessor for it")
         if prefer is not None and prefer not in {t for _acc, t in pairs} \
-                and prefer == self.value_type(guid):
+                and self.value_type(guid) in (None, prefer):
             # this file never reads the class with the slot's (and the
-            # target's own) type; a shipped read of that type tells the accessor
+            # target's own, or an external GetValue's unknown) type; a shipped
+            # read of that type tells the accessor
             shipped = {pt: n for pt, n in (_shipped_accessors().get(cls) or {}).items()
                        if pt[1] == prefer}
             if shipped:
@@ -450,7 +451,8 @@ class _Accessors:
 #: bases and the heroes the kit takes its layouts from. An accessor is fixed
 #: per class and value type, so any shipped read of the class tells it.
 _ACCESSOR_SOURCES = ("Character_Common/Character_Common", "Heroes/Hero_Common/Hero_Common",
-                     "Heroes/Hero_SunWukong/Hero_SunWukong", "Heroes/Hero_Piper/Hero_Piper")
+                     "Heroes/Hero_SunWukong/Hero_SunWukong", "Heroes/Hero_Piper/Hero_Piper",
+                     "Enemies/NPC_Common/Ally_Model", "Heroes/Hero_Pets/Hero_Pet_Model")
 
 
 @cache

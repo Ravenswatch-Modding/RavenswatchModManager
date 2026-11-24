@@ -333,3 +333,32 @@ def test_add_status_step_goes_through_the_donors():
         _mel_apply([{**step, "duration": ""}])
     with pytest.raises(AE.AbilityEditError, match="needs status"):
         _mel_apply([{"add_status": dmg, "switch": state, "talent": "Attack Speed"}])
+
+
+@needs_corpus
+def test_owner_read_activates_in_event_init_on_melody_zone():
+    """Entities whose start-up state is ``Event Init`` (e.g. melody zone
+    attacks) can use ``owner_read`` and activate the reader first."""
+    from rsmm.engine import corpus
+    red = corpus.read(
+        "EntitySettings/Heroes/Hero_Red/Hero_Red.entity.ot.EntitySettingsResource.gen")
+    zone = corpus.read(
+        "EntitySettings/Objects/Melodies/Deal_Damage_Around_Zone_Attack.entity.ot.EntitySettingsResource.gen")
+    assert red is not None and zone is not None
+    res = AE.apply(
+        {"Hero_Red": red, "Hero_Red_Zone": zone},
+        [
+            {"entity": "Hero_Red_Zone", "owner_read": "Zone Mult Reader",
+             "node": "Primary Ability Damage Multiplier Default"},
+            {"entity": "Hero_Red_Zone", "link": "Damage Multiplier Value.value",
+             "to": "Zone Mult Reader"},
+        ],
+        main="Hero_Red",
+        seed="test:event_init",
+        refs={"Hero_Red": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
+              "Hero_Red_Zone": "Heroes\\Hero_Red\\Hero_Red_Zone.entity.ot"},
+    )
+    g = {c.name: c for c in EG.parse(res.files["Hero_Red_Zone"], "Hero_Red_Zone").components}
+    assert g["Event Init"].refs[0].guid == g["Zone Mult Reader"].guid
+    assert any(r.guid == g["Zone Mult Reader"].guid for r in g["Damage Multiplier Value"].refs)
+

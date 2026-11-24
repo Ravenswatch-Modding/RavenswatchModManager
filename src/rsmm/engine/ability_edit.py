@@ -723,7 +723,8 @@ def _owner_read(ef: EntityFile, step: dict, seed: str, files: dict[str, bytes],
                                          owners=(0,), walk_owners=True)
     have = {c.name for c in ef.graph().components}
     init = (TS.startup_state(ef.graph(), owner_ref, but=name)
-            or next((n for n in ("Child Event Initialize", "Event Initialize") if n in have),
+            or next((n for n in ("Child Event Initialize", "Event Initialize", "Event Init")
+                     if n in have),
                     None))
     if init is None:
         raise AbilityEditError(f"owner_read: {ef.name} has no start-up state to switch "
@@ -920,16 +921,24 @@ def _override(ef: EntityFile, step: dict, seed: str, read,
     if len(hits) != 1:
         raise AbilityEditError(f"override: {src.name} has {len(hits)} parts named {name!r}")
     anc = hits[0]
-    if _ancestors(ef.to_bytes(), read, aliases).get(anc.guid) != src.name:
+    ancestors = _ancestors(ef.to_bytes(), read, aliases)
+    target = anc.override.guid if anc.override is not None else anc.guid
+    if anc.override is None and ancestors.get(anc.guid) != src.name:
         raise AbilityEditError(f"override: {src.name} is not an ancestor of {ef.name}; "
                                "an override of it would never apply")
-    if any(c.name == name or (c.override and c.override.guid == anc.guid)
+    if anc.override is not None and target not in ancestors:
+        raise AbilityEditError(f"override: {src.name}'s {name!r} overrides {anc.override.path}, "
+                               f"which is not an ancestor of {ef.name}")
+    if any(c.name == name or (c.override and c.override.guid == target)
            for c in ef.graph().components):
         raise AbilityEditError(f"override: {ef.name} already has a part {name!r} "
                                "(set it directly)")
     ef.clone([name], rename={name: name}, seed=seed, source=src)
-    path = anc.path if anc.group else anc.name
-    ef.set_override(name, anc.guid, f"[{kind_label(anc.cls)}] {src.name}\\{path}")
+    if anc.override is not None:
+        ef.set_override(name, anc.override.guid, anc.override.path)
+    else:
+        path = anc.path if anc.group else anc.name
+        ef.set_override(name, anc.guid, f"[{kind_label(anc.cls)}] {src.name}\\{path}")
 
 
 def _retarget(ef: EntityFile, step: dict, read) -> None:

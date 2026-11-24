@@ -487,3 +487,142 @@ def test_a_summons_attack_can_drop_its_combo_set_its_damage_and_never_wait(tmp_p
     for bad in ({"attack_combo": "no"}, {"attack_damage": 0}, {"attack_cooldown": -1}):
         with pytest.raises(KitError):
             _attack_tuning_of(bad, "pets")
+
+
+@needs_corpus
+def test_kit_pets_base_ally_and_upgrade_pet(tmp_path):
+    """``pets`` ``base = "ally"`` uses Ally_Model and skips ``_pet_speed`` while
+    ``upgrade`` can keep ``base = "pet"`` (Hero_Pet_Model); invalid ``base`` fails."""
+    from rsmm.engine import entity_components as EC
+    from rsmm.sdk.content import ContentDef, ContentError
+    from rsmm.sdk.kinds import heros
+    files = heros.emit("m", ContentDef(kind="hero", id="AllyUp", fields={"base": "Red", "kit": {
+        "pets": {"entity": "Enemies/Wolves/Standard_Wolf_Dire", "base": "ally",
+                 "button": "special", "when": "State Wolf Secondary Ability",
+                 "talent": "Skill Secondary Can Hold",
+                 "upgrade": {"base": "pet", "attack": "Bite"}}}}), tmp_path)
+    by = {p.name: p for p in files}
+    s1 = by["Hero_AllyUp_Summon1_Model.entity.ot.EntitySettingsResource.gen"].read_bytes()
+    s2 = by["Hero_AllyUp_Summon2_Model.entity.ot.EntitySettingsResource.gen"].read_bytes()
+    assert EC.parents(s1) == ["Enemies\\NPC_Common\\Ally_Model.entity.ot"]
+    assert EC.parents(s2) == ["Heroes\\Hero_Pets\\Hero_Pet_Model.entity.ot"]
+    assert b"Kit Owner Run Speed" not in s1
+    assert b"Kit Owner Run Speed" in s2
+    with pytest.raises(ContentError, match='kit pets base'):
+        heros.emit("m", ContentDef(kind="hero", id="BadBase", fields={"base": "Red", "kit": {
+            "pets": {"entity": "Enemies/Wolves/Standard_Wolf_Dire", "base": "enemy"}}}), tmp_path)
+
+
+@needs_corpus
+def test_add_status_duration_from_getvalue_stays_f32():
+    """Regression: an Ally_Model summon with only a bool GetValue read previously
+    rebound a Marked modifier's f32 duration to bool (0x16abf2ed) instead of
+    f32 (0x16abf2eb) because _Accessors.value_type returned None for GetValue."""
+    from rsmm.engine import ability_edit as AE
+    from rsmm.engine import ally_summon as AS
+    from rsmm.engine import cooked
+    from rsmm.engine import entity_append as EA
+    from rsmm.engine import entity_fields as EF
+    from rsmm.engine import entity_graph as EG
+    red = corpus.read(
+        "EntitySettings/Heroes/Hero_Red/Hero_Red.entity.ot.EntitySettingsResource.gen")
+    assert red is not None
+    m_ref = "Heroes\\Hero_Mark\\Hero_Mark_Summon1_Model.entity.ot"
+    v_ref = "Heroes\\Hero_Mark\\Hero_Mark_Summon1.entity.ot"
+    built = AS.build(
+        "Enemies\\Wolves\\Standard_Wolf_Dire.entity.ot",
+        m_ref, v_ref, "test:mark:summon", base=AS.ALLY_MODEL)
+
+    def read(r: str):
+        if r == m_ref:
+            return built[m_ref]
+        if r == v_ref:
+            return built[v_ref]
+        return corpus.read(f"EntitySettings/{r.replace(chr(92), '/')}.EntitySettingsResource.gen")
+
+    res = AE.apply(
+        {"Hero_Mark": red, "Hero_Mark_Summon1_Model": built[m_ref]},
+        [
+            {"talent_number": "Mark Dur", "talent": "Secondary Quick Bombs",
+             "values": [4, 5, 6, 7], "flag": True},
+            {"entity": "Summon1_Model", "override": "Child Event Initialize",
+             "from": "Character_Common/Character_Common"},
+            {"entity": "Summon1_Model", "owner_read": "Mark Owned",
+             "node": "Skill Secondary Quick Bombs Owned"},
+            {"entity": "Summon1_Model", "owner_read": "Mark Dur Reader",
+             "node": "Mark Dur"},
+            {"entity": "Summon1_Model", "add_status": ["Attack Double Slash L Damage"],
+             "status": "Marked", "switch": "Mark Owned", "duration": "Mark Dur Reader",
+             "talent": "Secondary Quick Bombs"},
+        ],
+        main="Hero_Mark",
+        seed="test:mark",
+        read=read,
+        refs={"Hero_Mark": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
+              "Hero_Mark_Summon1_Model": m_ref},
+    )
+    raw = res.files["Hero_Mark_Summon1_Model"]
+    cf = cooked.parse(raw)
+    acc = EA._Accessors(cf)
+    mod = next(c for c in EG.parse(raw).components
+               if c.name == "Skill Secondary Quick Bombs Marked On Attack Double Slash L Damage")
+    dur = next(f for f in EF.fields(mod) if f.name == "duration")
+    assert dur.text.startswith("f32 "), dur.text
+    reader = next(c for c in EG.parse(raw).components if c.name == "Mark Dur Reader")
+    payload = cf.sections[mod.index].payload
+    pat = cooked.MARK_BEGIN + struct.pack("<I", acc.picker) + reader.guid
+    p_at = payload.find(pat)
+    assert p_at >= 0
+    n = struct.unpack_from("<I", payload, p_at + 24)[0]
+    off = EA._accessor_off(payload, p_at + 28 + n, acc.union)
+    assert off is not None
+    assert struct.unpack_from("<II", payload, off + 12)[0] == 0
+    assert payload[off:off + 4] == struct.pack("<I", 0x16ABF2EB)
+
+
+@needs_corpus
+def test_override_preserves_root_guid_for_nested_and_donor_overrides():
+    """Overriding an ancestor's override (e.g. NPC_Common's Spawning End Next
+    Behaviour Tester) or a donor's override of an ancestor (Dullahan's Starting
+    Behaviour Value) keeps the root ancestor's GUID and donor's picker bytes."""
+    from rsmm.engine import ability_edit as AE
+    from rsmm.engine import ally_summon as AS
+    from rsmm.engine import entity_graph as EG
+    red = corpus.read(
+        "EntitySettings/Heroes/Hero_Red/Hero_Red.entity.ot.EntitySettingsResource.gen")
+    assert red is not None
+    m_ref = "Heroes\\Hero_OvrRoot\\Hero_OvrRoot_Summon1_Model.entity.ot"
+    v_ref = "Heroes\\Hero_OvrRoot\\Hero_OvrRoot_Summon1.entity.ot"
+    built = AS.build(
+        "Enemies\\Wolves\\Standard_Wolf_Dire.entity.ot",
+        m_ref, v_ref, "test:ovr:summon", base=AS.PET_MODEL)
+
+    def read(r: str):
+        if r == m_ref:
+            return built[m_ref]
+        if r == v_ref:
+            return built[v_ref]
+        return corpus.read(f"EntitySettings/{r.replace(chr(92), '/')}.EntitySettingsResource.gen")
+
+    res = AE.apply(
+        {"Hero_OvrRoot": red, "Hero_OvrRoot_Summon1_Model": built[m_ref]},
+        [
+            {"entity": "Summon1_Model", "override": "Spawning End Next Behaviour Tester",
+             "from": "Enemies/NPC_Common/NPC_Common"},
+            {"entity": "Summon1_Model", "override": "Starting Behaviour Value",
+             "from": "Enemies/Dullahan/Dullahan_Arthur_Skeleton_Summon"},
+        ],
+        main="Hero_OvrRoot",
+        seed="test:ovrroot",
+        read=read,
+        refs={"Hero_OvrRoot": "Heroes\\Hero_Red\\Hero_Red.entity.ot",
+              "Hero_OvrRoot_Summon1_Model": m_ref},
+    )
+    g = EG.parse(res.files["Hero_OvrRoot_Summon1_Model"])
+    end_t = next(c for c in g.components if c.name == "Spawning End Next Behaviour Tester")
+    assert end_t.override is not None
+    assert end_t.override.guid == bytes.fromhex("c972944c0ebfb348a2454468c65bc674")
+    start_v = next(c for c in g.components if c.name == "Starting Behaviour Value")
+    assert start_v.override is not None
+    assert start_v.override.guid == bytes.fromhex("e614ed86a0c541459df31a6d3eff5ea3")
+    assert bytes.fromhex("01012cdd55fd") in start_v.body

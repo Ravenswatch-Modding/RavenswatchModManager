@@ -1068,6 +1068,8 @@ def _pets(spec, g: EG.EntityGraph, alt: tuple[str, ...], ctx: _Ctx,
     if _is_pet(src):
         # Already a pet (Piper's rat): her logic as shipped, in a copy of the
         # hero's own whose reads of Piper read this hero (see _pet_copy).
+        if spec.get("base") == "ally":
+            raise KitError("kit pets base = \"ally\": only an enemy copy can use Ally_Model")
         if spec.get("appear"):
             raise KitError("kit pets appear: only an enemy copy has a spawn clip to swap")
         if upgrade:
