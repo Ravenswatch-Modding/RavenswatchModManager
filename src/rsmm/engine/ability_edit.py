@@ -547,10 +547,10 @@ def apply(files: dict[str, bytes], steps: list[dict], *, main: str, seed: str,
             raise AbilityEditError(f"ability step {n} ({op}): {e}") from e
 
     for n, stem, part, links in loose:
-        try:
-            left = [links[r.guid] for r in edits[stem].component(part).refs if r.guid in links]
-        except KeyError:
-            continue                    # the part was removed again
+        # by name, not component(): a later step may have removed the part
+        # (nothing left to check) or added a second one of that name
+        left = list(dict.fromkeys(links[r.guid] for c in edits[stem].graph().components
+                                  if c.name == part for r in c.refs if r.guid in links))
         if left:
             raise AbilityEditError(
                 f"ability step {n} (override): {stem}'s {part!r} still links to "
