@@ -9,7 +9,7 @@
  * `null`. The upload is unaffected either way.
  */
 
-import { parseModManifest } from './manifest-toml';
+import { parseModManifest } from '@rsmm/schemas';
 
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_CENTRAL_DIRECTORY = 8 * 1024 * 1024;

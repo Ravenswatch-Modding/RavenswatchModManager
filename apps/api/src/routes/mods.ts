@@ -36,6 +36,7 @@ import {
 } from '../scan-service.js';
 import { kickScanWorker } from '../scan-worker.js';
 import {
+  assetKey,
   deleteObject,
   fetchPublicObject,
   modUploadKey,
@@ -867,6 +868,7 @@ modsRouter.post(
     const rows = await db
       .select({
         assetUrl: schema.modVersions.assetUrl,
+        version: schema.modVersions.version,
         sha256: schema.modVersions.sha256,
         modId: schema.mods.id,
         ownerId: schema.mods.ownerId,
@@ -894,7 +896,11 @@ modsRouter.post(
     if (!virusTotalConfigured()) {
       // No malware scan, but the store still checks what the mod changes.
       const bytes = await fetchPublicObject(row.assetUrl, MAX_VT_LARGE_BYTES);
-      await labelIfGameplay(row.slug, bytes?.bytes ?? null);
+      await labelIfGameplay(row.slug, bytes?.bytes ?? null, {
+        id: versionId,
+        version: row.version,
+        sha256: row.sha256,
+      });
       await releaseVersion(versionId, row.sha256, 'skipped');
       return c.json({ ok: true, status: 'skipped', flagged: false, position: null });
     }
@@ -1153,6 +1159,7 @@ modsRouter.delete(
         id: schema.modVersions.id,
         version: schema.modVersions.version,
         sha256: schema.modVersions.sha256,
+        assetUrl: schema.modVersions.assetUrl,
         slug: schema.mods.slug,
         ownerId: schema.mods.ownerId,
       })
@@ -1170,7 +1177,7 @@ modsRouter.delete(
     // The row is what makes a version downloadable, so it goes first; a failed
     // storage delete only leaves an unreachable object behind.
     try {
-      await deleteObject(modUploadKey(row.slug, row.version, row.sha256));
+      await deleteObject(assetKey(row.assetUrl));
     } catch (err) {
       c.get('log').warn('version zip delete failed', { versionId, err: errString(err) });
     }

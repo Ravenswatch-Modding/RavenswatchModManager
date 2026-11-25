@@ -63,6 +63,14 @@ export function modUploadKey(slug: string, version: string, sha256: string): str
   return `mods/${slug}/${version}-${sha256.slice(0, 12)}.zip`;
 }
 
+/** The S3 key behind a stored asset URL. Deletes go through this, not
+ *  modUploadKey: a version whose label was corrected to its packed manifest
+ *  (scan-service syncPackedVersion) keeps its object under the old name. */
+export function assetKey(assetUrl: string): string {
+  const path = new URL(assetUrl).pathname;
+  return decodeURIComponent(path.slice(path.indexOf('/mods/') + 1));
+}
+
 /** HEAD an object to confirm it exists (e.g. that a presigned upload actually
  *  completed). Works on private buckets, unlike fetching the public URL.
  *

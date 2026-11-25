@@ -241,7 +241,8 @@ const backfillSchema = z.object({
  * labelIfGameplay) over published mods that were uploaded before it existed:
  * each mod's newest servable version, `limit` mods from `offset` in slug
  * order. Batched to stay inside a serverless request; call again with
- * `next` until it is null. Only ever adds the label.
+ * `next` until it is null. Only ever adds the label. Also relabels a version
+ * its packed manifest disagrees with (scan-service syncPackedVersion).
  */
 moderationRouter.post(
   '/mods/private-only/backfill',
@@ -258,7 +259,12 @@ moderationRouter.post(
     const results: { slug: string; labelled: boolean; reasons: string[]; error?: string }[] = [];
     for (const mod of mods) {
       const latest = await db
-        .select({ assetUrl: schema.modVersions.assetUrl })
+        .select({
+          id: schema.modVersions.id,
+          version: schema.modVersions.version,
+          sha256: schema.modVersions.sha256,
+          assetUrl: schema.modVersions.assetUrl,
+        })
         .from(schema.modVersions)
         .where(
           and(
@@ -272,7 +278,7 @@ moderationRouter.post(
       if (!version) continue;
       try {
         const fetched = await fetchPublicObject(version.assetUrl, MAX_VT_LARGE_BYTES);
-        const reasons = await labelIfGameplay(mod.slug, fetched?.bytes ?? null);
+        const reasons = await labelIfGameplay(mod.slug, fetched?.bytes ?? null, version);
         results.push({
           slug: mod.slug,
           labelled: reasons.length > 0,

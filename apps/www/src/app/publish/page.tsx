@@ -1,7 +1,7 @@
 'use client';
 
 import { ApiError } from '@rsmm/api-client';
-import type { ModCategory } from '@rsmm/schemas';
+import { type ModCategory, parseModManifest } from '@rsmm/schemas';
 import { Badge, Button, Input, ProgressBar, Spinner } from '@rsmm/ui';
 
 function Label({
@@ -25,7 +25,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { useSession } from '../../lib/auth-client';
-import { parseModManifest } from '../../lib/manifest-toml';
+
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../lib/upload';
 import { archiveVersionMismatch, readManifestText } from '../../lib/zip-manifest';
 import { FileDrop } from '../components/file-drop';

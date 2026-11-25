@@ -1,13 +1,14 @@
 /**
- * Read the `[mod]` table of a mod's `manifest.toml`, for pre-filling the
- * publish form.
+ * Read the `[mod]` table of a mod's `manifest.toml`: the publish form fills
+ * itself in from it, and the store reads the packed version back so a
+ * version's label matches what installs (api scan-service syncPackedVersion).
  *
  * Deliberately NOT a general TOML parser: it understands exactly the value
  * shapes a `[mod]` table uses (strings in all four quote styles, string
  * arrays, booleans, numbers) and ignores everything else. It never throws — a
  * manifest it cannot read yields fewer fields, and the form is simply filled in
- * by hand as before. The server still validates whatever the form submits, so
- * this is a convenience, not a trust boundary.
+ * by hand as before. It only ever reads data, so it is no trust boundary: the
+ * server still validates whatever the form submits.
  */
 
 export interface ModMeta {

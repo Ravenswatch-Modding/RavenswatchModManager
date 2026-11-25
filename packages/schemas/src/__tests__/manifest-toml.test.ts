@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseModManifest } from './manifest-toml';
+import { parseModManifest } from '../manifest-toml';
 
 describe('parseModManifest', () => {
   it('reads the [mod] table of a real-shaped manifest', () => {

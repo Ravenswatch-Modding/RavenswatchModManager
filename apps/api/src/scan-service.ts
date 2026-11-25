@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto';
 import { getDb, schema } from '@rsmm/db';
-import { hasPrivateOnlyTag } from '@rsmm/schemas';
+import { hasPrivateOnlyTag, parseModManifest, semverSchema } from '@rsmm/schemas';
 import { type SQL, and, eq, lt, notInArray, or, sql } from 'drizzle-orm';
 import { errString } from './logger.js';
-import { modArchiveScopeReasons } from './mod-archive.js';
+import { modArchiveFiles, modArchiveScopeReasons } from './mod-archive.js';
 import { notify, notifyFollowers } from './notify.js';
 import { setStoredPrivateOnlyTag } from './private-only.js';
 import {
+  assetKey,
   deleteObject,
   fetchPublicObject,
   getObjectBytes,
-  modUploadKey,
   remoteObjectExists,
 } from './storage.js';
 import {
@@ -107,7 +107,7 @@ async function pollVerdict(
  */
 export async function scanVersion(target: ScanTarget): Promise<ScanResult> {
   const db = getDb();
-  const key = modUploadKey(target.slug, target.version, target.sha256);
+  const key = assetKey(target.assetUrl);
 
   let analysis: { analysisId: string; permalink: string } | null = null;
   let verdict: { status: string; stats: VirusTotalStats } | null = null;
@@ -139,7 +139,7 @@ export async function scanVersion(target: ScanTarget): Promise<ScanResult> {
   // The store's own "Private games only" check, on these hashed bytes and
   // before any verdict can release the version: it never relies on the tag
   // the uploader's manifest carried.
-  await labelIfGameplay(target.slug, bytes);
+  await labelIfGameplay(target.slug, bytes, target);
 
   // A file VirusTotal has already analysed needs no new upload: its report by
   // hash is the verdict for these exact bytes, however old, for one lookup
@@ -244,7 +244,12 @@ export async function scanVersion(target: ScanTarget): Promise<ScanResult> {
  * Fails closed: bytes that could not be read count as gameplay. Returns the
  * reasons (empty: client-only).
  */
-export async function labelIfGameplay(slug: string, bytes: Buffer | null): Promise<string[]> {
+export async function labelIfGameplay(
+  slug: string,
+  bytes: Buffer | null,
+  version?: PackedVersionTarget,
+): Promise<string[]> {
+  if (version && bytes) await syncPackedVersion(version, bytes);
   const reasons = bytes
     ? modArchiveScopeReasons(bytes)
     : ['the archive is too large for the store to check'];
@@ -258,6 +263,70 @@ export async function labelIfGameplay(slug: string, bytes: Buffer | null): Promi
     .where(eq(schema.mods.slug, slug));
   console.info('labelled Private games only', { slug, reasons: reasons.slice(0, 5) });
   return reasons;
+}
+
+export interface PackedVersionTarget {
+  id: string;
+  version: string;
+  sha256: string;
+}
+
+/**
+ * Relabel a version to the version its own packed `manifest.toml` declares.
+ *
+ * The client installs the store's label but reads the installed manifest back,
+ * so a label the archive disagrees with offers every installer an "update" to
+ * a version that never arrives. Web uploads used to send a typed version
+ * unchecked, so older listings carry such labels. Runs with the Private games
+ * only check, on the same hashed bytes; it leaves the scan status alone, so a
+ * corrected version is never sent back to VirusTotal.
+ *
+ * Skipped when the archive has no readable semver version, when the label is
+ * already right, and when the mod already has a version with that number (the
+ * unique index; an author has to sort that out). Keyed on the sha256 so a
+ * re-presign in between keeps its own label. The object keeps its key, which
+ * is why deletes go through storage.assetKey.
+ */
+export async function syncPackedVersion(
+  target: PackedVersionTarget,
+  bytes: Buffer,
+): Promise<string | null> {
+  const files = modArchiveFiles(bytes);
+  if (typeof files === 'string') return null;
+  const text = files.find((f) => f.path.toLowerCase() === 'manifest.toml')?.text;
+  const packed = text ? parseModManifest(text).version : undefined;
+  if (!packed || packed === target.version || !semverSchema.safeParse(packed).success) {
+    return null;
+  }
+  const db = getDb();
+  const updated = await db
+    .update(schema.modVersions)
+    .set({
+      version: packed,
+      manifestJson: sql`jsonb_set(${schema.modVersions.manifestJson}, '{version}', to_jsonb(${packed}::text))`,
+    })
+    .where(
+      and(
+        scanTargetIs(target.id, target.sha256),
+        // Spelled out: drizzle renders interpolated columns unqualified, which
+        // would correlate the subquery with itself (see mods.ts outerModId).
+        sql`not exists (
+          select 1 from "mod_versions" as sibling
+          where sibling.mod_id = "mod_versions"."mod_id" and sibling.version = ${packed}
+        )`,
+      ),
+    )
+    .returning({ id: schema.modVersions.id });
+  if (updated.length === 0) {
+    console.warn('packed version kept off the label', { id: target.id, packed });
+    return null;
+  }
+  console.info('version relabelled to its packed manifest', {
+    id: target.id,
+    from: target.version,
+    to: packed,
+  });
+  return packed;
 }
 
 /**
@@ -349,7 +418,7 @@ export async function adminVerdict(
     .set({ scanStatus: 'flagged', scannedAt: new Date() })
     .where(scanTargetIs(versionId, v.sha256));
   try {
-    await deleteObject(modUploadKey(v.slug, v.version, v.sha256));
+    await deleteObject(assetKey(v.assetUrl));
   } catch (err) {
     console.error('failed to purge rejected object', { versionId, err: errString(err) });
   }

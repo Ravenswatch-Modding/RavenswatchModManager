@@ -4,6 +4,7 @@ export * from './collection';
 export * from './guide';
 export * from './html';
 export * from './log-share';
+export * from './manifest-toml';
 export * from './mod';
 export * from './mod-scope';
 export * from './privacy';
