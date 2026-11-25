@@ -633,8 +633,9 @@ export default function PublishPage() {
             </span>
           </label>
           <p className="text-xs text-muted-foreground">
-            Only you and your co-authors can see or download a hidden mod. Show it in the store any
-            time from <em>My Mods</em>.
+            A hidden mod is left out of the store, search and profiles, and the app can&apos;t
+            install it. It isn&apos;t secret: a download link someone already copied keeps working.
+            Show it in the store any time from <em>My Mods</em>.
           </p>
         </section>
 

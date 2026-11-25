@@ -63,8 +63,8 @@ function TakedownNotice({
         <EyeOff className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
         <p className="text-sm text-muted-foreground">
           <strong className="text-parchment">Hidden from the store by its authors.</strong> Only
-          they and moderators can see this page or download it. Authors can show it again from My
-          Mods.
+          they and moderators can see this page, and the store won&apos;t install it. Authors can
+          show it again from My Mods.
         </p>
       </div>
     );

@@ -795,7 +795,8 @@ function ManageModEditor({ slug }: { slug: string }) {
             {mod.takedownStatus === 'unlisted' ? (
               <p className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <EyeOff className="h-4 w-4 shrink-0" aria-hidden="true" />
-                Hidden from the store. Only you and your co-authors can see or download it.
+                Hidden from the store: not listed, searchable or installable. Download links already
+                copied still work; delete a version to remove its file.
               </p>
             ) : null}
             {visibilityMut.isError ? (
