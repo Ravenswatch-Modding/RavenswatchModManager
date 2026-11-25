@@ -238,13 +238,16 @@ export function ModDetail({ slug }: { slug: string }) {
   const dependencies = apiMod?.dependencies ?? {};
 
   // The store generates a title + summary when no authored Markdown is known.
-  // The detail header already supplies that title; prefer the registry's full copy.
+  // Once the registry detail is available, its copy is canonical; local
+  // Markdown may describe an older installed version.
   const generatedMarkdown = liveBySlug
     ? `# ${liveBySlug.name}${liveBySlug.summary ? `\n\n${liveBySlug.summary}` : ''}`
     : '';
   const localMarkdown =
     liveBySlug?.markdown !== generatedMarkdown ? liveBySlug?.markdown : undefined;
-  const markdown = apiMod?.description?.trim() || localMarkdown || description || summary;
+  const markdown = apiMod
+    ? apiMod.description?.trim() || apiMod.summary || ''
+    : localMarkdown || description || summary;
   const sizeBytes = latestVersion?.sizeBytes ?? null;
   const apiBase = getApiUrl().replace(/\/+$/, '');
   const modFolderId = liveBySlug?.id ?? slug;
