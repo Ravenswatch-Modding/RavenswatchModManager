@@ -580,6 +580,8 @@ export function createApiClient(options: ApiClientOptions) {
       list: (
         params: {
           q?: string;
+          /** Exact mod slugs for small batched registry lookups. */
+          slugs?: string[];
           tag?: string;
           /** AND semantics: a mod must carry every tag listed. */
           tags?: string[];
@@ -603,6 +605,7 @@ export function createApiClient(options: ApiClientOptions) {
       ) => {
         const qs = new URLSearchParams();
         if (params.q) qs.set('q', params.q);
+        if (params.slugs?.length) qs.set('slugs', params.slugs.join(','));
         if (params.tag) qs.set('tag', params.tag);
         if (params.tags?.length) qs.set('tags', params.tags.join(','));
         if (params.minRating) qs.set('minRating', String(params.minRating));
