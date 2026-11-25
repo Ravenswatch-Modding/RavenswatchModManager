@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 process.env.DATABASE_URL ??= 'postgres://user:pass@localhost:5432/db';
+process.env.BETTER_AUTH_SECRET ??= 'x'.repeat(32);
 
 const state = vi.hoisted(() => ({
   sets: [] as Record<string, unknown>[],

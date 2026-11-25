@@ -18,7 +18,7 @@ export const PAGE_UPDATED: Record<string, { date: string; dir: string }> = {
   '/modding': { date: '2026-11-24', dir: 'modding' },
   '/about': { date: '2026-11-23', dir: 'about' },
   '/contact': { date: '2026-11-23', dir: 'contact' },
-  '/privacy': { date: '2026-11-24', dir: 'privacy' },
+  '/privacy': { date: '2026-11-25', dir: 'privacy' },
   '/legal': { date: '2026-11-23', dir: 'legal' },
   '/dmca': { date: '2026-11-23', dir: 'dmca' },
 };
