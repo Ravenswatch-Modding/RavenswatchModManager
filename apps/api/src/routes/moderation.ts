@@ -641,8 +641,8 @@ moderationRouter.get('/stats', zValidator('query', statsQuerySchema), async (c) 
     newInstallSeriesQ,
   ]);
 
-  // db.execute returns a driver result whose row container differs between the
-  // node-postgres and neon-http drivers; normalise before shipping it.
+  // db.execute's row container has varied across drivers; normalise before
+  // shipping it.
   const rowsOf = (r: unknown): { day: string; n: number }[] =>
     Array.isArray(r)
       ? (r as { day: string; n: number }[])

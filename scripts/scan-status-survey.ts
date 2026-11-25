@@ -3,10 +3,9 @@
  * pre-scan-system versions need grandfathering to 'skipped'. No writes.
  *
  * Run:
- *   DATABASE_URL='<neon-prod-url>' npx tsx scripts/scan-status-survey.ts
+ *   DATABASE_URL='<prod-db-url>' npx tsx scripts/scan-status-survey.ts
  */
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import ws from 'ws';
+import pg from 'pg';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -14,8 +13,7 @@ if (!url) {
   process.exit(1);
 }
 
-neonConfig.webSocketConstructor = ws;
-const pool = new Pool({ connectionString: url });
+const pool = new pg.Pool({ connectionString: url });
 
 async function run() {
   const client = await pool.connect();

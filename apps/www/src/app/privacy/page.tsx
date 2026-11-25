@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 // Bump whenever a section changes materially. Shown at the top so a returning
 // reader can tell at a glance whether anything moved since they last agreed.
-const LAST_UPDATED = '24 November 2026';
+const LAST_UPDATED = '25 November 2026';
 
 function Section({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -197,20 +197,20 @@ export default function PrivacyPage() {
 
           <Section n={6} title="How We Store Data">
             <p>
-              Account, mod and report data is stored in a PostgreSQL database hosted on Neon. Mod
-              files, screenshots and avatars are stored in S3-compatible object storage. All
-              connections are encrypted with TLS.
+              Account, mod and report data is stored in a PostgreSQL database hosted on Supabase in
+              the EU (Ireland). Mod files, screenshots and avatars are stored in S3-compatible
+              object storage. All connections are encrypted with TLS.
             </p>
           </Section>
 
           <Section n={7} title="Third-Party Services">
             <ul className="list-disc space-y-1 pl-5">
-              <li>Neon — PostgreSQL database hosting</li>
+              <li>Supabase — PostgreSQL database hosting (EU)</li>
               <li>Cloudflare R2 / S3-compatible storage — mod files, images and avatars</li>
               <li>
                 Vercel — hosting for the website, the documentation site and the API. Vercel Web
-                Analytics on both sites and Speed Insights on this website count page views and
-                load times without cookies and without identifying you
+                Analytics on both sites and Speed Insights on this website count page views and load
+                times without cookies and without identifying you
               </li>
               <li>GitHub, Google and Discord — optional sign-in providers</li>
               <li>GitHub — release file downloads</li>

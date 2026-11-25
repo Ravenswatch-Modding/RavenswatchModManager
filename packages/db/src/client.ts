@@ -1,35 +1,21 @@
-import { neonConfig, Pool as NeonPool } from '@neondatabase/serverless';
-import { drizzle as drizzleNeon } from 'drizzle-orm/neon-serverless';
 import { sql } from 'drizzle-orm';
-import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
-import ws from 'ws';
 import * as schema from './schema';
 
-const { Pool: PgPool } = pg;
-
-neonConfig.webSocketConstructor = ws;
-
-export type Db =
-  | ReturnType<typeof drizzleNeon<typeof schema>>
-  | ReturnType<typeof drizzlePg<typeof schema>>;
+export type Db = ReturnType<typeof drizzle<typeof schema>>;
 
 interface CachedDb {
   db: Db;
-  pool: NeonPool | pg.Pool;
+  pool: pg.Pool;
   url: string;
 }
 
 let cached: CachedDb | null = null;
 
 function build(url: string): CachedDb {
-  const driver = (process.env.DB_DRIVER ?? 'pg').toLowerCase();
-  if (driver === 'neon') {
-    const pool = new NeonPool({ connectionString: url });
-    return { db: drizzleNeon(pool, { schema }), pool, url };
-  }
-  const pool = new PgPool({ connectionString: url });
-  return { db: drizzlePg(pool, { schema }), pool, url };
+  const pool = new pg.Pool({ connectionString: url });
+  return { db: drizzle(pool, { schema }), pool, url };
 }
 
 export function getDb(url = process.env.DATABASE_URL): Db {

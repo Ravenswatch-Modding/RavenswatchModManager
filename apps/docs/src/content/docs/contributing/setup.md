@@ -140,7 +140,7 @@ apps/desktop    Tauri 2 shell. Vite + React. Spawns `rsmm` CLI as sidecar.
 apps/www        Next.js 15 marketing site + registry browser.
 apps/api        Hono on Node. Better Auth + /mods + /telemetry endpoints.
 apps/docs       Astro Starlight documentation site.
-packages/db     Drizzle schema + migrations (Neon / pg dual driver).
+packages/db     Drizzle schema + migrations (node-postgres).
 packages/ui     Shared React components + Tailwind preset.
 packages/api-client  Typed fetch client for apps/api.
 packages/schemas     Zod schemas shared by client + server.
@@ -163,9 +163,9 @@ The `rsmm` executable must be on `PATH`. For devs, the repo-root `./rsmm` wrappe
 
 Local: Docker Postgres via `docker compose up -d postgres`. Connection string in `.env`.
 
-Production: [Neon](https://neon.tech) serverless Postgres. Set `DATABASE_URL` and `DB_DRIVER=neon` in your deployment environment. Run `pnpm db:migrate` once after deploy.
+Production: [Supabase](https://supabase.com) Postgres through its connection pooler. Set `DATABASE_URL` (transaction pooler, port 6543) and `DATABASE_URL_UNPOOLED` (session pooler, port 5432) in your deployment environment. Run `pnpm db:migrate` once after deploy.
 
-Drizzle is configured for both drivers — the switch is the `DB_DRIVER` env var.
+Both local and production use the same `pg` driver; only the URL differs.
 
 ## Tauri icons
 

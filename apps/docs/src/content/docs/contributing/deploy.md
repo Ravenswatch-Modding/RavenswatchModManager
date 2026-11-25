@@ -15,7 +15,7 @@ top-to-bottom.
 | Service | Why | Free? |
 |---------|-----|-------|
 | GitHub | Source repo, CI, Releases | yes |
-| Neon | Serverless Postgres for prod registry + telemetry | yes (0.5 GB) |
+| Supabase | Postgres for prod registry + telemetry | yes (500 MB) |
 | Cloudflare R2 | Object storage for uploaded mod `.zip` files | yes (10 GB/mo egress free) |
 | Vercel | Hosting for `apps/www` (Next.js), `apps/api` (Hono/Node), **and** `apps/docs` (Astro/Starlight) — three projects, same repo | yes |
 | Domain (rsmm.me or similar) | Friendly URL + email | ~$10/yr |
@@ -53,23 +53,31 @@ default `GITHUB_TOKEN` is enough for creating the draft release.
 
 ---
 
-## Step 2: Neon (serverless Postgres)
+## Step 2: Supabase (Postgres)
 
-1. Sign up at **<https://neon.tech>** (GitHub login is fastest).
-2. Click **"New Project"**:
-   - Name: `rsmm-prod`
-   - Postgres version: 16
-   - Region: pick whatever's closest to where your API will run (see Step 5)
-3. After creation, Neon shows a **Connection string**. It looks like:
+1. Sign up at **<https://supabase.com>** and create a free project. Pick
+   the region closest to where your API will run (see Step 5).
+2. In the SQL editor, create a dedicated role that will own the tables:
+   ```sql
+   create extension if not exists pg_trgm with schema public;
+   create role rsmm_app login password '<long random password>';
+   grant create, connect on database postgres to rsmm_app;
+   grant usage, create on schema public to rsmm_app;
    ```
-   postgresql://rsmm_owner:abc123@ep-cool-snow-12345.us-east-2.aws.neon.tech/rsmm?sslmode=require
+   Tables created by `rsmm_app` get no grants for Supabase's `anon` /
+   `authenticated` roles, so the public Data API can't read them.
+3. Under **Connect**, copy the pooler host and build two URLs with the
+   user `rsmm_app.<project-ref>`:
    ```
-   Copy it. This is `DATABASE_URL`.
-4. In your Neon project, go to **Branches → main → Database**. The default
-   `neondb` may be the DB name; create one called `rsmm` via **Tables → New database** if you prefer a cleaner name. Update the connection string accordingly.
-5. Apply the schema once from your laptop, against the Neon URL:
+   DATABASE_URL=postgresql://rsmm_app.<ref>:<password>@aws-1-<region>.pooler.supabase.com:6543/postgres?uselibpqcompat=true&sslmode=require
+   DATABASE_URL_UNPOOLED=<same, port 5432>
+   ```
+   `uselibpqcompat=true` matters: node-postgres otherwise treats
+   `sslmode=require` as full certificate verification, which fails
+   against Supabase's CA.
+4. Apply the schema once from your laptop:
    ```sh
-   DATABASE_URL='paste-neon-url' DB_DRIVER=neon pnpm db:push
+   DATABASE_URL='<the port-5432 url>' pnpm db:migrate
    ```
 
 You now have a production DB. Save the connection string somewhere
@@ -147,8 +155,8 @@ The API is a Node Hono server, deployed as its own Vercel project.
      provides them.
 4. **Environment Variables** (Production + Preview):
    ```
-   DATABASE_URL=postgresql://...neon.tech/rsmm?sslmode=require
-   DB_DRIVER=neon
+   DATABASE_URL=postgresql://rsmm_app.<ref>:...@...pooler.supabase.com:6543/postgres?uselibpqcompat=true&sslmode=require
+   DATABASE_URL_UNPOOLED=<same, port 5432>
    BETTER_AUTH_SECRET=<from step 4>
    BETTER_AUTH_URL=https://<your-api-project>.vercel.app
    TRUSTED_ORIGINS=https://www.rsmm.me,https://rsmm.vercel.app,tauri://localhost
@@ -343,8 +351,8 @@ When everything is live, this is what each host runs:
 
 **Vercel (api — api.rsmm.me)**
 ```
-DATABASE_URL=postgresql://...neon.tech/rsmm?sslmode=require
-DB_DRIVER=neon
+DATABASE_URL=postgresql://rsmm_app.<ref>:...@...pooler.supabase.com:6543/postgres?uselibpqcompat=true&sslmode=require
+DATABASE_URL_UNPOOLED=<same, port 5432>
 BETTER_AUTH_SECRET=<random 64 hex>
 BETTER_AUTH_URL=https://api.rsmm.me
 TRUSTED_ORIGINS=https://rsmm.me,https://www.rsmm.me,tauri://localhost
@@ -385,12 +393,12 @@ prod, add to `.github/workflows/release.yml`:
 
 After every step:
 
-- [ ] Step 2: `psql 'postgresql://...neon.tech/...?sslmode=require' -c '\dt'` lists tables
+- [ ] Step 2: `psql '<the port-5432 url without uselibpqcompat=true>' -c '\dt'` lists tables
 - [ ] Step 3: `curl -X PUT 'https://<endpoint>/rsmm-mods/test.txt' -H 'x-amz-content-sha256: UNSIGNED-PAYLOAD' -H 'authorization: ...'` returns 200 (or use a tool like rclone)
 - [ ] Step 5: `curl https://<your-api-project>.vercel.app/health` → `{"ok":true}`
 - [ ] Step 5: `curl https://<your-api-project>.vercel.app/mods` → `{"items":[],"total":0}`
 - [ ] Step 6: `curl https://rsmm.vercel.app/` returns HTML
-- [ ] Step 6: open `https://rsmm.vercel.app/auth/signup`, create account, check Neon `user` table has row
+- [ ] Step 6: open `https://rsmm.vercel.app/auth/signup`, create account, check the Supabase `user` table has a row
 - [ ] Step 7: open `docs.rsmm.me` → Starlight site loads
 
 If any step fails, the rest will fail too. Don't skip ahead.
@@ -401,7 +409,7 @@ If any step fails, the rest will fail too. Don't skip ahead.
 
 | Item | Free tier holds up to | Paid trigger |
 |------|----------------------|--------------|
-| Neon | ~100 active users, 0.5 GB | $19/mo Pro |
+| Supabase | 500 MB, 5 GB egress; pauses after 7 days idle | $25/mo Pro |
 | R2 | 10 GB, 10M Class A ops/mo | $0.015/GB after |
 | Vercel (www + api) | 100 GB egress, no commercial use on free | $20/mo Pro |
 | Vercel (docs) | static, shares the Vercel Hobby free tier | $20/mo Pro |

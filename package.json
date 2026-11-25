@@ -2,7 +2,7 @@
   "name": "rsmm-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Ravenswatch Mod Manager — cross-platform GUI (browser + Tauri desktop) + Neon-backed registry.",
+  "description": "Ravenswatch Mod Manager — cross-platform GUI (browser + Tauri desktop) + Postgres-backed registry.",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=20.11 <25"

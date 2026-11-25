@@ -59,9 +59,6 @@ importers:
       '@hono/zod-validator':
         specifier: 0.4.2
         version: 0.4.2(hono@4.13.16)(zod@4.6.7)
-      '@neondatabase/serverless':
-        specifier: 0.10.4
-        version: 0.10.4
       '@rsmm/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -86,9 +83,6 @@ importers:
       pg:
         specifier: 8.13.1
         version: 8.13.1
-      ws:
-        specifier: 8.21.0
-        version: 8.21.0
       zod:
         specifier: ^4.6.6
         version: 4.6.7
@@ -391,18 +385,12 @@ importers:
 
   packages/db:
     dependencies:
-      '@neondatabase/serverless':
-        specifier: 0.10.4
-        version: 0.10.4
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@neondatabase/serverless@0.10.4)(@types/pg@8.11.10)(kysely@0.28.17)(pg@8.13.1)
       pg:
         specifier: 8.13.1
         version: 8.13.1
-      ws:
-        specifier: 8.21.0
-        version: 8.21.0
     devDependencies:
       '@rsmm/tsconfig':
         specifier: workspace:*
@@ -413,9 +401,6 @@ importers:
       '@types/pg':
         specifier: 8.11.10
         version: 8.11.10
-      '@types/ws':
-        specifier: 8.5.13
-        version: 8.5.13
       dotenv:
         specifier: 16.4.7
         version: 16.4.7
@@ -2747,9 +2732,6 @@ packages:
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
-
-  '@types/ws@8.5.13':
-    resolution: {integrity: sha512-osM/gWBTPKgHV8XkTunnegTRIsvF6owmf5w+JtAfOw472dptdm0dlGv4xCt6GwQRcC2XVOvvRE/0bAoQcL2QkA==}
 
   '@uiw/copy-to-clipboard@1.0.21':
     resolution: {integrity: sha512-apdzZJyJC/IEj21N22ry1H022pgpSA+FwNKxmvOGQ9rUMdyRbHf1nZq2UwqnfGOuTr7iOKLzNgWsCJtAwyAZpw==}
@@ -5624,18 +5606,6 @@ packages:
     resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
     engines: {node: '>=18'}
 
-  ws@8.21.0:
-    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   xml-naming@0.3.0:
     resolution: {integrity: sha512-ghig2TBE/H11aOVgmahA3MhimvkBr6JIYknH/Dhdk10nXwdbIqBJsbfMxpvFPG8bAw77gN29aQWvKpmVoPlvPQ==}
     engines: {node: '>=16.0.0'}
@@ -7044,6 +7014,7 @@ snapshots:
   '@neondatabase/serverless@0.10.4':
     dependencies:
       '@types/pg': 8.11.6
+    optional: true
 
   '@next/env@15.5.29': {}
 
@@ -7806,6 +7777,7 @@ snapshots:
       '@types/node': 24.12.4
       pg-protocol: 1.14.0
       pg-types: 4.1.0
+    optional: true
 
   '@types/picomatch@4.0.3': {}
 
@@ -7846,10 +7818,6 @@ snapshots:
   '@types/unist@3.0.3': {}
 
   '@types/webxr@0.5.24': {}
-
-  '@types/ws@8.5.13':
-    dependencies:
-      '@types/node': 24.12.4
 
   '@uiw/copy-to-clipboard@1.0.21': {}
 
@@ -11278,8 +11246,6 @@ snapshots:
       ansi-styles: 6.2.3
       string-width: 7.2.0
       strip-ansi: 7.2.0
-
-  ws@8.21.0: {}
 
   xml-naming@0.3.0: {}
 
