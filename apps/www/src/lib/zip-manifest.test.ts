@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { readManifestText } from './zip-manifest';
+import { archiveVersionMismatch, readManifestText } from './zip-manifest';
 
 interface Entry {
   name: string;
@@ -93,5 +93,26 @@ describe('readManifestText', () => {
     // Header claims 10 bytes; the stream inflates to 300 KiB and is cut off.
     const liar = zip([{ name: 'manifest.toml', data: big, deflate: true, claimedSize: 10 }]);
     expect(await readManifestText(liar)).toBeNull();
+  });
+});
+
+describe('archiveVersionMismatch', () => {
+  const packed = zip([{ name: 'manifest.toml', data: `${MANIFEST}version = "1.2.2"\n` }]);
+
+  it('passes when the label matches the packed manifest', async () => {
+    expect(await archiveVersionMismatch(packed, '1.2.2')).toBeNull();
+  });
+
+  it('names both versions when they differ', async () => {
+    const msg = await archiveVersionMismatch(packed, '1.2.3');
+    expect(msg).toContain('1.2.2');
+    expect(msg).toContain('1.2.3');
+  });
+
+  it('lets through an archive whose manifest it cannot read', async () => {
+    expect(await archiveVersionMismatch(new Blob(['not a zip']), '1.0.0')).toBeNull();
+    expect(
+      await archiveVersionMismatch(zip([{ name: 'manifest.toml', data: MANIFEST }]), '1.0.0'),
+    ).toBeNull();
   });
 });

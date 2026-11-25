@@ -26,6 +26,7 @@ import { type ListingDraft, listingChanges, readListingDraft } from '../../../li
 import { MIN_DESCRIPTION_CHARS, descriptionLength } from '../../../lib/thin-content';
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../../lib/upload';
 import { useScreenshotGallery } from '../../../lib/use-screenshot-gallery';
+import { archiveVersionMismatch } from '../../../lib/zip-manifest';
 import { FileDrop } from '../../components/file-drop';
 import { MDEditor } from '../../components/md-editor';
 import { ModStats } from '../../components/mod-stats';
@@ -584,6 +585,8 @@ function ManageModEditor({ slug }: { slug: string }) {
     mutationFn: async () => {
       if (!newZip) throw new Error('no zip selected');
       if (!SEMVER_RE.test(newVersion)) throw new Error('version must be semver x.y.z');
+      const mismatch = await archiveVersionMismatch(newZip, newVersion);
+      if (mismatch) throw new Error(mismatch);
       const sha = await sha256Hex(newZip);
       const mod = detail.data?.mod;
       if (!mod) throw new Error('mod not loaded');

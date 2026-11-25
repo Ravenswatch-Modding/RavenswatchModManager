@@ -27,7 +27,7 @@ import { api } from '../../lib/api';
 import { useSession } from '../../lib/auth-client';
 import { parseModManifest } from '../../lib/manifest-toml';
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../lib/upload';
-import { readManifestText } from '../../lib/zip-manifest';
+import { archiveVersionMismatch, readManifestText } from '../../lib/zip-manifest';
 import { FileDrop } from '../components/file-drop';
 import { MDEditor } from '../components/md-editor';
 
@@ -237,6 +237,8 @@ export default function PublishPage() {
   async function publish() {
     if (!zip) return;
     try {
+      const mismatch = await archiveVersionMismatch(zip, version);
+      if (mismatch) throw new Error(mismatch);
       setPhase({ kind: 'hashing' });
       const sha = await sha256Hex(zip);
 

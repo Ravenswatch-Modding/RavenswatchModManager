@@ -9,6 +9,8 @@
  * `null`. The upload is unaffected either way.
  */
 
+import { parseModManifest } from './manifest-toml';
+
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_CENTRAL_DIRECTORY = 8 * 1024 * 1024;
 const EOCD_SIG = 0x06054b50;
@@ -96,4 +98,20 @@ export async function readManifestText(file: Blob): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Why `version` can't be published with this archive, or null when it can.
+ *
+ * The store's version label and the archive's own `manifest.toml` must agree:
+ * the client installs the label but reads the manifest back, so a mismatch
+ * leaves every installer offered an "update" to a version they already have,
+ * forever. An archive whose manifest can't be read is let through — the
+ * reader declines zip64 and the like, and that is no proof of a mismatch.
+ */
+export async function archiveVersionMismatch(file: Blob, version: string): Promise<string | null> {
+  const text = await readManifestText(file);
+  const packed = text === null ? undefined : parseModManifest(text).version;
+  if (!packed || packed === version) return null;
+  return `The archive's manifest.toml says version ${packed}, not ${version}. Publish it as ${packed}, or set [mod] version = "${version}" in manifest.toml and re-pack.`;
 }
