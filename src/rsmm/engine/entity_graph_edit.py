@@ -852,8 +852,9 @@ class EntityFile:
                 if t.kind == "object" and t.text == "oCEntityCpntValuePicker"]
 
     def source_value(self, comp: str, n: int, target: str, *, accessor: int | None = None) -> None:
-        """Make the n-th number slot of ``comp`` read component ``target`` (an f32
-        node of this file), literal or sourced before; its inline number goes.
+        """Make the n-th number slot of ``comp`` read component ``target`` (a node
+        of this file read as the slot's decimal, int, bool or vec3), literal or
+        sourced before; its inline value goes.
         ``accessor`` names which output to read, for a target with several (a
         Timer: ``TIMER_ELAPSED`` / ``TIMER_TIME_LEFT``)."""
         c = self.component(comp)
@@ -931,6 +932,8 @@ class EntityFile:
         "oCEntityCpntStateSettings": 0x0FD2832A,
         "oCEntityCpntValueSettings": 0x0FD2832A,
         "oCEntityCpntGetValueSettings": 0x16ABF2ED,
+        # A tester's result (Hero_Red: 39 reads; 424 shipped entity files).
+        "oCEntityCpntTesterSettings": 0x103B05AF,
     }
 
     def add_subobject(self, owner: str, list_field: str, donor: EntityFile, obj: int, *,
@@ -991,12 +994,13 @@ class EntityFile:
         f = next((x for x in EF.fields(c) if x.name == list_field), None)
         if f is None:
             raise EntityEditError(f"{owner!r} has no field {list_field!r}")
-        n = struct.unpack_from("<I", c.body, f.offset)[0]
-        if f.size != 4 + 4 * n:
+        pad, tail = id_list_bounds(c, f)
+        n = struct.unpack_from("<I", c.body, f.offset + pad)[0]
+        if f.size != pad + 4 + 4 * n + tail:
             raise EntityEditError(f"{owner!r}.{list_field} is not an id list")
         if not 0 <= index < n:
             raise EntityEditError(f"{owner}.{list_field} has entries 0..{n - 1}")
-        oid = struct.unpack_from("<I", c.body, f.offset + 4 + 4 * index)[0]
+        oid = struct.unpack_from("<I", c.body, f.offset + pad + 4 + 4 * index)[0]
         if self._class(oid) != "oCDtDamageDebuffSettings":
             raise EntityEditError(f"{owner}.{list_field}[{index}] is a {self._class(oid)}, "
                                   "not a damage debuff")
