@@ -243,6 +243,29 @@ rsmm restore --all   # undo everything
 - `rsmm watch` re-applies on save while the game runs, which suits Lua changes.
 - Publishing (`rsmm publish <id>`) is public. Do it only when the author asks for that release. The author enters their own API token.
 
+### Before packaging for release
+
+Ask the author this question unless they have already answered it:
+
+> When the mod is enabled, when should its effect start, stop, and apply again? What should happen when the mod is disabled?
+
+For a simple on/off mod, propose the usual behavior: the effect works whenever
+it applies while enabled, including after returning to the menu and starting
+another run, and is absent while disabled. An effect that only works once per
+game launch needs to be an explicit design choice.
+
+Review the mod against that answer before handing over a release package. Check
+the transitions that matter for the feature, such as using it again, changing
+heroes, starting a new run, or disabling and re-enabling it. If nobody has
+observed the expected behavior in game yet, package a playtest build and say
+which checks are still needed before calling it ready for release.
+
+The loader normally runs `init.lua` once per game launch. Lua locals can
+therefore outlive a run. If a flag or cached value belongs to one run, clear it
+at the run boundary using `R.on("run:end", ...)`. For example, if a movement
+bonus should apply once per run, clear the flag that records whether it was
+applied and discard any cached starting speed when the run ends.
+
 ## When RSMM is missing something
 
 Stop at the gap. Don't patch RSMM to get past it, and don't work around lint. Then:
@@ -310,4 +333,5 @@ Security problems never go in a public issue. Follow [SECURITY.md](https://githu
 - [ ] Every `R.*` call, event, manifest key and content kind was looked up, not guessed.
 - [ ] Rules and numbers are in the mod; nothing general was rebuilt inside it.
 - [ ] Anything RSMM is missing is in an issue, or a draft waiting for the author.
+- [ ] For a release package, you confirmed the intended behavior with the author and checked the relevant transitions in game.
 - [ ] You told the author what was tested in game and what wasn't.
