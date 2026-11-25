@@ -214,7 +214,8 @@ jobs:
     name: typescript (biome + tsc + vitest)
     needs: changes
     if: needs.changes.outputs.ts == 'true'
-    runs-on: ubuntu-latest
+    # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can advance beyond it.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -246,6 +247,12 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Install Chromium for modal keyboard regressions
+        run: pnpm --filter desktop exec playwright install --with-deps chromium
+
+      - name: Dialog browser regressions
+        run: pnpm --filter desktop test:dialogs
 
       # Builds the Starlight docs site; starlight-links-validator fails the
       # build on any broken internal link, so doc rot is caught in CI.

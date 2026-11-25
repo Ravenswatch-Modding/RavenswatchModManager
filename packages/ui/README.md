@@ -83,6 +83,6 @@ the dialog rather than portalling them to the inert page behind it.
 Run `pnpm --filter desktop exec playwright install chromium` once, then
 `pnpm --filter desktop test:dialogs`. The browser suite uses actual production
 components with local fixtures, checks keyboard/stacking/scroll behavior in
-React StrictMode, and intercepts API requests. Run this suite manually; CI
-integration is deferred to a separate follow-up. Native Tauri WebViews and
-assistive technology still need platform verification.
+React StrictMode, and intercepts API requests. CI runs this suite in Chromium
+on Ubuntu 24.04, which is supported by the pinned Playwright version. Native
+Tauri WebViews and assistive technology still need platform verification.
