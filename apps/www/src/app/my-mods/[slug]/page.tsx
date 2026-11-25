@@ -26,7 +26,7 @@ import { type ListingDraft, listingChanges, readListingDraft } from '../../../li
 import { MIN_DESCRIPTION_CHARS, descriptionLength } from '../../../lib/thin-content';
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../../lib/upload';
 import { useScreenshotGallery } from '../../../lib/use-screenshot-gallery';
-import { archiveVersionMismatch } from '../../../lib/zip-manifest';
+import { archiveVersionMismatch, readArchiveVersion } from '../../../lib/zip-manifest';
 import { FileDrop } from '../../components/file-drop';
 import { MDEditor } from '../../components/md-editor';
 import { ModStats } from '../../components/mod-stats';
@@ -581,6 +581,15 @@ function ManageModEditor({ slug }: { slug: string }) {
   const [newZip, setNewZip] = useState<File | null>(null);
   const [changelog, setChangelog] = useState<string | undefined>('');
   const [zipProgress, setZipProgress] = useState<{ loaded: number; total: number } | null>(null);
+  // The new version's number comes from the archive: it has to match anyway.
+  const newZipPick = useRef(0);
+  async function chooseNewZip(file: File | null) {
+    const pick = ++newZipPick.current;
+    setNewZip(file);
+    if (!file) return;
+    const packed = await readArchiveVersion(file);
+    if (packed && pick === newZipPick.current) setNewVersion(packed);
+  }
   const newVersionMut = useMutation({
     mutationFn: async () => {
       if (!newZip) throw new Error('no zip selected');
@@ -1061,7 +1070,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                         label="Mod archive (.zip)"
                         hint="up to 500 MB"
                         file={newZip}
-                        onFile={setNewZip}
+                        onFile={chooseNewZip}
                         disabled={newVersionMut.isPending}
                       />
                     </div>

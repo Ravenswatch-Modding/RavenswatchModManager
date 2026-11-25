@@ -184,6 +184,23 @@ describe('Private games only permission boundary', () => {
     }
   });
 
+  it('keeps the listing description when a later upload carries a manifest description', async () => {
+    const response = await request(
+      'owner',
+      '/api/mods/upload',
+      {
+        slug: 'sample',
+        version: '1.0.2',
+        sha256: 'c'.repeat(64),
+        sizeBytes: 100,
+        manifest: { id: 'sample', name: 'Sample', version: '1.0.2', description: 'One-liner.' },
+      },
+      'POST',
+    );
+    expect(response.status).toBe(200);
+    expect(state.conflicts[0]).not.toHaveProperty('description');
+  });
+
   it('lets a co-author upload a version without taking the mod, and refuses a stranger', async () => {
     const upload = (userId: string) =>
       request(

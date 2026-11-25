@@ -160,8 +160,8 @@ export default function PublishPage() {
   /**
    * Choose the archive, then fill in what its own `manifest.toml` already says
    * (id, name, version, author, summary, tags, license, links) instead of asking
-   * for it a second time. Only EMPTY fields — or the untouched `0.1.0` default
-   * and the account-name author default — are written, so nothing the user
+   * for it a second time. The version is always taken. Otherwise only EMPTY fields
+   * — or the account-name author default — are written, so nothing else the user
    * typed is overwritten. A manifest that is missing or unreadable leaves the
    * form exactly as it was.
    */
@@ -194,10 +194,9 @@ export default function PublishPage() {
     }
     if (meta.version) {
       if (SEMVER_RE.test(meta.version)) {
-        if (now.version === '' || now.version === '0.1.0') {
-          setVersion(meta.version);
-          filled.push('version');
-        }
+        // Always: the store version has to match the archive's anyway.
+        setVersion(meta.version);
+        filled.push('version');
       } else declined.push('version');
     }
     if (meta.author && (now.author.trim() === '' || now.author === session?.user?.name)) {

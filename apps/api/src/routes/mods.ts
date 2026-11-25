@@ -729,7 +729,9 @@ modsRouter.post('/upload', zValidator('json', modUploadRequestSchema), async (c)
           set: {
             name: body.manifest.name,
             summary: body.manifest.summary,
-            description: body.manifest.description,
+            // No description: the long description is written on the listing
+            // page, while a manifest's `description` is a one-liner, so every
+            // `rsmm publish` used to replace the author's text with it.
             license: body.manifest.license,
             repoUrl: body.manifest.repo_url,
             homepageUrl: body.manifest.homepage_url,

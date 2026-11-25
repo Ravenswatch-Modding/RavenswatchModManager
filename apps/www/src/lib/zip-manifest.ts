@@ -100,6 +100,12 @@ export async function readManifestText(file: Blob): Promise<string | null> {
   }
 }
 
+/** The `version` the archive's own `manifest.toml` declares, or null. */
+export async function readArchiveVersion(file: Blob): Promise<string | null> {
+  const text = await readManifestText(file);
+  return (text === null ? undefined : parseModManifest(text).version) ?? null;
+}
+
 /**
  * Why `version` can't be published with this archive, or null when it can.
  *
@@ -110,8 +116,7 @@ export async function readManifestText(file: Blob): Promise<string | null> {
  * reader declines zip64 and the like, and that is no proof of a mismatch.
  */
 export async function archiveVersionMismatch(file: Blob, version: string): Promise<string | null> {
-  const text = await readManifestText(file);
-  const packed = text === null ? undefined : parseModManifest(text).version;
+  const packed = await readArchiveVersion(file);
   if (!packed || packed === version) return null;
   return `The archive's manifest.toml says version ${packed}, not ${version}. Publish it as ${packed}, or set [mod] version = "${version}" in manifest.toml and re-pack.`;
 }
