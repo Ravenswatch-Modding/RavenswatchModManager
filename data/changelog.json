@@ -1,6 +1,15 @@
 {
-  "generated": "2026-11-23",
+  "generated": "2026-11-25",
   "entries": [
+    {
+      "version": "",
+      "date": "2026-11-25",
+      "summary": "Scratch heroes lock their book like shipped heroes and rebuild from the real book; ultimate upgrade cards take per-rarity stats; ally summon overrides and GetValue accessors fixed; override link checks run after the last step; collector-selector lists and bool slots in ability edits; a mod's own emitted files no longer flagged as unknown paths",
+      "highlights": [
+        "Scratch heroes lock their book like shipped heroes and rebuild from the real book; ultimate upgrade cards take per-rarity stats; ally summon overrides and GetValue accessors fixed; override link checks run after the last step; collector-selector lists and bool slots in ability edits; a mod's own emitted files no longer flagged as unknown paths"
+      ],
+      "cli_version": 49
+    },
     {
       "version": "",
       "date": "2026-11-23",
@@ -498,19 +507,6 @@
         "The app now sends one anonymous ping a day so we can count real installs — turn it off in Settings → Privacy"
       ],
       "loader_version": 49
-    },
-    {
-      "version": "",
-      "date": "2026-10-29",
-      "summary": "Hero builder: make a hero and build its abilities from blocks; much faster apply",
-      "highlights": [
-        "New Hero tab in the editor: pick a hero to build on, name it, then give each button a new ability from blocks: fire any projectile (enemies' too) in fans or side by side, hit areas, heals, waits and repeats",
-        "Projectiles can burn, poison, root, curse, explode, ricochet, return (Kintaro's axe) and refresh their lifetime on hit (the Snow Queen's shard)",
-        "Scarlet-based heroes can be locked to wolf form, and any button can be removed",
-        "Items can grant Stars of Fate on a trigger, e.g. +1 every time night begins",
-        "rsmm apply builds custom heroes far faster (minutes down to seconds)"
-      ],
-      "cli_version": 19
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
- "cli_version": 48,
+ "cli_version": 49,
  "abi": 1,
  "note": "Monotonic stamp for the Python CLI. The desktop app embeds this file at build time and runs a CLI from the rolling `cli` channel only when that build's cli_version is HIGHER and its abi EQUAL. scripts/publish_cli.py bumps cli_version; bump abi by hand when the app <-> CLI JSON contract breaks.",
- "built_from": "d223ba45351579a412eeef8add9ea3dc135b07da"
+ "built_from": "c2158dc8b8308e1014460c9be2bd66b9d05af511"
 }
