@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BarChart3,
   Eye,
+  EyeOff,
   Loader2,
   Package,
   Pencil,
@@ -576,6 +577,17 @@ function ManageModEditor({ slug }: { slug: string }) {
     setVideos(videos.filter((_, i) => i !== idx));
   }
 
+  // Authors hide the listing from the store, or show it again.
+  const visibilityMut = useMutation({
+    mutationFn: (hidden: boolean) => api.mods.setHidden(slug, hidden),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-mod', slug] });
+      qc.invalidateQueries({ queryKey: ['me', 'mods'] });
+      qc.invalidateQueries({ queryKey: ['mods', 'detail', slug] });
+      qc.invalidateQueries({ queryKey: ['registry'] });
+    },
+  });
+
   // New version section
   const [newVersion, setNewVersion] = useState('');
   const [newZip, setNewZip] = useState<File | null>(null);
@@ -753,15 +765,46 @@ function ManageModEditor({ slug }: { slug: string }) {
                   />
                 </div>
               </div>
-              <Link
-                href={`/registry/${mod.slug}` as never}
-                className={buttonVariants({ variant: 'outline', className: 'justify-self-start' })}
-              >
-                <Eye className="h-4 w-4" aria-hidden="true" /> View public page
-              </Link>
+              <div className="flex flex-wrap gap-2 justify-self-start">
+                <Link
+                  href={`/registry/${mod.slug}` as never}
+                  className={buttonVariants({ variant: 'outline' })}
+                >
+                  <Eye className="h-4 w-4" aria-hidden="true" /> View public page
+                </Link>
+                {(mod.takedownStatus ?? 'active') === 'active' ||
+                mod.takedownStatus === 'unlisted' ? (
+                  <Button
+                    variant="outline"
+                    disabled={visibilityMut.isPending}
+                    onClick={() => visibilityMut.mutate(mod.takedownStatus !== 'unlisted')}
+                  >
+                    {visibilityMut.isPending ? (
+                      <Spinner />
+                    ) : mod.takedownStatus === 'unlisted' ? (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
+                    )}{' '}
+                    {mod.takedownStatus === 'unlisted' ? 'Show in store' : 'Hide from store'}
+                  </Button>
+                ) : null}
+              </div>
             </header>
 
-            {mod.takedownStatus && mod.takedownStatus !== 'active' ? (
+            {mod.takedownStatus === 'unlisted' ? (
+              <p className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                <EyeOff className="h-4 w-4 shrink-0" aria-hidden="true" />
+                Hidden from the store. Only you and your co-authors can see or download it.
+              </p>
+            ) : null}
+            {visibilityMut.isError ? (
+              <p className="text-sm text-destructive">{describeApiError(visibilityMut.error)}</p>
+            ) : null}
+
+            {mod.takedownStatus &&
+            mod.takedownStatus !== 'active' &&
+            mod.takedownStatus !== 'unlisted' ? (
               <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
                 <div className="text-sm">

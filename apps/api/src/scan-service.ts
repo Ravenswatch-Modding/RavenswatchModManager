@@ -482,7 +482,8 @@ export async function releaseVersion(
   if ((seen[0]?.n ?? 0) > 0) return true;
 
   const mod = await db.query.mods.findFirst({ where: eq(schema.mods.id, row.modId) });
-  if (mod) {
+  // A hidden listing (by its authors or a moderator) 404s, so no link to send.
+  if (mod && mod.takedownStatus === 'active') {
     await notifyFollowers(
       mod.id,
       {

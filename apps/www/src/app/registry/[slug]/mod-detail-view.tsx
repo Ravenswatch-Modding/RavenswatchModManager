@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Download,
   ExternalLink,
+  EyeOff,
   Pencil,
 } from 'lucide-react';
 import type { Route } from 'next';
@@ -52,10 +53,22 @@ function TakedownNotice({
   reason,
   isAuthor,
 }: {
-  status: 'hidden' | 'removed';
+  status: 'unlisted' | 'hidden' | 'removed';
   reason?: string | null;
   isAuthor: boolean;
 }) {
+  if (status === 'unlisted') {
+    return (
+      <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-muted/40 p-4 text-left">
+        <EyeOff className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">
+          <strong className="text-parchment">Hidden from the store by its authors.</strong> Only
+          they and moderators can see this page or download it. Authors can show it again from My
+          Mods.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="mb-4 flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-left">
       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />

@@ -6,10 +6,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../lib/api';
 
 type ThreadItem = Awaited<ReturnType<typeof api.mods.moderationThread>>['items'][number];
-type TakedownStatus = 'active' | 'hidden' | 'removed';
+type TakedownStatus = 'active' | 'unlisted' | 'hidden' | 'removed';
 
 const STATUS_LABEL: Record<string, string> = {
   active: 'Listed',
+  unlisted: 'Hidden by its authors',
   hidden: 'Hidden',
   removed: 'Removed',
 };
@@ -106,6 +107,8 @@ export function ModModeration({
   takedownStatus: TakedownStatus;
 }) {
   const qc = useQueryClient();
+  // An author-hidden mod is still the authors' call: moderators act on it as listed.
+  const listed = takedownStatus === 'active' || takedownStatus === 'unlisted';
   const [text, setText] = useState('');
   const [reason, setReason] = useState('');
   const thread = useQuery({
@@ -128,7 +131,7 @@ export function ModModeration({
     },
   });
   const setStatus = useMutation({
-    mutationFn: (status: TakedownStatus) =>
+    mutationFn: (status: 'active' | 'hidden' | 'removed') =>
       api.moderation.takedown(slug, {
         takedownStatus: status,
         reason: status === 'active' ? null : reason.trim() || null,
@@ -231,7 +234,7 @@ export function ModModeration({
         {moderator ? (
           <div className="space-y-2 border-t border-border/50 pt-4">
             <p className="text-sm font-semibold text-parchment">Change status</p>
-            {takedownStatus !== 'active' ? null : (
+            {!listed ? null : (
               <textarea
                 aria-label="Reason shown to the authors"
                 value={reason}
@@ -243,7 +246,7 @@ export function ModModeration({
               />
             )}
             <div className="flex flex-wrap gap-2">
-              {takedownStatus === 'active' ? (
+              {listed ? (
                 <>
                   <Button
                     size="sm"

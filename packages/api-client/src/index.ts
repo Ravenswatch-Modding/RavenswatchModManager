@@ -59,7 +59,8 @@ export const modDetailResponseSchema = z.object({
         .optional(),
       // Present for the owner/admin viewing a delisted mod; public callers
       // never receive a non-active mod so these default to active.
-      takedownStatus: z.enum(['active', 'hidden', 'removed']).optional(),
+      // 'unlisted' = hidden from the store by its own authors.
+      takedownStatus: z.enum(['active', 'unlisted', 'hidden', 'removed']).optional(),
       takedownReason: z.string().nullable().optional(),
     }),
   ),
@@ -648,6 +649,13 @@ export function createApiClient(options: ApiClientOptions) {
           `/api/mods/versions/${encodeURIComponent(versionId)}/scan-status`,
           { method: 'GET' },
           scanStatusResponseSchema,
+        ),
+      /** Hide the listing from the store (or show it again). Authors only. */
+      setHidden: (slug: string, hidden: boolean) =>
+        request(
+          `/api/mods/${encodeURIComponent(slug)}/visibility`,
+          { method: 'PATCH', body: JSON.stringify({ hidden }) },
+          z.object({ ok: z.literal(true), takedownStatus: z.enum(['active', 'unlisted']) }),
         ),
       patch: (slug: string, body: ModPatch) =>
         request(

@@ -88,6 +88,7 @@ export default function PublishPage() {
   const [repoUrl, setRepoUrl] = useState('');
   const [homepageUrl, setHomepageUrl] = useState('');
   const [nsfw, setNsfw] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   // What choosing the archive did to the form: nothing to read, or which fields
   // it filled (and which it declined because the manifest's value is unusable).
@@ -261,6 +262,8 @@ export default function PublishPage() {
         sha256: sha,
         sizeBytes: zip.size,
       });
+      // Before the bytes land, so the scan never releases it into the store.
+      if (hidden) await api.mods.setHidden(slug, true);
 
       setPhase({ kind: 'uploading-zip', loaded: 0, total: zip.size });
       await putFile(presigned.uploadUrl, zip, {
@@ -612,6 +615,26 @@ export default function PublishPage() {
           <p className="text-xs text-muted-foreground">
             If checked, the mod will be hidden behind a blur by default. Users can opt in via
             settings.
+          </p>
+        </section>
+
+        {/* ─── Visibility ─── */}
+        <section className="grimoire-card space-y-4 p-5">
+          <h2 className="text-lg font-semibold">Visibility</h2>
+          <label className="flex cursor-pointer items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={hidden}
+              onChange={(e) => setHidden(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-crimson"
+            />
+            <span>
+              <strong>Hide from the store</strong> for now
+            </span>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Only you and your co-authors can see or download a hidden mod. Show it in the store any
+            time from <em>My Mods</em>.
           </p>
         </section>
 
