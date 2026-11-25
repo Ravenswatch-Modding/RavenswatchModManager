@@ -2,6 +2,7 @@
    --font-display (headings), --font-body (text and UI), --font-fraktur (the
    wordmark only) and --font-mono. */
 
+@import '@rsmm/ui/tokens.css';
 @import '@rsmm/ui/registry.css';
 @import '@rsmm/ui/registry-detail.css';
 
@@ -10,53 +11,6 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --pitch: 0 49% 5%;
-    --oxblood: 357 57% 24%;
-    --crimson: 356 62% 33%;
-    --char: 18 13% 28%;
-    --ash: 18 11% 45%;
-    --smoke: 17 13% 51%;
-    --parchment: 47 53% 83%;
-    --gilt: 41 60% 60%;
-
-    --background: var(--pitch);
-    --foreground: var(--parchment);
-    --card: 0 35% 7%;
-    --card-foreground: var(--parchment);
-    --popover: 0 35% 8%;
-    --popover-foreground: var(--parchment);
-    --primary: var(--crimson);
-    --primary-foreground: var(--parchment);
-    --secondary: var(--char);
-    --secondary-foreground: var(--parchment);
-    --muted: var(--char);
-    --muted-foreground: var(--smoke);
-    --accent: var(--oxblood);
-    --accent-foreground: var(--parchment);
-    --destructive: 356 70% 42%;
-    --destructive-foreground: var(--parchment);
-    --border: 18 15% 18%;
-    --input: 18 15% 18%;
-    --ring: var(--gilt);
-
-    /* Kept in step with packages/ui/src/styles.css: this file is a fork of it,
-       but both apps share one Tailwind preset, so a token the preset references
-       and this file lacks resolves to nothing — `rounded` would compute to 0
-       and `text-crimson` to no colour at all. */
-    --radius: 10px;
-    --radius-sm: 6px;
-    --radius-pill: 999px;
-    --icon-button-size: 40px;
-    --icon-button-radius: 8px;
-    --surface-1: 0 30% 9%;
-    --surface-2: 0 26% 12%;
-    --text-primary: var(--parchment);
-    --text-secondary: var(--smoke);
-    --text-tertiary: var(--ash);
-    --crimson-text: 356 74% 66%;
-  }
-
   * {
     @apply border-border;
   }
@@ -138,9 +92,9 @@
   }
 
   :focus-visible {
-    outline: 2px solid hsl(var(--parchment));
-    outline-offset: 2px;
-    border-radius: 2px;
+    outline: var(--focus-width) solid hsl(var(--focus-ring));
+    outline-offset: var(--focus-offset);
+    border-radius: var(--radius-sm);
   }
 }
 
@@ -280,9 +234,8 @@
       hsl(var(--crimson) / 0.25);
   }
   .btn-grim:focus-visible {
-    outline: 3px solid hsl(var(--gilt) / 0.9);
-    outline-offset: 2px;
-    box-shadow: 0 6px 18px -10px hsl(var(--gilt) / 0.25);
+    outline: var(--focus-width) solid hsl(var(--focus-ring));
+    outline-offset: var(--focus-offset);
   }
 
   .input-grim {
@@ -291,7 +244,6 @@
   }
   .input-grim:focus {
     border-color: hsl(var(--gilt) / 0.8);
-    box-shadow: 0 6px 22px -12px hsl(var(--gilt) / 0.18);
   }
 
   .surface-grain {
@@ -365,10 +317,9 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .wc-btn:focus {
-    outline: none;
-    box-shadow: 0 0 0 3px hsl(var(--gilt) / 0.18);
-    border-radius: 4px;
+  .wc-btn:focus-visible {
+    outline: var(--focus-width) solid hsl(var(--focus-ring));
+    outline-offset: var(--focus-offset);
   }
   .wc-btn:hover {
     background: hsl(var(--parchment) / 0.04);
@@ -494,9 +445,7 @@
     color: hsl(var(--ash));
   }
   .input-grim:focus {
-    outline: none;
-    border-color: hsl(var(--gilt) / 0.7);
-    box-shadow: 0 0 0 1px hsl(var(--gilt) / 0.3);
+    border-color: hsl(var(--focus-ring));
   }
 
   .ember-banner {

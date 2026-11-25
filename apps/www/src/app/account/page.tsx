@@ -241,7 +241,7 @@ export default function AccountPage() {
                 </Button>
               ) : null}
               {uploadAvatar.isError ? (
-                <p className="text-xs text-destructive">{describeError(uploadAvatar.error)}</p>
+                <p className="text-xs text-danger">{describeError(uploadAvatar.error)}</p>
               ) : null}
             </div>
           </div>
@@ -267,7 +267,7 @@ export default function AccountPage() {
               </Button>
             </div>
             {saveName.isError ? (
-              <p className="text-xs text-destructive">{describeError(saveName.error)}</p>
+              <p className="text-xs text-danger">{describeError(saveName.error)}</p>
             ) : null}
           </div>
 
@@ -303,7 +303,7 @@ export default function AccountPage() {
             </Button>
           </div>
           {changeEmail.isError ? (
-            <p className="text-xs text-destructive">{describeError(changeEmail.error)}</p>
+            <p className="text-xs text-danger">{describeError(changeEmail.error)}</p>
           ) : null}
           {emailMsg ? <p className="text-xs text-muted-foreground">{emailMsg}</p> : null}
         </CardContent>
@@ -350,7 +350,7 @@ export default function AccountPage() {
             />
             <p
               id="new-password-hint"
-              className={`text-xs ${newPassword.length > 0 && newPassword.length < 8 ? 'text-destructive' : 'text-muted-foreground'}`}
+              className={`text-xs ${newPassword.length > 0 && newPassword.length < 8 ? 'text-danger' : 'text-muted-foreground'}`}
             >
               At least 8 characters
               {newPassword.length > 0 && newPassword.length < 8
@@ -367,7 +367,7 @@ export default function AccountPage() {
             password
           </Button>
           {changePassword.isError ? (
-            <p className="text-xs text-destructive">{describeError(changePassword.error)}</p>
+            <p className="text-xs text-danger">{describeError(changePassword.error)}</p>
           ) : null}
           {pwMsg ? <p className="text-xs text-muted-foreground">{pwMsg}</p> : null}
         </CardContent>
@@ -376,7 +376,7 @@ export default function AccountPage() {
       <Card id="delete" className="grimoire-card scroll-mt-24 border-destructive/30">
         <CardHeader>
           <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-1 h-4 w-4 text-destructive" />
+            <AlertTriangle className="mt-1 h-4 w-4 text-danger" />
             <div>
               <CardTitle>Delete account</CardTitle>
               <CardDescription>
@@ -405,7 +405,7 @@ export default function AccountPage() {
             account
           </Button>
           {removeAccount.isError ? (
-            <p className="text-xs text-destructive">{describeError(removeAccount.error)}</p>
+            <p className="text-xs text-danger">{describeError(removeAccount.error)}</p>
           ) : null}
         </CardContent>
       </Card>

@@ -370,9 +370,9 @@ export default function PublishPage() {
       {phase.kind === 'error' ? (
         <div className="mb-6 rounded-md border border-destructive/50 bg-destructive/10 p-4">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
+            <AlertTriangle className="mt-0.5 h-4 w-4 text-danger" />
             <div className="space-y-1">
-              <p className="text-sm font-medium text-destructive">{phase.message}</p>
+              <p className="text-sm font-medium text-danger">{phase.message}</p>
               {phase.detail ? (
                 <p className="text-xs text-muted-foreground">{phase.detail}</p>
               ) : null}
@@ -460,7 +460,7 @@ export default function PublishPage() {
                 aria-invalid={slug.length > 0 && !slugValid ? true : undefined}
               />
               {slug.length > 0 && !slugValid ? (
-                <p className="text-xs text-destructive">
+                <p className="text-xs text-danger">
                   Start with a letter or digit; then only lowercase letters, digits, - or _.
                 </p>
               ) : (
@@ -482,7 +482,7 @@ export default function PublishPage() {
               {versionValid ? (
                 <p className="text-xs text-muted-foreground">Semver, e.g. 0.1.0.</p>
               ) : (
-                <p className="text-xs text-destructive">
+                <p className="text-xs text-danger">
                   Three numbers separated by dots, e.g. 0.1.0.
                 </p>
               )}

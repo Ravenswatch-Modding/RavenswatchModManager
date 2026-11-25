@@ -1,0 +1,66 @@
+/* Shared Grimoire foundation. Import before Tailwind in each host.
+ Only custom properties and the native control scheme belong here; fonts,
+ layout, component treatments and appearance settings stay with the host. */
+:root {
+  /* Brand primitives. Dark fills are not text colours. */
+  --pitch: 0 49% 5%;
+  --oxblood: 357 57% 24%;
+  --crimson: 356 62% 33%;
+  --char: 18 13% 28%;
+  --ash: 18 11% 56%;
+  --smoke: 17 13% 68%;
+  --parchment: 47 53% 83%;
+  --gilt: 41 60% 60%;
+  --crimson-text: 356 74% 66%;
+  /* Categorical accents only (chapter, rarity); never state colours. */
+  --moss: 96 20% 42%;
+  --frost: 205 28% 58%;
+
+  /* Semantic roles. Text roles are full-opacity ink on dark surfaces. */
+  --text-primary: var(--parchment);
+  --text-secondary: var(--smoke);
+  --text-tertiary: var(--ash);
+  --text-danger: var(--crimson-text);
+  --surface-page: var(--pitch);
+  --surface-panel: 0 30% 9%;
+  --surface-raised: 0 26% 12%;
+  --action-primary-bg: var(--crimson);
+  --action-danger-bg: 356 70% 42%;
+  --focus-ring: var(--gilt);
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* Compatibility names used by existing components and Tailwind. Keep
+     destructive as a fill: migrating error text must not brighten buttons. */
+  --background: var(--surface-page);
+  --foreground: var(--text-primary);
+  --card: 0 35% 7%;
+  --card-foreground: var(--text-primary);
+  --popover: 0 35% 8%;
+  --popover-foreground: var(--text-primary);
+  --primary: var(--action-primary-bg);
+  --primary-foreground: var(--text-primary);
+  --secondary: var(--char);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--char);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--oxblood);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--action-danger-bg);
+  --destructive-foreground: var(--text-primary);
+  --border: 18 15% 18%;
+  --input: var(--border);
+  --ring: var(--focus-ring);
+  --surface-0: var(--surface-page);
+  --surface-1: var(--surface-panel);
+  --surface-2: var(--surface-raised);
+
+  /* Existing shared geometry; component APIs are migrated separately. */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-pill: 999px;
+  --icon-button-size: 40px;
+  --icon-button-radius: 8px;
+
+  color-scheme: dark;
+}

@@ -56,7 +56,7 @@ export function PrivateOnlyCheck() {
         {running ? `Checking… ${checked} mods` : 'Check all mods for Private games only'}
       </button>
       {failure ? (
-        <p className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+        <p className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-danger">
           Stopped after {checked} mods: {failure}
         </p>
       ) : null}
@@ -80,7 +80,7 @@ export function PrivateOnlyCheck() {
             </ul>
           ) : null}
           {errors.length ? (
-            <ul className="space-y-1 text-destructive">
+            <ul className="space-y-1 text-danger">
               {errors.map((r) => (
                 <li key={r.slug}>
                   {r.slug}: {r.error}

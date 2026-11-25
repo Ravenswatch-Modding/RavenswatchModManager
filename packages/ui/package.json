@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./brand-icons": "./src/components/brand-icons.tsx",
     "./styles.css": "./src/styles.css",
+    "./tokens.css": "./src/tokens.css",
     "./registry.css": "./src/registry.css",
     "./registry-detail.css": "./src/registry-detail.css",
     "./registry-media": "./src/lib/registry-media.ts",

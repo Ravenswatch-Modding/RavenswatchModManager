@@ -51,7 +51,7 @@ export default async function LegalPage() {
                 {impressum.email}
               </p>
             ) : (
-              <p className="text-destructive">
+              <p className="text-danger">
                 Provider contact details are not configured. This page is not §5 DDG compliant.
               </p>
             )}

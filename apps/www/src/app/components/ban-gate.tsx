@@ -32,7 +32,7 @@ export function BanGate() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-pitch/95 p-6 backdrop-blur-sm">
       <div className="grimoire-card w-full max-w-md space-y-4 p-6 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-destructive/40 bg-destructive/10">
-          <Ban className="h-6 w-6 text-destructive" />
+          <Ban className="h-6 w-6 text-danger" />
         </div>
         <h1 className="text-xl font-bold tracking-tight">Account suspended</h1>
         <p className="text-sm text-muted-foreground">

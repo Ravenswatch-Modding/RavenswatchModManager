@@ -111,7 +111,7 @@ export function ScanList() {
       </div>
 
       {decide.isError ? (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="text-sm text-danger" role="alert">
           {decide.error instanceof Error ? decide.error.message : 'The verdict did not save.'}
         </p>
       ) : null}
@@ -121,7 +121,7 @@ export function ScanList() {
           <Spinner />
         </div>
       ) : list.isError ? (
-        <p className="text-sm text-destructive">Could not load the scan list.</p>
+        <p className="text-sm text-danger">Could not load the scan list.</p>
       ) : shown.length === 0 ? (
         <div className="grimoire-card p-6 text-center text-sm text-muted-foreground">
           {all

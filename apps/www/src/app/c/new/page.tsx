@@ -287,7 +287,7 @@ export default function NewCollectionPage() {
         </label>
 
         {create.isError ? (
-          <p className="text-sm text-destructive">{describeApiError(create.error)}</p>
+          <p className="text-sm text-danger">{describeApiError(create.error)}</p>
         ) : null}
 
         {uploadProgress ? (

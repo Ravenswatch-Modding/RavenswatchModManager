@@ -132,7 +132,7 @@ function SignInInner() {
               required
               minLength={8}
             />
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
             <div className="text-right">
               <Link
                 className="text-sm text-muted-foreground underline hover:text-foreground"

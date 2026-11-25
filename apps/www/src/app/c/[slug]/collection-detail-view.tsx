@@ -229,7 +229,7 @@ export function CollectionDetailView({
           </form>
         ) : null}
         {removeMod.isError ? (
-          <p role="alert" className="mb-4 text-sm text-destructive">
+          <p role="alert" className="mb-4 text-sm text-danger">
             {describeCollectionError(removeMod.error)}
           </p>
         ) : null}

@@ -71,13 +71,14 @@ module.exports = {
       // twin: the brand crimson is 2.16:1 on pitch, well under AA. Fills and
       // borders keep the deep colour.
       textColor: {
-        crimson: 'hsl(var(--crimson-text))',
+        danger: 'hsl(var(--text-danger))',
+        crimson: 'hsl(var(--text-danger))',
       },
       transitionTimingFunction: {
-        'grimoire': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        grimoire: 'cubic-bezier(0.4, 0, 0.2, 1)',
       },
       transitionDuration: {
-        '150': '150ms',
+        150: '150ms',
       },
       keyframes: {
         'ink-stamp': {

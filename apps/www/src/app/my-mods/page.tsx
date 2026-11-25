@@ -70,7 +70,7 @@ export default function MyModsPage() {
           <Spinner />
         </div>
       ) : list.isError ? (
-        <p className="text-sm text-destructive">Cannot reach API ({String(list.error)})</p>
+        <p className="text-sm text-danger">Cannot reach API ({String(list.error)})</p>
       ) : (list.data?.items.length ?? 0) === 0 ? (
         <div className="grimoire-card p-10 text-center">
           <p className="text-lg font-semibold">No mods yet.</p>

@@ -159,7 +159,7 @@ export function CollectionEditor({
                   setEditIconPreview(null);
                   setImageUrl(null);
                 }}
-                className="text-sm text-destructive hover:underline"
+                className="text-sm text-danger hover:underline"
               >
                 Remove
               </button>
@@ -286,7 +286,7 @@ export function CollectionEditor({
         </div>
 
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         ) : null}

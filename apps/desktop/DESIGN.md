@@ -2,7 +2,7 @@
 
 How the desktop app looks, and the rules screens follow to stay that way. The system itself lives in code. This file says what each piece is for, so a new screen can be built from the existing pieces instead of composing its own.
 
-- `packages/ui/src/styles.css` holds the tokens and component classes. Its comments record why each earlier treatment was removed. Read them before changing a rule.
+- `packages/ui/src/tokens.css` holds the shared desktop/web foundation; [the shared token guide](../../packages/ui/README.md) defines its roles and contrast contract. `packages/ui/src/styles.css` imports it and holds the desktop component classes. Read their comments before changing a rule.
 - **The web registry is the master style for search and filters.** `packages/ui/src/registry.css` and the shared `RegistrySearchBar`, `RegistryFilterDialog`, and `RegistryResultsControls` components own their visuals on web and desktop. This includes the desktop global search/command palette. Where these patterns differ from the generic desktop defaults below, the registry takes precedence. Change the shared implementation rather than adding desktop-only size, radius, color, or surface overrides.
 - `packages/ui/tailwind.preset.cjs` turns the tokens into Tailwind utilities.
 - `apps/desktop/src/components/chrome.tsx` holds the React helpers (`Button`, `Panel`, `MonoTag`, …).
@@ -34,7 +34,7 @@ How the desktop app looks, and the rules screens follow to stay that way. The sy
 | `moss`, `frost` | Telling groups apart in a list (chapter, rarity) | State. State colour is gilt or crimson |
 
 - Desktop-specific colours use tokens. Shared registry patterns retain their canonical muted text and backdrop colours; third-party brand marks and mod-authored themed colours also keep their own values.
-- Error text is `text-crimson` at full opacity. An opacity suffix (`text-crimson/80`) dims it back towards failing contrast. `text-destructive` is a fill colour (3.05:1 on pitch) and is not used for text.
+- Error text is `text-danger` at full opacity; existing `text-crimson` is a compatibility alias for the same `--text-danger` role. An opacity suffix dims it back towards failing contrast. `text-destructive` is a fill colour (3.05:1 on pitch) and is not used for text. Filled destructive actions keep `text-destructive-foreground`.
 - A tinted fill (`bg-crimson/10`, `bg-oxblood/20`) marks state: error, conflict, hover, active. It is not used to make a box. Boxes come from the surfaces below.
 
 ## Surfaces

@@ -64,7 +64,7 @@ export function ModTeam({ slug }: { slug: string }) {
                     type="button"
                     aria-label="Remove co-author"
                     onClick={() => remove.mutate(a.userId)}
-                    className="text-muted-foreground hover:text-destructive"
+                    className="text-muted-foreground hover:text-danger"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -91,7 +91,7 @@ export function ModTeam({ slug }: { slug: string }) {
               </Button>
             </form>
           )}
-          {add.isError && <p className="text-xs text-destructive">{addError(add.error)}</p>}
+          {add.isError && <p className="text-xs text-danger">{addError(add.error)}</p>}
         </>
       )}
     </section>

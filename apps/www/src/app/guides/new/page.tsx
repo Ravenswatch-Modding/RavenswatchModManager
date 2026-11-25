@@ -244,7 +244,7 @@ export default function NewGuidePage() {
         </label>
 
         {create.isError ? (
-          <p className="text-sm text-destructive">{describeApiError(create.error)}</p>
+          <p className="text-sm text-danger">{describeApiError(create.error)}</p>
         ) : null}
 
         <Button type="submit" disabled={create.isPending || !slug || !title || !body}>

@@ -236,7 +236,7 @@ export default function AdminPage() {
 
       <div className={!deciding && pane === 'inbox' ? 'space-y-10' : 'hidden'}>
         {failure ? (
-          <p className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          <p className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-danger">
             That action failed: {failure instanceof Error ? failure.message : String(failure)}
           </p>
         ) : null}
@@ -352,7 +352,7 @@ export default function AdminPage() {
               <Spinner />
             </div>
           ) : reports.isError ? (
-            <p className="text-sm text-destructive">Could not load reports.</p>
+            <p className="text-sm text-danger">Could not load reports.</p>
           ) : reports.data && reports.data.items.length === 0 ? (
             <div className="grimoire-card p-10 text-center">
               <Check className="mx-auto h-8 w-8 text-gilt/80" aria-hidden />
@@ -488,7 +488,7 @@ export default function AdminPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="gap-1.5 text-destructive hover:text-destructive"
+                          className="gap-1.5 text-danger hover:text-danger"
                           disabled={busy}
                           onClick={() =>
                             confirmThen(

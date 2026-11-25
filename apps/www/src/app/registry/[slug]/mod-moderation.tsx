@@ -182,7 +182,7 @@ export function ModModeration({
           ) : null}
           <p>
             Current status:{' '}
-            <strong className={takedownStatus === 'active' ? 'text-parchment' : 'text-destructive'}>
+            <strong className={takedownStatus === 'active' ? 'text-parchment' : 'text-danger'}>
               {STATUS_LABEL[takedownStatus]}
             </strong>
           </p>
@@ -193,7 +193,7 @@ export function ModModeration({
             <Spinner />
           </div>
         ) : thread.isError ? (
-          <p className="text-sm text-destructive">Couldn’t load the moderation thread.</p>
+          <p className="text-sm text-danger">Couldn’t load the moderation thread.</p>
         ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground">No moderation activity yet.</p>
         ) : (
@@ -205,7 +205,7 @@ export function ModModeration({
         )}
 
         {failure ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-danger">
             {failure instanceof Error ? failure.message : String(failure)}
           </p>
         ) : null}

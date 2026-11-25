@@ -71,9 +71,9 @@ function TakedownNotice({
   }
   return (
     <div className="mb-4 flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-left">
-      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden />
       <div className="text-sm">
-        <p className="font-semibold text-destructive">This mod has been {status} by a moderator.</p>
+        <p className="font-semibold text-danger">This mod has been {status} by a moderator.</p>
         <p className="mt-1 text-muted-foreground">
           Only its authors and moderators can see this page. It is not in the public registry and
           can’t be downloaded.{reason ? ` Reason: ${reason}` : ''}{' '}

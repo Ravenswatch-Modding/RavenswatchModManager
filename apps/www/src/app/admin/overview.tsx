@@ -63,7 +63,7 @@ const TONE_EDGE: Record<Tone, string> = {
 const TONE_TEXT: Record<Tone, string> = {
   default: 'text-parchment',
   warn: 'text-gilt',
-  bad: 'text-destructive',
+  bad: 'text-danger',
 };
 
 /** Big number + label, with an optional secondary line. A coloured left edge

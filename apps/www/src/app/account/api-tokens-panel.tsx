@@ -144,7 +144,7 @@ export function ApiTokensPanel() {
           </Button>
         </form>
         {create.isError ? (
-          <p className="text-xs text-destructive">{(create.error as Error).message}</p>
+          <p className="text-xs text-danger">{(create.error as Error).message}</p>
         ) : null}
 
         {tokens.isLoading ? (
@@ -191,7 +191,7 @@ export function ApiTokensPanel() {
           </ul>
         )}
         {revoke.isError ? (
-          <p className="text-xs text-destructive">{(revoke.error as Error).message}</p>
+          <p className="text-xs text-danger">{(revoke.error as Error).message}</p>
         ) : null}
       </CardContent>
     </Card>

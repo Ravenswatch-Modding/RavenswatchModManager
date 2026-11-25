@@ -86,8 +86,8 @@ function SectionNav({
         const tone =
           s.id === 'danger'
             ? isActive
-              ? 'bg-destructive/10 font-medium text-destructive'
-              : 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+              ? 'bg-destructive/10 font-medium text-danger'
+              : 'text-muted-foreground hover:bg-destructive/10 hover:text-danger'
             : isActive
               ? 'bg-secondary/70 font-medium text-foreground'
               : 'text-muted-foreground hover:bg-secondary/40 hover:text-foreground';
@@ -697,7 +697,7 @@ function ManageModEditor({ slug }: { slug: string }) {
   if (detail.isError || !detail.data) {
     return (
       <main className="container mx-auto px-6 py-16">
-        <p className="text-sm text-destructive">
+        <p className="text-sm text-danger">
           Cannot load mod {slug} ({String(detail.error)})
         </p>
       </main>
@@ -800,16 +800,16 @@ function ManageModEditor({ slug }: { slug: string }) {
               </p>
             ) : null}
             {visibilityMut.isError ? (
-              <p className="text-sm text-destructive">{describeApiError(visibilityMut.error)}</p>
+              <p className="text-sm text-danger">{describeApiError(visibilityMut.error)}</p>
             ) : null}
 
             {mod.takedownStatus &&
             mod.takedownStatus !== 'active' &&
             mod.takedownStatus !== 'unlisted' ? (
               <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
                 <div className="text-sm">
-                  <p className="font-semibold text-destructive">
+                  <p className="font-semibold text-danger">
                     This mod has been {mod.takedownStatus === 'removed' ? 'removed' : 'hidden'} by a
                     moderator.
                   </p>
@@ -1005,7 +1005,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                   Versions
                 </h2>
                 {removeVersion.isError ? (
-                  <p className="text-sm text-destructive">
+                  <p className="text-sm text-danger">
                     Could not delete that version
                     {removeVersion.error instanceof Error ? `: ${removeVersion.error.message}` : ''}
                     . Only the mod&apos;s owner can delete versions.
@@ -1045,7 +1045,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="text-destructive hover:text-destructive"
+                                  className="text-danger hover:text-danger"
                                   disabled={removeVersion.isPending}
                                   aria-label={`Delete version ${v.version}`}
                                   onClick={() => {
@@ -1067,7 +1067,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                             v.scanStatus !== 'skipped' ? (
                               <p
                                 className={`mt-2 text-xs ${
-                                  v.scanStatus === 'flagged' ? 'text-destructive' : 'text-amber-500'
+                                  v.scanStatus === 'flagged' ? 'text-danger' : 'text-amber-500'
                                 }`}
                               >
                                 {v.scanStatus === 'flagged'
@@ -1101,7 +1101,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                         }
                       />
                       {newVersion.length > 0 && !SEMVER_RE.test(newVersion) ? (
-                        <p className="text-xs text-destructive">
+                        <p className="text-xs text-danger">
                           Must be semver, e.g. 0.2.0 (three numbers separated by dots).
                         </p>
                       ) : null}
@@ -1135,7 +1135,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                   ) : null}
                   <div className="mt-4 flex items-center justify-end gap-3">
                     {newVersionMut.isError ? (
-                      <span className="text-xs text-destructive">
+                      <span className="text-xs text-danger">
                         {describeApiError(newVersionMut.error)}
                       </span>
                     ) : null}
@@ -1174,7 +1174,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                 className="scroll-mt-[var(--editor-scroll-offset)] space-y-3 focus:outline-none"
               >
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />
                   <h2 id="danger-heading" className="text-lg font-semibold">
                     Danger zone
                   </h2>
@@ -1199,7 +1199,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                   {remove.isPending ? <Spinner /> : <Trash2 className="h-4 w-4" />} Delete mod
                 </Button>
                 {remove.isError ? (
-                  <p className="text-xs text-destructive">{describeApiError(remove.error)}</p>
+                  <p className="text-xs text-danger">{describeApiError(remove.error)}</p>
                 ) : null}
               </section>
             </>

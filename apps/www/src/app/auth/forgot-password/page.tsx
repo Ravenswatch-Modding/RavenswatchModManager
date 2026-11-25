@@ -66,7 +66,7 @@ export default function ForgotPasswordPage() {
               onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
               required
             />
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
             <Button type="submit" disabled={busy} className="w-full">
               <Mail className="h-4 w-4" /> {busy ? 'sending…' : 'send reset link'}
             </Button>

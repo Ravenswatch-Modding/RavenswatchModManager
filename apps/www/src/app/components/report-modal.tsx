@@ -92,7 +92,7 @@ export function ReportModal({ slug }: { slug: string }) {
                   />
                 </label>
                 {submit.isError && (
-                  <p className="text-sm text-destructive">
+                  <p className="text-sm text-danger">
                     Could not submit report. Please try again later.
                   </p>
                 )}

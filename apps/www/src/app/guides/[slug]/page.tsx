@@ -290,7 +290,7 @@ export default function GuidePage({ params }: { params: Promise<{ slug: string }
             <X className="mr-1 h-3.5 w-3.5" /> Reject
           </Button>
           {(approve.isError || reject.isError) && (
-            <span className="text-xs text-destructive">Not authorised.</span>
+            <span className="text-xs text-danger">Not authorised.</span>
           )}
         </div>
       ) : null}
@@ -341,7 +341,7 @@ export default function GuidePage({ params }: { params: Promise<{ slug: string }
                 className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
               {reviewUpsert.isError ? (
-                <p className="text-sm text-destructive">{describeApiError(reviewUpsert.error)}</p>
+                <p className="text-sm text-danger">{describeApiError(reviewUpsert.error)}</p>
               ) : null}
               <div className="flex gap-2">
                 <Button

@@ -34,7 +34,7 @@ export function TakedownList() {
   }
   if (takedowns.isError) {
     return (
-      <p className="text-sm text-destructive">
+      <p className="text-sm text-danger">
         Couldn’t load taken-down mods:{' '}
         {takedowns.error instanceof Error ? takedowns.error.message : String(takedowns.error)}
       </p>
@@ -48,7 +48,7 @@ export function TakedownList() {
   return (
     <>
       {restore.error ? (
-        <p className="text-sm text-destructive">
+        <p className="text-sm text-danger">
           Restore failed:{' '}
           {restore.error instanceof Error ? restore.error.message : String(restore.error)}
         </p>

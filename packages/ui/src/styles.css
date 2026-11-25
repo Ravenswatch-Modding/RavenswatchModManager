@@ -2,87 +2,14 @@
    Reference values from design brief: Pitch, Oxblood, Crimson, Char,
    Ash, Smoke, Parchment. State colours stay inside this set. */
 
+@import "./tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Raw brand tokens */
-    --pitch: 0 49% 5%; /* #170707 */
-    --oxblood: 357 57% 24%; /* #621A20 */
-    --crimson: 356 62% 33%; /* #882029 */
-    --char: 18 13% 28%; /* #5B4338 — lines, ornament, disabled fills. Never text. */
-    /* Text greys, measured against --pitch: the old pair (45% / 51%) rendered
-       body copy at 4.08:1, under the 4.5:1 AA floor, which is most of why the
-       app read as muddy. Raised until both clear it with room to spare —
-       ash 6.0:1, smoke 8.7:1 — keeping the ramp order (ash dimmer than smoke)
-       so no call site changes meaning. */
-    --ash: 18 11% 56%; /* #9B8A82 */
-    --smoke: 17 13% 68%; /* #B8A9A3 */
-    --parchment: 47 53% 83%; /* #EBE1BC */
-    --gilt: 41 60% 60%; /* warm gold for focus rings */
-    /* Crimson is a FILL, not an ink: as text on pitch it is 2.16:1, and it was
-       carrying every error line in the app. The bright twin is text-only —
-       `text-crimson` resolves here via the preset, `bg-`/`border-crimson` stay
-       the deep brand colour. */
-    --crimson-text: 356 74% 66%;
-    /* Two muted cold accents. The brand set is warm-only, which is right for
-       chrome but leaves categorical lists (a picker grouped by chapter, a
-       catalog grouped by rarity) with nothing to distinguish groups BY — they
-       come out as one grey wall. Desaturated hard so they read as tarnished
-       metal and moss rather than as UI-kit primaries. Categorical use only:
-       never a state colour, which stays gilt/crimson. */
-    --moss: 96 20% 42%;
-    --frost: 205 28% 58%;
-
-    /* Semantic mapping (shadcn-style) — dark by default */
-    --background: var(--pitch);
-    --foreground: var(--parchment);
-    --card: 0 35% 7%;
-    --card-foreground: var(--parchment);
-    --popover: 0 35% 8%;
-    --popover-foreground: var(--parchment);
-    --primary: var(--crimson);
-    --primary-foreground: var(--parchment);
-    --secondary: var(--char);
-    --secondary-foreground: var(--parchment);
-    --muted: var(--char);
-    --muted-foreground: var(--smoke);
-    --accent: var(--oxblood);
-    --accent-foreground: var(--parchment);
-    --destructive: 356 70% 42%;
-    --destructive-foreground: var(--parchment);
-    --border: 18 15% 18%;
-    --input: 18 15% 18%;
-    --ring: var(--gilt);
-
-    /* Surfaces. Depth used to be drawn with a 1px border around every single
-       element, so a card, a chip, a rail and a tile all sat at one visual
-       weight and nothing led the eye. These are small lightness steps off
-       --pitch instead: the surface says how close a thing is, and a border is
-       spent only where something is genuinely inset or interactive. */
-    --surface-0: var(--pitch); /* the page */
-    --surface-1: 0 30% 9%; /* cards, panels, rails */
-    --surface-2: 0 26% 12%; /* raised: modals, popovers, menus */
-
-    /* Text roles. Aliases over the ramp above, so new code can say what a
-       string IS rather than which grey it wants. */
-    --text-primary: var(--parchment);
-    --text-secondary: var(--smoke);
-    --text-tertiary: var(--ash);
-
-    /* One radius family. The sheet used to emit --radius at -2/-1/+0/+2/+3/+5
-       plus hardcoded 0.6rem, 4px and 999px, which is what makes a UI read as
-       assembled rather than designed. */
-    --radius: 10px; /* cards, panels, modals */
-    --radius-sm: 6px; /* buttons, inputs, chips, icons */
-    --radius-pill: 999px; /* pills, toggles, scrollbars */
-
-    /* Shared geometry for toolbar and collapsed-sidebar icon buttons. */
-    --icon-button-size: 40px;
-    --icon-button-radius: 8px;
-
     /* Typography tokens. Every font-family in this sheet resolves through
        these four vars, and every size is rem-relative to `--ui-scale`, so
        the Settings → Appearance controls can restyle the whole app by
@@ -92,13 +19,6 @@
     --font-accent: "Alegreya Sans", system-ui, sans-serif;
     --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
     --ui-scale: 100%;
-
-    /* The app is dark-only, so say so once at the root. Without it the UA
-       paints every NATIVE widget from the light palette — a <select>'s option
-       popup, an input's `fieldtext` (black on a dark field), scrollbars,
-       autofill — and each one was being chased individually with a per-class
-       `color-scheme: dark`. Declared here, the whole tree inherits it. */
-    color-scheme: dark;
   }
 
   * {
@@ -257,8 +177,8 @@
      the brief and `.btn-grim:focus-visible` all said gilt, so tabbing through
      a panel changed the ring's colour depending on what it landed on. */
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    outline: var(--focus-width) solid hsl(var(--focus-ring));
+    outline-offset: var(--focus-offset);
     border-radius: var(--radius-sm);
   }
 
@@ -274,8 +194,8 @@
   .input-grim:focus-visible,
   .field-grim:focus-visible,
   .select-grim:focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    outline: var(--focus-width) solid hsl(var(--focus-ring));
+    outline-offset: var(--focus-offset);
   }
 }
 

@@ -73,7 +73,7 @@ export default function MyGuidesPage() {
           <Spinner />
         </div>
       ) : list.isError ? (
-        <p className="text-sm text-destructive">Cannot reach API ({String(list.error)})</p>
+        <p className="text-sm text-danger">Cannot reach API ({String(list.error)})</p>
       ) : (list.data?.items.length ?? 0) === 0 ? (
         <div className="grimoire-card flex flex-col items-center gap-3 p-10 text-center">
           <p className="text-lg font-semibold">No guides yet.</p>
