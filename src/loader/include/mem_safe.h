@@ -34,13 +34,29 @@ inline bool mem_writable(const void* p, std::size_t size) {
     return mem_accessible(reinterpret_cast<std::uintptr_t>(p), size, true);
 }
 
+// A page check alone is not enough: another thread can free the page between
+// the check and the load (the 2026-11-26 run-end crash in lua_read_u64). These
+// copy through a routine whose faults are caught by a vectored handler, so
+// memory that goes away mid-copy makes them return false instead of crashing.
+// Prefer them to "mem_accessible, then dereference".
+//
+// mem_copy_from: page-check `src` readable, then copy n bytes into `dst`.
+// mem_copy_to:   page-check `dst` writable, then copy n bytes from `src`.
+// mem_store_unchecked: fault-tolerant store with NO protection check, for the
+//   caller (poke) that has just VirtualProtect'ed the range itself.
+// On false, the destination may be partly written.
+bool mem_copy_from(void* dst, std::uintptr_t src, std::size_t n);
+bool mem_copy_to(std::uintptr_t dst, const void* src, std::size_t n);
+bool mem_store_unchecked(std::uintptr_t dst, const void* src, std::size_t n);
+
 // Guarded typed load. Returns false (leaving `out` untouched) when the source
-// range isn't provably readable, so callers can write
+// range isn't readable, so callers can write
 // `if (!mem_load(p, &v)) return;` instead of an unguarded deref.
 template <typename T>
 inline bool mem_load(std::uintptr_t addr, T* out) {
-    if (!mem_accessible(addr, sizeof(T), false)) return false;
-    std::memcpy(out, reinterpret_cast<const void*>(addr), sizeof(T));
+    T tmp;
+    if (!mem_copy_from(&tmp, addr, sizeof(T))) return false;
+    std::memcpy(out, &tmp, sizeof(T));
     return true;
 }
 template <typename T>
