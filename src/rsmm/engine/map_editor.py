@@ -284,7 +284,9 @@ def terrain_json(chapter: Chapter, n: int = TERRAIN_GRID) -> dict:
     for key, name in (("path", "LD Path"), ("block", "LD Block")):
         if name in tr.layers:
             out[key] = _b64(TR.resample(tr.layers[name], n), 0.0, 1.0, 8)
-    if "Base Water Height" in tr.layers:
+    # Avalon stores its water height as one constant, not a painted grid.
+    water_layer = tr.layers.get("Base Water Height")
+    if water_layer is not None and water_layer.kind == "float":
         water = [y0 + v * (y1 - y0) for v in TR.resample(tr.layers["Base Water Height"], n)]
         out["water"] = {"min": lo, "max": hi, "u16": _b64(water, lo, hi, 16)}
     return out

@@ -556,3 +556,27 @@ def test_a_new_kind_lands_only_in_its_own_new_slots():
     assert any("kind added: Mod_Own_Tiles" in c for c in changes)
     with pytest.raises(ME.MapEditError, match="no kind for"):
         ME.build_level(ch, {"add_kinds": {"Crystal": {"count": 1}}})
+
+
+def test_terrain_json_skips_a_constant_water_layer(monkeypatch):
+    # Avalon stores "Base Water Height" as one constant, not a painted grid;
+    # the terrain route used to fail outright on it ("not a float layer").
+    import array
+
+    from rsmm.engine import terrain as TR
+
+    n = 4
+    flat = TR.Layer("Base Height", n, "float", array.array("f", [0.5] * n * n))
+    water = TR.Layer("Base Water Height", 1, "const", array.array("f", [0.1]))
+    fake = TR.Terrain((-8.0, -50.0, -8.0), (8.0, 50.0, 8.0),
+                      {TR.HEIGHT: flat, "Base Water Height": water})
+    ch = ME.Chapter("Fake", "Ot/Fake/Map_Fake_TileGeneration.level.ot.GameStream.gen")
+    monkeypatch.setattr(ME, "terrain_decoded", lambda c: "x")
+    monkeypatch.setattr(ME, "_shipped", lambda d: b"x")
+    monkeypatch.setattr(TR, "read", lambda data, names=None: fake)
+    ME.terrain_json.cache_clear()
+    try:
+        got = ME.terrain_json(ch, 32)
+    finally:
+        ME.terrain_json.cache_clear()
+    assert "water" not in got and got["grid"] == 32

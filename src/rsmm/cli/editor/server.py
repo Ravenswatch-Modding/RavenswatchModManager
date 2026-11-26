@@ -157,6 +157,9 @@ def run(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser")
     ap.add_argument("--game-dir", metavar="DIR",
                     help="Ravenswatch install folder (autodetected if omitted)")
+    ap.add_argument("--stdio", action="store_true",
+                    help="serve framed requests on stdin/stdout instead of HTTP "
+                         "(the native map editor's transport)")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
     if args.game_dir:
         game = find_install(args.game_dir)
@@ -168,6 +171,9 @@ def run(argv: list[str] | None = None) -> int:
         # Every editor finds the install through find_game_dir(), which takes
         # RSMM_GAME_DIR as authoritative; the web editor points it the same way.
         os.environ["RSMM_GAME_DIR"] = str(game)
+    if args.stdio:
+        from rsmm.cli.editor import stdio
+        return stdio.run()
     try:
         srv = serve(args.port, tab=args.tab)
     except OSError:

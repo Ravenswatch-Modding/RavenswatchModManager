@@ -22,7 +22,9 @@ from rsmm.cli.editor import tiles as _tiles  # the 3D tile mode's routes
 from rsmm.cli.editor.app import Fail, Raw, Request, asset_dir
 from rsmm.engine import map_editor as ME
 from rsmm.engine import map_scene as MS
+from rsmm.engine import render_look as RL
 from rsmm.engine import scenery_edit as SE
+from rsmm.engine import terrain_look as TL
 
 MOUNT = "map"
 PAGE = "map.html"
@@ -115,6 +117,22 @@ def _terrain(req: Request, ch: ME.Chapter) -> dict:
     if grid not in ME.TERRAIN_GRIDS:
         raise Fail(400, "bad grid")
     return ME.terrain_json(ch, grid)
+
+
+def _look(req: Request, ch: ME.Chapter) -> dict:
+    """The ground's material and blend weights (the native editor draws it)."""
+    try:
+        return TL.look_json(ch)
+    except TL.LookError as e:
+        raise Fail(404, str(e)) from e
+
+
+def _environment(req: Request, ch: ME.Chapter) -> dict:
+    """Sun, ambient and fog by day (the native editor lights the scene with it)."""
+    try:
+        return RL.environment_json(ch)
+    except RL.RenderLookError as e:
+        raise Fail(404, str(e)) from e
 
 
 def _mod(req: Request) -> dict:
@@ -244,7 +262,8 @@ def _save(req: Request) -> dict:
 #: GET routes whose answer depends only on game data (see diskcache).
 CACHED = frozenset({
     "/api/scene", "/api/tiles", "/api/catalog", "/api/layers", "/api/layer",
-    "/api/tile", "/api/terrain", "/api/scenery", "/api/scenery/props",
+    "/api/tile", "/api/terrain", "/api/terrain/look", "/api/environment",
+    "/api/scenery", "/api/scenery/props",
 }) | _tiles.CACHED
 
 ROUTES = {
@@ -253,6 +272,8 @@ ROUTES = {
     ("GET", "/static/*"): _static,
     ("GET", "/api/file"): _file,
     ("GET", "/api/terrain"): _drawn(_terrain),
+    ("GET", "/api/terrain/look"): _drawn(_look),
+    ("GET", "/api/environment"): _drawn(_environment),
     ("GET", "/api/scene"): _drawn(lambda req, ch: ME.scene_json(ch)),
     ("GET", "/api/tiles"): _drawn(lambda req, ch: {"tiles": ME.tile_pool_json(ch)}),
     ("GET", "/api/catalog"): lambda req: {"tiles": ME.tile_catalog_json()},

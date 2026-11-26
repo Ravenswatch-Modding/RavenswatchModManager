@@ -1,0 +1,32 @@
+[package]
+name = "rsmm-map-editor"
+version = "0.1.0"
+edition = "2021"
+description = "Native map creator and editor for Ravenswatch mods (RSMM)"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "rsmm-map-editor"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+glam = { version = "0.34", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+
+# Asset decoding (glb, png, mip chains) is the load-time hot path: keep it
+# fast even in a debug build of the editor itself.
+[profile.dev.package."*"]
+opt-level = 2
