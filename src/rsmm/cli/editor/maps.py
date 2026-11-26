@@ -168,13 +168,17 @@ def _as_map(body: dict) -> dict | None:
     if not isinstance(terrain, list) or len(terrain) > MAX_STROKES or not all(
             isinstance(st, dict) for st in terrain):
         raise Fail(400, f"map.terrain: expected at most {MAX_STROKES} brush strokes")
+    objects = m.get("objects") or []
+    if not isinstance(objects, list) or not all(isinstance(o, dict) for o in objects):
+        raise Fail(400, "map.objects: expected a list of objects")
     blank = m.get("blank")
     if blank is not None and (isinstance(blank, bool) or not isinstance(blank, (int, float))):
         raise Fail(400, "map.blank: expected the flat ground's height in metres")
     return {"id": str(m.get("id", "")).strip(), "play": bool(m.get("play")),
             "pool": {k: list(pool.get(k) or []) for k in ("add", "remove")},
             "place": place, "terrain": terrain,
-            **({"blank": float(blank)} if blank is not None else {})}
+            **({"blank": float(blank)} if blank is not None else {}),
+            **({"objects": objects} if objects else {})}
 
 
 def _as_scenery(body: dict) -> dict:
@@ -231,7 +235,9 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
             + [f"place: {t} on slot {k}" for k, t in as_map["place"].items()]
             + ([f"blank: flat ground at {as_map['blank']:g} m, the base's scenery and "
                 f"invisible walls cleared"] if as_map.get("blank") is not None else [])
-            + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else []))
+            + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else [])
+            + ([f"objects: {len(as_map['objects'])} placed on the map"]
+               if as_map.get("objects") else []))
 
 
 def _check(req: Request) -> dict:

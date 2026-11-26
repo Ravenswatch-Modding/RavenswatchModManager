@@ -24,6 +24,8 @@ pub struct Add {
     /// Degrees about +Y, as `scenery_edit._yaw_quat` reads it.
     pub yaw: f32,
     pub scale: f32,
+    /// The author's own name for it (Rename); empty = the entity's name.
+    pub name: String,
 }
 
 impl Add {
@@ -32,6 +34,9 @@ impl Add {
     }
 
     pub fn name(&self) -> String {
+        if !self.name.is_empty() {
+            return self.name.clone();
+        }
         let e = self.entity.rsplit('\\').next().unwrap_or(&self.entity);
         e.trim_end_matches(".entity.ot").to_owned()
     }
@@ -390,7 +395,43 @@ impl Edits {
     }
 
     /// The `scenery` member of a check/save body.
-    pub fn scenery_doc(&self, s: &Scenery) -> Value {
+    /// Added objects as the `map` kind's `objects` (a map clone stands them in
+    /// a scenery level of its own, so they carry no shipped level).
+    pub fn objects_doc(&self) -> Value {
+        Value::Array(
+            self.adds
+                .iter()
+                .map(|a| {
+                    let mut o = json!({"entity": a.entity, "pos": [a.pos.x, a.pos.y, a.pos.z], "yaw": a.yaw, "scale": a.scale});
+                    if !a.name.is_empty() {
+                        o["name"] = json!(a.name);
+                    }
+                    o
+                })
+                .collect(),
+        )
+    }
+
+    /// Read `map.objects` back as adds.
+    pub fn load_objects(&mut self, doc: &Value) {
+        for o in doc.as_array().into_iter().flatten() {
+            let (Some(entity), Some(p)) = (o["entity"].as_str(), o["pos"].as_array()) else { continue };
+            let f = |i: usize| p.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            self.push_add(Add {
+                uid: 0,
+                entity: entity.to_owned(),
+                level: String::new(),
+                pos: Vec3::new(f(0), f(1), f(2)),
+                yaw: o["yaw"].as_f64().unwrap_or(0.0) as f32,
+                scale: o["scale"].as_f64().unwrap_or(1.0) as f32,
+                name: o["name"].as_str().unwrap_or_default().to_owned(),
+            });
+        }
+    }
+
+    /// `with_adds = false` leaves added objects out (a map clone saves them as
+    /// `map.objects` instead, see `objects_doc`).
+    pub fn scenery_doc(&self, s: &Scenery, with_adds: bool) -> Value {
         #[derive(Default)]
         struct Level {
             moves: Map<String, Value>,
@@ -419,7 +460,7 @@ impl Edits {
                 .removes
                 .insert(s.obj_id[i].to_string(), json!({"entity": entity(i), "at": r(s.obj_xf[i].pos)}));
         }
-        for a in &self.adds {
+        for a in self.adds.iter().filter(|_| with_adds) {
             out.entry(a.level.clone())
                 .or_default()
                 .adds
@@ -493,6 +534,7 @@ impl Edits {
                     pos,
                     yaw: a["yaw"].as_f64().unwrap_or(0.0) as f32,
                     scale: a["scale"].as_f64().unwrap_or(1.0) as f32,
+                    name: String::new(),
                 });
             }
         }

@@ -55,6 +55,21 @@ Fields:
                                   and boss) and sit on the flat ground;
                                   ``terrain`` strokes paint on top of it.
                                   ⚠ Unplaytested.
+    ``objects``  (array, optional) things to stand on the map, in a scenery
+                                  level of the clone's own (the base chapter
+                                  never sees them): ``[[content.objects]]``
+                                  with ``pos = [x, y, z]``, ``yaw`` (degrees),
+                                  ``scale`` and EITHER ``entity`` (a shipped
+                                  prop, e.g.
+                                  ``"DarkHills\\SceneryObjects_DarkHills\\Rock_A.entity.ot"``)
+                                  OR ``model`` (a ``.glb`` in the mod, metres,
+                                  Y up, drawn exactly as authored) with an
+                                  optional ``texture`` (a ``.png`` in the mod)
+                                  and ``collision`` (boxes, as the ``poi``
+                                  kind's; without them a model is walked
+                                  through). Each distinct model becomes one
+                                  prop entity of the mod's own, cloned from a
+                                  plain ruin block. ⚠ Unplaytested.
     ``tilegen``  (table, optional) the clone's generation recipe, same
                                   vocabulary as the ``tilegen`` kind (``kinds``,
                                   ``quotas``, ``slots``, ``fill``) but applied
@@ -79,6 +94,7 @@ chapter generated 140 tiles and none of them the shrine (was 6).
 """
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -310,6 +326,24 @@ def _blank_height(map_id: str, blank) -> float | None:
 _BLANK_ZERO = ("Base Water Height", "LD Block")
 
 
+def _unpaint(level: bytes) -> bytes:
+    """No painted surfaces (every surface layer 0 = the base material, which
+    also leaves the terrain's grass and pebble scatter nothing to spawn on) and
+    a white vertex colour (a plain multiply). Height-like layers are left to
+    `_blank_ground` / `_BLANK_ZERO`."""
+    t = TR.read(level)
+    names = [n for n, ly in t.layers.items() if n not in TR.METRE_LAYERS
+             and n not in _BLANK_ZERO and ly.kind in ("float", "rgba")]
+    t = TR.read(level, set(names))
+    for ly in t.layers.values():
+        if ly.kind == "rgba":
+            ly.cells = b"\xff" * len(ly.cells)
+        else:
+            for i in range(len(ly.cells)):
+                ly.cells[i] = 0.0
+    return TR.write(level, t) if t.layers else level
+
+
 def _blank_ground(map_id: str, t: TR.Terrain, height: float) -> None:
     """Flat ground at `height`."""
     lo, hi = t.box_min[1], t.box_max[1]
@@ -334,8 +368,145 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain) -> bytes | None:
     return LP.set_transforms(raw, moves) if moves else None
 
 
+#: The prop a mod's own model is cloned from: a plain, static, one-mesh,
+#: one-material ruin block (the `poi` kind's proven donor).
+_MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
+_MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
+_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "scale"}
+_MAX_OBJECTS = 4000
+
+
+@dataclass
+class _Object:
+    ref: str                                   # the placed entity
+    pos: tuple[float, float, float]
+    quat: tuple[float, float, float, float]
+    scale: float
+
+
+def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
+             ) -> tuple[list[_Object], set[str]]:
+    """Validate `objects`, emit an entity per distinct own model, and return
+    the placements plus the cache lines everything placed reaches."""
+    from . import poi as P
+
+    if not isinstance(objects, list) or len(objects) > _MAX_OBJECTS:
+        raise ContentError(f"map {map_id}: 'objects' is a list of at most "
+                           f"{_MAX_OBJECTS} tables")
+    out: list[_Object] = []
+    seeds: set[str] = set()
+    borrow: set[str] = set()
+    own: dict[str, str] = {}                   # model key -> entity ref
+    for n, o in enumerate(objects):
+        what = f"map {map_id}: objects[{n}]"
+        if not isinstance(o, dict) or set(o) - _OBJECT_KEYS:
+            raise ContentError(f"{what}: keys are {sorted(_OBJECT_KEYS)}")
+        if ("entity" in o) == ("model" in o):
+            raise ContentError(f"{what}: give exactly one of 'entity' or 'model'")
+        try:
+            pos = tuple(float(v) for v in o["pos"])
+            yaw = math.radians(float(o.get("yaw", 0.0)))
+            scale = float(o.get("scale", 1.0))
+        except (KeyError, TypeError, ValueError):
+            raise ContentError(f"{what}: pos = [x, y, z], yaw and scale are numbers") from None
+        if len(pos) != 3 or not all(math.isfinite(v) for v in (*pos, yaw, scale)) \
+                or not 0.01 <= scale <= 100:
+            raise ContentError(f"{what}: pos = [x, y, z], scale 0.01..100")
+        quat = (0.0, math.sin(yaw / 2), 0.0, math.cos(yaw / 2))
+        if "entity" in o:
+            ref = str(o["entity"])
+            if not ref.endswith(".entity.ot") or not corpus.exists(PC.entity_cooked_path(ref)):
+                raise ContentError(f"{what}: {ref!r} is not a shipped entity")
+            if any(k in o for k in ("texture", "collision")):
+                raise ContentError(f"{what}: texture and collision belong to a 'model'")
+            borrow.add(ref)
+        else:
+            key = json.dumps([o["model"], o.get("texture"), o.get("collision")], sort_keys=True)
+            ref = own.get(key)
+            if ref is None:
+                ref = own[key] = _own_prop(map_id, len(own), o, what, out_dir, written)
+            borrow.add(_MODEL_DONOR)
+        seeds.add(ref)
+        out.append(_Object(ref, pos, quat, scale))
+    if not out:
+        return out, set()
+    # Index lines for the walk: the caches of tiles that already place each
+    # shipped entity (or the donor), plus this mod's own files.
+    by_entity = P._tile_cache_by_placed_entity()
+    lines: list[str] = []
+    for ent in sorted(borrow):
+        cache = by_entity.get(ent)
+        blob = corpus.read(cache) if cache else None
+        if blob is None:
+            raise ContentError(f"map {map_id}: no shipped tile places {ent}, so its "
+                               f"preload closure is unknown; pick a prop a tile uses")
+        lines += RC.parse(blob)
+    lines += [RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith(("EntitySettings/", "3D/"))]
+    index = {ln.split("|")[1]: ln for ln in lines if ln.count("|") == 2}
+    seen, extra = P._reachable(sorted(seeds), lines, out_dir)
+    missing = sorted(seeds - seen - {r for r in seeds if PC.entity_cooked_path(r) in extra})
+    if missing:
+        raise ContentError(f"map {map_id}: cannot preload {missing}")
+    return out, {index[p] for p in seen if p in index} | {RC.entry_for(c) for c in extra}
+
+
+def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
+              written: list[Path]) -> str:
+    """Cook one model (+ texture, + collision) into a prop entity of the mod's."""
+    from ...engine import collision_volumes as CV
+    from ...engine import entity_strings as ES
+    from . import poi as P
+
+    def write(decoded: str, data: bytes) -> None:
+        dest = out_dir / Path(*decoded.split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        written.append(dest)
+
+    tag = f"{map_id}_Obj{k}"
+    donor_ent = _read(PC.entity_cooked_path(_MODEL_DONOR), "the model donor prop")
+    donor_meshes = sorted(s for _sec, _off, s in ES.list_strings(donor_ent)
+                          if s.lower().endswith(".fbx"))
+    src = P._mod_source(out_dir, o["model"], map_id, f"{what}.model")
+    mesh_ref = f"{P._asset_dir(donor_meshes[0])}/{tag}.fbx".replace("/", "\\")
+    write(PC.art_cooked_path(mesh_ref),
+          PC.cook_model(src.read_bytes(), P._donor_geometry(donor_meshes[0], map_id),
+                        transform={"fit": "rig"}))
+    swaps = dict.fromkeys(donor_meshes, mesh_ref)
+    if o.get("texture"):
+        mat = _read(PC.art_cooked_path(_MODEL_MATERIAL), "the model donor material")
+        alb = [r for r in P._material_refs(mat) if r.lower().rsplit(".", 1)[0].endswith("_alb")]
+        if len(alb) != 1:
+            raise ContentError(f"map {map_id}: the donor material has {len(alb)} albedo maps")
+        art = P._asset_dir(_MODEL_MATERIAL)
+        tex_ref = f"{art}/T_{tag}_ALB.tga".replace("/", "\\")
+        tsrc = P._mod_source(out_dir, o["texture"], map_id, f"{what}.texture")
+        write(PC.art_cooked_path(tex_ref), PC.cook_texture(tsrc.read_bytes()))
+        mat_ref = f"{art}/M_{tag}.mat.ot".replace("/", "\\")
+        write(PC.art_cooked_path(mat_ref), PC.clone_material(mat, {alb[0]: tex_ref}))
+        swaps[_MODEL_MATERIAL] = mat_ref
+    ent_ref = f"{P._asset_dir(_MODEL_DONOR)}/{tag}.entity.ot".replace("/", "\\")
+    ent = PC.clone_prop_entity(donor_ent, swaps, ent_ref)
+    if o.get("collision"):
+        try:
+            ent = CV.add_volumes(ent, CV.parse(o["collision"], f"{what}.collision"),
+                                 name=tag, seed=tag)
+        except CV.CollisionError as e:
+            raise ContentError(str(e)) from e
+    write(PC.entity_cooked_path(ent_ref), ent)
+    return ent_ref
+
+
+#: A scenery sublevel objects can be added to (it holds plain placements to
+#: copy a block from): ``Map_Dark_Hills_Scenery_NorthEast``, ``..._East``,
+#: Avalon's ``..._Scenery_01_Floor``.
+_OBJECT_LEVEL = re.compile(r"_Scenery_.+$")
+
+
 def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
-           folder: str, swaps: dict[str, str], blank: float | None = None) -> dict:
+           folder: str, swaps: dict[str, str], blank: float | None = None,
+           objects: list[_Object] | None = None) -> dict:
     """Lay `strokes` on the base terrain (flattened first for a `blank` map);
     re-seat the recipe's slots on it.
 
@@ -343,8 +514,8 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     blank map also returns ``extra``: ``{old ref: (bytes, parent)}`` for each
     emptied scenery / collision sublevel and re-seated gameplay level, where
     ``parent`` names the level that lists it (``"scenery"`` or ``"root"``)."""
-    strokes = [] if strokes is None and blank is not None else strokes
-    if not isinstance(strokes, list) or not (strokes or blank is not None):
+    strokes = [] if strokes is None and (blank is not None or objects) else strokes
+    if not isinstance(strokes, list) or not (strokes or blank is not None or objects):
         raise ContentError(f"map {map_id}: 'terrain' is a list of brush strokes")
     terrain_refs = [r for r in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]
                     if r.endswith("_Terrain.level.ot")]
@@ -372,6 +543,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
             for name in _BLANK_ZERO:
                 if name in have:
                     painted = TR.fill(painted, name, 0.0)
+            painted = _unpaint(painted)
     except TR.TerrainError as e:
         raise ContentError(f"map {map_id}: {e}") from e
     for s in recipe.slots.values():
@@ -398,9 +570,26 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
                             extra[r] = (moved, parent)
         except LP.LevelPlacementError as e:
             raise ContentError(f"map {map_id}: blank: {e}") from e
+    if objects:
+        target = None
+        for parent, level in (("scenery", scenery), ("root", root)):
+            for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                if target is None and r.endswith(".level.ot") and _OBJECT_LEVEL.search(_stem(r)):
+                    target = (r, parent)
+        if target is None:
+            raise ContentError(f"map {map_id}: the base has no scenery level to stand objects in")
+        r, parent = target
+        blob = extra[r][0] if r in extra else _read(PC.level_cooked_path(r),
+                                                     f"the base map's {_stem(r)}")
+        try:
+            for ob in objects:
+                blob = LP.add_placement(blob, ob.ref, ob.pos, ob.quat, (ob.scale,) * 3)
+        except LP.LevelPlacementError as e:
+            raise ContentError(f"map {map_id}: objects: {e}") from e
+        extra[r] = (blob, parent)
     tags = [(terrain_ref, "Terrain"), (scenery_ref, "Scenery")]
-    tags += [(r, (_EMPTIED.search(_stem(r)) or _GAMEPLAY.search(_stem(r))).group(1))
-             for r in extra]
+    tags += [(r, (_EMPTIED.search(_stem(r)) or _GAMEPLAY.search(_stem(r))
+                  or _OBJECT_LEVEL.search(_stem(r))).group(0).lstrip("_")) for r in extra]
     for old_ref, tag in tags:
         swaps[old_ref] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
         if corpus.exists(PC.level_cooked_path(swaps[old_ref])):
@@ -413,6 +602,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
 def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   written: list[Path], edits: dict | None = None, place=None,
                   biome: str = "", strokes=None, blank: float | None = None,
+                  objects: list[_Object] | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -440,7 +630,7 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     _h, doc = PC._refs_doc("oCGameStream", root)
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
-        if edits or place or strokes or blank is not None:
+        if edits or place or strokes or blank is not None or objects:
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -470,8 +660,8 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
-        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank)
-                   if strokes or blank is not None else {})
+        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects)
+                   if strokes or blank is not None or objects else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
     except (ME.MapEditError, TG.TileGenError) as e:
@@ -535,9 +725,10 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     base_bytes = _read(base_rel, f"base map {base!r}")
     root_ref = MC.read_mapdef(base_bytes)["level_ref"][1]
     blank = _blank_height(defn.id, defn.fields.get("blank"))
+    objects, object_lines = _objects(defn.id, defn.fields.get("objects") or [], out_dir, written)
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
-                                           defn.fields.get("terrain"), blank)
+                                           defn.fields.get("terrain"), blank, objects)
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []
@@ -595,6 +786,7 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     # The map cache lists its pool's tiledefs one for one: a pooled tile with
     # no line is never loaded, so never placed. An added tile's own cache
     # carries that line plus everything the tile reaches.
+    lines |= object_lines
     for p in removed:
         lines.discard(RC.entry_for(_tile_rel(p)))
     for p in placed:

@@ -367,6 +367,20 @@ def test_a_map_manifest_reads_back_as_its_clone(play):
     assert block["terrain"][0]["op"] == "raise"
 
 
+def test_map_objects_read_back():
+    import tomllib
+
+    objs = [{"entity": "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot",
+             "pos": [1.5, 0.0, -2.25], "yaw": 90.0, "scale": 1.0},
+            {"model": "art/hut.glb", "pos": [0.0, 4.0, 0.0], "yaw": 0.0, "scale": 2.0,
+             "collision": [{"kind": "ground", "size": [2, 1, 2], "at": [0, -1, 0]}]}]
+    as_map = {"id": "Built", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "blank": 0.0, "objects": objs}
+    text = ME.manifest_toml("built", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+    assert tomllib.loads(text)["content"][0]["objects"][1]["collision"][0]["kind"] == "ground"
+
+
 def test_a_blank_map_reads_back():
     import tomllib
 

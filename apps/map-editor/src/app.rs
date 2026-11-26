@@ -39,6 +39,8 @@ pub struct Options {
     pub chapter: Option<String>,
     /// Save the 3D view here once everything has loaded, then quit.
     pub snapshot: Option<std::path::PathBuf>,
+    /// Start on File > New empty chapter (at 0 m) instead of the shipped chapter.
+    pub empty: bool,
     /// Make a few scenery edits, run them through /map/api/check, print the
     /// answer and quit (exercises the whole edit -> save document path).
     pub self_check: bool,
@@ -139,13 +141,20 @@ enum GizmoMode {
 }
 
 #[derive(PartialEq, Clone, Copy)]
+/// The Inspector side's tabs (Unity: Inspector + tool windows docked beside it).
 enum LeftTab {
-    Outliner,
-    Assets,
+    Inspector,
     Pois,
     Spots,
     Terrain,
     Changes,
+}
+
+/// The bottom dock (Unity: Project and Console).
+#[derive(PartialEq, Clone, Copy)]
+enum BottomTab {
+    Project,
+    Console,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -208,6 +217,7 @@ enum Pending {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Cmd {
     New,
+    Rename,
     Save,
     SaveAs,
     Check,
@@ -270,6 +280,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Cut", "Ctrl+X", Cmd::Cut),
     ("Paste at cursor", "Ctrl+V", Cmd::Paste),
     ("Duplicate and move", "Shift+D", Cmd::Duplicate),
+    ("Rename", "F2", Cmd::Rename),
     ("Delete", "X / Delete", Cmd::Delete),
     ("Select all", "A", Cmd::SelectAll),
     ("Deselect all", "Alt+A", Cmd::DeselectAll),
@@ -391,6 +402,12 @@ pub struct MapEditor {
     // view
     camera: Camera,
     left_tab: LeftTab,
+    bottom_tab: BottomTab,
+    show_bottom: bool,
+    /// Inline rename in the Hierarchy: the object and the text being typed.
+    renaming: Option<(Sel, String)>,
+    /// File > New empty chapter: strip the recipe once it has loaded.
+    clean_pending: bool,
     tree_filter: String,
     prop_filter: String,
     all_props: bool,
@@ -406,7 +423,6 @@ pub struct MapEditor {
     env_shipped: Environment,
     env: Environment,
     show_env: bool,
-    show_log: bool,
     show_palette: bool,
     palette_query: String,
     show_shortcuts: bool,
@@ -506,7 +522,11 @@ impl MapEditor {
             add_draw: Vec::new(),
             pickables: Vec::new(),
             camera: Camera::default(),
-            left_tab: LeftTab::Outliner,
+            left_tab: LeftTab::Inspector,
+            bottom_tab: BottomTab::Project,
+            show_bottom: true,
+            renaming: None,
+            clean_pending: false,
             tree_filter: String::new(),
             prop_filter: String::new(),
             all_props: false,
@@ -522,7 +542,6 @@ impl MapEditor {
             env_shipped: Environment::default(),
             env: Environment::default(),
             show_env: false,
-            show_log: false,
             show_palette: false,
             palette_query: String::new(),
             show_shortcuts: false,
@@ -721,6 +740,9 @@ impl MapEditor {
         if let Some(st) = self.keep_map.as_ref().and_then(|m| m.get("terrain")) {
             edits.strokes = serde_json::from_value(st.clone()).unwrap_or_default();
         }
+        if let Some(o) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("objects")) {
+            edits.load_objects(&o);
+        }
         if let Some(m) = &self.keep_map {
             self.as_map = true;
             self.map_id = m["id"].as_str().unwrap_or_default().to_owned();
@@ -761,7 +783,11 @@ impl MapEditor {
                         let first = list.iter().find(|c| c.key == want).or(list.first()).map(|c| c.key.clone());
                         self.chapters = list;
                         if let (None, Some(k)) = (&self.chapter, first) {
-                            self.open_chapter(ctx, k);
+                            if self.opts.empty {
+                                self.start_empty(ctx, k, 0.0);
+                            } else {
+                                self.open_chapter(ctx, k);
+                            }
                         }
                     }
                 }
@@ -772,10 +798,10 @@ impl MapEditor {
                         if let Some(r) = &mut self.renderer {
                             r.set_terrain(&t);
                         }
-                        self.minimap_tex = Some(minimap_texture(ctx, &t));
                         self.terrain_base = Some(t.clone());
                         self.terrain = Some(t);
                         self.replay_terrain();
+                        self.minimap_tex = self.terrain.as_ref().map(|t| minimap_texture(ctx, t));
                     }
                     Err(e) => self.status = format!("Terrain: {e:#}"),
                 },
@@ -791,6 +817,9 @@ impl MapEditor {
                         self.weights_now = look.weights.clone();
                         self.color_now = look.color.clone();
                         self.look_base = Some(look.clone());
+                        if self.blank().is_some() || !self.edits.strokes.is_empty() {
+                            self.replay_terrain(); // the paint follows the edits, not the shipped grids
+                        }
                         for t in look.textures() {
                             if self.requested.insert(format!("{t}|false")) {
                                 self.loader.request(Job::Texture(t, false));
@@ -1003,7 +1032,7 @@ impl MapEditor {
                 }
             }
         }
-        if self.opts.self_check && !self.self_check_sent && self.pending.is_none() {
+        if self.opts.self_check && !self.self_check_sent && self.pending.is_none() && !self.clean_pending {
             self.run_self_check(ctx);
         }
         if let Some(want) = self.opts.open_tile.clone() {
@@ -1166,7 +1195,7 @@ impl MapEditor {
             mod_id: self.mod_id.clone(),
             mod_name: self.mod_name.clone(),
             saved_at: session::now(),
-            scenery: self.edits.scenery_doc(s),
+            scenery: self.edits.scenery_doc(s, true),
             keep_edits: self.keep_edits.clone(),
             keep_map: self.keep_map.clone(),
             hidden: self.hidden.iter().map(|s| Self::sel_key(*s)).collect(),
@@ -1312,6 +1341,64 @@ impl MapEditor {
         }
     }
 
+    /// File > New empty chapter on `k`, flat at `h` metres.
+    fn start_empty(&mut self, ctx: &egui::Context, k: String, h: f32) {
+        self.mod_id.clear();
+        self.mod_name.clear();
+        self.keep_edits = json!({});
+        self.keep_map = Some(json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": [], "blank": h}));
+        self.as_map = true;
+        self.map_id = format!("Map_{}_Empty", k);
+        self.clean_pending = true;
+        self.open_chapter(ctx, k);
+        self.restore_offer = None;
+        self.status = format!("New empty chapter: flat ground at {h} m. Paint it, place props and spots, then File > Save As");
+    }
+
+    /// File > New empty chapter: once the recipe has loaded, keep one start
+    /// and one boss spot (a run needs both) and set every other tile kind to
+    /// none. One undo step, like any other edit.
+    fn make_clean(&mut self) {
+        if !self.clean_pending {
+            return;
+        }
+        let (Some(s), Some(r)) = (&self.scenery, &self.recipe) else { return };
+        self.clean_pending = false;
+        const KEEP: [&str; 2] = ["Start", "Map_Boss"];
+        let spots = self.edits.spots(s);
+        let mut keep_ids = Vec::new();
+        for k in KEEP {
+            if let Some(sp) = spots.iter().find(|sp| !sp.whole_map && sp.allow.get(k).copied().unwrap_or(false) && !keep_ids.contains(&sp.id)) {
+                keep_ids.push(sp.id);
+            }
+        }
+        let drop: Vec<i64> = spots.iter().filter(|sp| !sp.whole_map && !keep_ids.contains(&sp.id)).map(|sp| sp.id).collect();
+        let kinds: Vec<(String, KindVals)> = r
+            .kinds
+            .iter()
+            .map(|k| {
+                let mut v = k.vals.clone();
+                v.count = if KEEP.contains(&k.name.as_str()) { v.count.min(1) } else { 0 };
+                (k.name.clone(), v)
+            })
+            .collect();
+        let shipped: HashMap<String, KindVals> = r.kinds.iter().map(|k| (k.name.clone(), k.vals.clone())).collect();
+        self.change(|e, _| {
+            for id in &drop {
+                e.delete(Sel::Spot(*id));
+            }
+            for (name, v) in kinds {
+                if shipped.get(&name) != Some(&v) {
+                    e.kinds.insert(name, v);
+                }
+            }
+        });
+        self.history.clear();
+        self.layout.clear();
+        self.dirty = true;
+        self.status = format!("Empty chapter: {} spots kept (start + boss), {} removed", keep_ids.len(), drop.len());
+    }
+
     /// The flat ground height of a blank map (`map.blank`), kept in the map
     /// clone document so it saves, autosaves and reopens with it.
     fn blank(&self) -> Option<f32> {
@@ -1321,10 +1408,6 @@ impl MapEditor {
     /// Paste `items` (entity, level, transform relative to their centre) with
     /// their centre at `at`; selects what was pasted.
     fn paste_items(&mut self, ctx: &egui::Context, items: Vec<(String, String, Xf)>, at: Vec3) -> usize {
-        if self.blank().is_some() {
-            self.status = "Placing objects on a blank map is the next step (they would land in the shipped chapter, which a blank map no longer loads)".into();
-            return 0;
-        }
         let allowed: HashSet<&str> = self.props.iter().map(|p| p.entity.as_str()).collect();
         let (ok, refused): (Vec<_>, Vec<_>) = items.into_iter().partition(|(e, _, _)| allowed.contains(e.as_str()));
         for (e, _, _) in &ok {
@@ -1342,7 +1425,7 @@ impl MapEditor {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, yaw: yaw.to_degrees(), scale: x.scale.x.clamp(0.05, 20.0) }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, yaw: yaw.to_degrees(), scale: x.scale.x.clamp(0.05, 20.0), name: String::new() }));
             }
         });
         let n = new.len();
@@ -1376,10 +1459,6 @@ impl MapEditor {
     }
 
     fn place(&mut self, ctx: &egui::Context, entity: String, at: Vec3) {
-        if self.blank().is_some() {
-            self.status = "Placing objects on a blank map is the next step (they would land in the shipped chapter, which a blank map no longer loads)".into();
-            return;
-        }
         let Some(s) = &self.scenery else { return };
         // The level of the nearest shipped object, as the browser editor does.
         let best = (0..s.obj_xf.len())
@@ -1391,7 +1470,7 @@ impl MapEditor {
         let Some(level) = best else { return };
         self.ensure_template(ctx, &entity);
         let mut sel = None;
-        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, yaw: 0.0, scale: 1.0 })));
+        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, yaw: 0.0, scale: 1.0, name: String::new() })));
         if let Some(s) = sel {
             self.select_only([s]);
         }
@@ -1433,9 +1512,18 @@ impl MapEditor {
             t.h.fill(h);
             t.water = None;
             t.block = None;
+            t.path = None;
         }
         let mut w = self.look_base.as_ref().map(|l| l.weights.clone()).unwrap_or_default();
         let mut c = self.look_base.as_ref().and_then(|l| l.color.clone());
+        if self.blank().is_some() {
+            // What `blank` writes: no painted surfaces (the base material
+            // everywhere) and a white vertex colour.
+            w.fill(0);
+            if let Some(c) = c.as_mut() {
+                c.fill(255);
+            }
+        }
         for st in &self.edits.strokes {
             Self::apply_stroke_to(&mut t, self.look_base.as_ref(), &mut w, c.as_mut(), st);
         }
@@ -1846,7 +1934,7 @@ impl MapEditor {
         self.camera.target = center.with_y(0.0);
         self.camera.pitch = 0.85;
         self.camera.frame(center.with_y(0.0), radius * 1.15);
-        self.left_tab = LeftTab::Outliner;
+        self.left_tab = LeftTab::Inspector;
         self.dirty = true;
         self.status = format!("Tile {}: {count} objects", tile_name(&tile_path));
     }
@@ -1916,6 +2004,14 @@ impl MapEditor {
                 self.show_save_as = false;
                 self.status = "File > New map: pick the chapter to start from".into();
             }
+            Cmd::Rename => match self.active.or_else(|| self.sel.iter().next().copied()) {
+                Some(Sel::Add(u)) => {
+                    let name = self.edits.add(u).map(Add::name).unwrap_or_default();
+                    self.renaming = Some((Sel::Add(u), name));
+                }
+                Some(_) => self.status = "The game's own objects keep their names: rename the objects you added".into(),
+                None => self.status = "Select an object you added to rename it".into(),
+            },
             Cmd::Save => {
                 if self.mod_id.trim().is_empty() {
                     self.show_save_as = true;
@@ -1992,7 +2088,7 @@ impl MapEditor {
                     let name = format!("Group {}", self.groups.len() + 1);
                     self.groups.push((name.clone(), self.sel.iter().copied().collect()));
                     self.status = format!("{name}: {} object(s)", self.sel.len());
-                    self.left_tab = LeftTab::Outliner;
+                    self.left_tab = LeftTab::Inspector;
                     self.unsaved = true;
                 }
             }
@@ -2084,7 +2180,10 @@ impl MapEditor {
             Cmd::ToggleShadows => self.shadows = !self.shadows,
             Cmd::ToggleMinimap => self.show_minimap = !self.show_minimap,
             Cmd::ToggleEnv => self.show_env = !self.show_env,
-            Cmd::ToggleLog => self.show_log = !self.show_log,
+            Cmd::ToggleLog => {
+                self.show_bottom = !(self.show_bottom && self.bottom_tab == BottomTab::Console);
+                self.bottom_tab = BottomTab::Console;
+            }
             Cmd::ToggleTheme => {
                 self.light_theme = !self.light_theme;
                 style(ctx, self.light_theme);
@@ -2463,6 +2562,9 @@ impl MapEditor {
             terrain.and_then(|t| t.raycast(o, d, 9000.0)).or_else(|| (d.y < -1e-4).then(|| o + d * ((cam.target.y - o.y) / d.y)))
         };
         let hover_ground = pointer.filter(|p| rect.contains(*p)).and_then(|p| ground_at(self.terrain.as_ref(), p));
+        if let (Some(entity), Some(g)) = (resp.dnd_release_payload::<String>(), hover_ground) {
+            self.place(&ctx, (*entity).clone(), g);
+        }
         if hover_ground.is_some() {
             self.cursor = hover_ground;
         }
@@ -2981,6 +3083,8 @@ impl MapEditor {
         let rmb = ctx.input(|i| i.pointer.secondary_down());
         let c = if p(egui::Key::F1) {
             Some(Cmd::Shortcuts)
+        } else if p(egui::Key::F2) {
+            Some(Cmd::Rename)
         } else if p(egui::Key::F3) || (cmd && p(egui::Key::P)) {
             Some(Cmd::Palette)
         } else if cmd && shift && p(egui::Key::S) {
@@ -3106,8 +3210,8 @@ impl MapEditor {
                         }
                     }
                 });
-                ui.menu_button("New blank map", |ui| {
-                    ui.label(egui::RichText::new("Flat ground, no scenery, no invisible walls. Keeps the chapter's look, light, enemies and tile spots.").small().weak());
+                ui.menu_button("New empty chapter", |ui| {
+                    ui.label(egui::RichText::new("Flat unpainted ground, no scenery, no invisible walls, and only a start and a boss spot. Keeps the chapter's sky and light.").small().weak());
                     ui.add(egui::Slider::new(&mut self.new_blank_height, -40.0..=40.0).step_by(2.0).text("ground m"));
                     for c in &self.chapters {
                         if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("Start from {}", c.label)).clicked() {
@@ -3260,15 +3364,7 @@ impl MapEditor {
             if self.unsaved {
                 self.autosave();
             }
-            self.mod_id.clear();
-            self.mod_name.clear();
-            self.keep_edits = json!({});
-            self.keep_map = Some(json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": [], "blank": h}));
-            self.as_map = true;
-            self.map_id = format!("Map_{}_Blank", k);
-            self.open_chapter(&ctx, k);
-            self.restore_offer = None;
-            self.status = format!("New blank map: flat ground at {h} m. Paint it, place spots, then File > Save As");
+            self.start_empty(&ctx, k, h);
         }
         if let Some(k) = open_chapter {
             if self.unsaved {
@@ -3332,33 +3428,125 @@ impl MapEditor {
         }
     }
 
-    fn ui_left(&mut self, ui: &mut egui::Ui) {
+    /// Unity's Hierarchy: the scene's objects, nothing else.
+    fn ui_hierarchy(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.left_tab, LeftTab::Outliner, "Outliner");
-            ui.selectable_value(&mut self.left_tab, LeftTab::Assets, "Assets");
+            ui.menu_button(egui::RichText::new(" + ").strong(), |ui| self.ui_create_menu(ui)).response.on_hover_text("Create");
+            ui.label(egui::RichText::new("Hierarchy").strong());
+        });
+        self.ui_outliner(ui);
+    }
+
+    /// The Inspector side: the selection's properties, and the tool windows
+    /// docked beside it as tabs.
+    fn ui_inspector_side(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.left_tab, LeftTab::Inspector, "Inspector");
             if self.tile.is_none() {
-                ui.selectable_value(&mut self.left_tab, LeftTab::Spots, "Spots");
-                ui.selectable_value(&mut self.left_tab, LeftTab::Pois, "POIs");
                 ui.selectable_value(&mut self.left_tab, LeftTab::Terrain, "Terrain");
+                ui.selectable_value(&mut self.left_tab, LeftTab::Spots, "Spots");
+                ui.selectable_value(&mut self.left_tab, LeftTab::Pois, "Tiles");
             }
             let n = self.edits.count();
             ui.selectable_value(&mut self.left_tab, LeftTab::Changes, if n > 0 { format!("Changes ({n})") } else { "Changes".into() });
         });
         ui.separator();
         if self.tile.is_some() && matches!(self.left_tab, LeftTab::Spots | LeftTab::Terrain | LeftTab::Pois) {
-            self.left_tab = LeftTab::Outliner;
+            self.left_tab = LeftTab::Inspector;
         }
         // Leaving the Terrain tab puts the brush down.
         if self.left_tab != LeftTab::Terrain && self.tool == Tool::Brush {
             self.tool = Tool::Select;
         }
         match self.left_tab {
-            LeftTab::Outliner => self.ui_outliner(ui),
-            LeftTab::Assets => self.ui_assets(ui),
+            LeftTab::Inspector => self.ui_inspector_tab(ui),
             LeftTab::Spots => self.ui_spots(ui),
             LeftTab::Pois => self.ui_pois(ui),
-            LeftTab::Terrain => self.ui_terrain(ui),
+            LeftTab::Terrain => {
+                egui::ScrollArea::vertical().id_salt("terrain").show(ui, |ui| self.ui_terrain(ui));
+            }
             LeftTab::Changes => self.ui_changes(ui),
+        }
+    }
+
+    /// Unity's Project + Console, docked at the bottom.
+    fn ui_bottom(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.bottom_tab, BottomTab::Project, "Project");
+            let errs = self.failed_assets.len();
+            ui.selectable_value(&mut self.bottom_tab, BottomTab::Console, if errs > 0 { format!("Console ({errs})") } else { "Console".into() });
+        });
+        ui.separator();
+        match self.bottom_tab {
+            BottomTab::Project => self.ui_assets(ui),
+            BottomTab::Console => {
+                egui::ScrollArea::vertical().id_salt("console").stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
+                    for l in self.backend.log.lock().unwrap().iter() {
+                        ui.monospace(l);
+                    }
+                    for l in &self.failed_assets {
+                        ui.colored_label(egui::Color32::LIGHT_RED, l);
+                    }
+                });
+            }
+        }
+    }
+
+    /// Create menu (Hierarchy "+", right-click on empty space or a row).
+    fn ui_create_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Prop…").on_hover_text("Pick one in the Project panel, then click the ground, or drag it into the scene").clicked() {
+            self.show_bottom = true;
+            self.bottom_tab = BottomTab::Project;
+            self.status = "Project panel: click a prop then the ground, or drag it into the scene".into();
+            ui.close();
+        }
+        if self.tile.is_none() {
+            if let Some(r) = self.recipe.clone() {
+                ui.menu_button("Tile spot", |ui| {
+                    for g in &r.groups {
+                        if ui.button(format!("{g} spot")).clicked() {
+                            self.tool = Tool::AddSpot(g.clone());
+                            self.status = format!("Click the ground to place a {g} spot (Shift keeps placing)");
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        }
+        if ui.add_enabled(!self.clipboard.is_empty(), egui::Button::new("Paste at cursor")).clicked() {
+            let ctx = ui.ctx().clone();
+            self.run(&ctx, Cmd::Paste);
+            ui.close();
+        }
+    }
+
+    /// Right-click on a Hierarchy row (Unity: the row's context menu).
+    fn ui_row_menu(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let has = !self.sel.is_empty();
+        let one_add = self.sel.len() == 1 && matches!(self.sel.iter().next(), Some(Sel::Add(_)));
+        let mut pick = None;
+        let mut item = |ui: &mut egui::Ui, on: bool, label: &str, key: &str, c: Cmd| {
+            if ui.add_enabled(on, egui::Button::new(label).shortcut_text(key)).clicked() {
+                pick = Some(c);
+                ui.close();
+            }
+        };
+        item(ui, one_add, "Rename", "F2", Cmd::Rename);
+        item(ui, has, "Duplicate", "Shift+D", Cmd::Duplicate);
+        item(ui, has, "Copy", "Ctrl+C", Cmd::Copy);
+        item(ui, !self.clipboard.is_empty(), "Paste", "Ctrl+V", Cmd::Paste);
+        item(ui, has, "Delete", "Del", Cmd::Delete);
+        ui.separator();
+        item(ui, has, "Frame selected", "F", Cmd::FrameSelected);
+        item(ui, has, "Drop to ground", "End", Cmd::DropToGround);
+        item(ui, has, "Hide", "H", Cmd::Hide);
+        item(ui, has, "Lock", "L", Cmd::Lock);
+        item(ui, has, "Group", "Ctrl+G", Cmd::Group);
+        ui.separator();
+        ui.menu_button("Create", |ui| self.ui_create_menu(ui));
+        if let Some(c) = pick {
+            self.run(&ctx, c);
         }
     }
 
@@ -3406,7 +3594,32 @@ impl MapEditor {
             if all_hidden {
                 rt = rt.weak();
             }
+            if let (Some((rs, buf)), [m]) = (self.renaming.as_mut(), members) {
+                if rs == m {
+                    let te = ui.add(egui::TextEdit::singleline(buf).desired_width(f32::INFINITY));
+                    te.request_focus();
+                    let done = te.lost_focus();
+                    let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    if done || cancel {
+                        let (sel, name) = self.renaming.take().unwrap();
+                        if let (Sel::Add(u), false) = (sel, cancel) {
+                            let name = name.trim().to_owned();
+                            self.change(|e, _| {
+                                if let Some(a) = e.adds.iter_mut().find(|a| a.uid == u) {
+                                    a.name = name;
+                                }
+                            });
+                        }
+                    }
+                    return;
+                }
+            }
             let r = ui.selectable_label(selected, rt);
+            if r.secondary_clicked() && !members.iter().all(|m| self.sel.contains(m)) {
+                let pick: Vec<Sel> = members.iter().copied().filter(|m| self.selectable(*m)).collect();
+                self.select_only(pick);
+            }
+            r.context_menu(|ui| self.ui_row_menu(ui));
             out = (r.clicked(), r.double_clicked());
         });
         out
@@ -3518,12 +3731,20 @@ impl MapEditor {
                     });
                 }
             }
-            for (li, level) in tree.iter().enumerate() {
+            // A blank map has sunk every shipped object: list none of them.
+            let blank = self.blank().is_some();
+            for (li, level) in tree.iter().enumerate().filter(|_| !blank) {
                 if !outliner::matches(level, &filter) {
                     continue;
                 }
                 self.tree_node(ui, level, &filter, &format!("L{li}"), 0);
             }
+            // Unity: right-click the empty part of the Hierarchy to create.
+            let rest = ui.allocate_response(ui.available_size().max(egui::vec2(0.0, 40.0)), egui::Sense::click());
+            if rest.clicked() {
+                self.select_only([]);
+            }
+            rest.context_menu(|ui| self.ui_create_menu(ui));
         });
         self.tree = tree;
     }
@@ -3805,7 +4026,7 @@ impl MapEditor {
     fn ui_assets(&mut self, ui: &mut egui::Ui) {
         ui.add(egui::TextEdit::singleline(&mut self.prop_filter).hint_text("Search assets…").desired_width(f32::INFINITY));
         ui.checkbox(&mut self.all_props, "Include gameplay objects (spawners, FX, chests…)");
-        ui.label(egui::RichText::new("Click an asset, then click the ground (Shift-click keeps placing). Only what this chapter preloads can be added.").small().weak());
+        ui.label(egui::RichText::new("Drag a prop into the scene, or click it and then the ground (Shift keeps placing).").small().weak());
         if self.props.is_empty() {
             ui.label("Loading…");
             return;
@@ -3816,15 +4037,24 @@ impl MapEditor {
             groups.entry(p.group.replace('_', " ")).or_default().push(p.clone());
         }
         let mut pick = None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("project").auto_shrink(false).show(ui, |ui| {
             for (g, list) in groups {
                 egui::CollapsingHeader::new(format!("{g}  ({})", list.len())).default_open(!f.is_empty()).show(ui, |ui| {
-                    for p in list {
-                        let on = self.tool == Tool::Place(p.entity.clone());
-                        if ui.selectable_label(on, &p.name).on_hover_text(&p.entity).clicked() {
-                            pick = Some(p.entity.clone());
+                    ui.horizontal_wrapped(|ui| {
+                        for p in list {
+                            let on = self.tool == Tool::Place(p.entity.clone());
+                            // Drag into the Scene to place it there (Unity's drag from Project).
+                            let r = ui
+                                .dnd_drag_source(ui.scope_id().with(("asset", &p.entity)), p.entity.clone(), |ui| {
+                                    ui.add(egui::Button::new(&p.name).selected(on).min_size(egui::vec2(120.0, 28.0)));
+                                })
+                                .response
+                                .on_hover_text(format!("{}\nClick, then click the ground; or drag into the scene", p.entity));
+                            if r.clicked() {
+                                pick = Some(p.entity.clone());
+                            }
                         }
-                    }
+                    });
                 });
             }
         });
@@ -3900,6 +4130,56 @@ impl MapEditor {
         }
     }
 
+    fn ui_inspector_tab(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().id_salt("inspector").show(ui, |ui| {
+                if let Some(ts) = &self.tile {
+                    let name = ts.tile.rsplit('\\').next().unwrap_or(&ts.tile).trim_end_matches(".tiledef.ot").to_owned();
+                    let built = ts.built;
+                    let mut exit = false;
+                    egui::Frame::group(ui.style()).fill(egui::Color32::from_rgb(60, 42, 20)).show(ui, |ui| {
+                        ui.label(egui::RichText::new(format!("Tile: {}", pretty_tile(&name))).strong());
+                        ui.label(egui::RichText::new(if built {
+                            "Added objects appear in every spawn of this tile. Moving or removing the game's own objects saves an own copy of the tile (the original still spawns)."
+                        } else {
+                            "Loading its objects…"
+                        }).small());
+                        exit = ui.button("Close this tab").clicked();
+                    });
+                    if exit {
+                        if self.unsaved {
+                            self.close_confirm = Some(self.active_tab);
+                        } else {
+                            self.exit_tile();
+                        }
+                    }
+                    ui.add_space(8.0);
+                }
+                if let Some(a) = self.restore_offer.clone() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.label(egui::RichText::new("Unsaved work from your last session").strong());
+                        ui.label(egui::RichText::new(format!("{} scenery edits", a.scenery.as_object().map(|o| o.len()).unwrap_or(0))).small());
+                        ui.horizontal(|ui| {
+                            if ui.button("Restore").clicked() {
+                                self.restore_offer = None;
+                                self.restore(&ui.ctx().clone(), a.clone());
+                            }
+                            if ui.button("Discard").clicked() {
+                                self.restore_offer = None;
+                                if let Some(ch) = &self.chapter {
+                                    session::clear_autosave(ch);
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(8.0);
+                }
+                self.ui_inspector(ui);
+                ui.add_space(10.0);
+                ui.separator();
+                self.ui_save_panel(ui);
+        });
+    }
+
     fn ui_inspector(&mut self, ui: &mut egui::Ui) {
         ui.heading("Properties");
         let Some(s) = &self.scenery else { return };
@@ -3928,7 +4208,7 @@ impl MapEditor {
             return;
         }
         let Some(sel) = self.active.filter(|a| self.sel.contains(a)) else {
-            ui.label(egui::RichText::new("Click an object, drag a box on empty ground, or pick one in the outliner.").weak());
+            ui.label(egui::RichText::new("Click an object, drag a box on empty ground, or pick one in the Hierarchy.").weak());
             return;
         };
         if let Sel::Spot(id) = sel {
@@ -4108,7 +4388,7 @@ impl MapEditor {
         let mut b = json!({
             "chapter": self.chapter.clone()?,
             "edits": Value::Object(edits),
-            "scenery": self.edits.scenery_doc(s),
+            "scenery": self.edits.scenery_doc(s, !self.needs_map()),
         });
         if self.needs_map() {
             let mut m = self.keep_map.clone().unwrap_or_else(|| json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": []}));
@@ -4116,6 +4396,8 @@ impl MapEditor {
             let id = self.map_id.trim();
             m["id"] = json!(if id.is_empty() { "Map_Check" } else { id });
             m["play"] = json!(self.map_play);
+            // Added objects stand in the map's own scenery, never the chapter's.
+            m["objects"] = self.edits.objects_doc();
             b["map"] = m;
         }
         if with_id {
@@ -4429,6 +4711,7 @@ impl eframe::App for MapEditor {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_events(&ctx);
+        self.make_clean();
         self.handle_keys(&ctx);
 
         egui::Panel::top("menu").show(ui, |ui| self.ui_menu(ui));
@@ -4436,68 +4719,12 @@ impl eframe::App for MapEditor {
             egui::Panel::top("tabs").show(ui, |ui| self.ui_tabs(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| self.ui_status(ui));
-        if self.show_log {
-            egui::Panel::bottom("log").resizable(true).default_size(160.0).show(ui, |ui| {
-                egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
-                    for l in self.backend.log.lock().unwrap().iter() {
-                        ui.monospace(l);
-                    }
-                    for l in &self.failed_assets {
-                        ui.colored_label(egui::Color32::LIGHT_RED, l);
-                    }
-                });
-            });
+        // Unity's layout: Hierarchy left, Inspector right, Project/Console below, Scene in the middle.
+        egui::Panel::left("hierarchy").resizable(true).default_size(280.0).size_range(200.0..=460.0).show(ui, |ui| self.ui_hierarchy(ui));
+        egui::Panel::right("inspector").resizable(true).default_size(330.0).size_range(260.0..=520.0).show(ui, |ui| self.ui_inspector_side(ui));
+        if self.show_bottom {
+            egui::Panel::bottom("project").resizable(true).default_size(210.0).size_range(90.0..=600.0).show(ui, |ui| self.ui_bottom(ui));
         }
-        egui::Panel::left("left").resizable(true).default_size(300.0).size_range(220.0..=420.0).show(ui, |ui| self.ui_left(ui));
-        egui::Panel::right("right").resizable(true).default_size(320.0).size_range(240.0..=440.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().id_salt("right").show(ui, |ui| {
-                if let Some(ts) = &self.tile {
-                    let name = ts.tile.rsplit('\\').next().unwrap_or(&ts.tile).trim_end_matches(".tiledef.ot").to_owned();
-                    let built = ts.built;
-                    let mut exit = false;
-                    egui::Frame::group(ui.style()).fill(egui::Color32::from_rgb(60, 42, 20)).show(ui, |ui| {
-                        ui.label(egui::RichText::new(format!("Tile: {}", pretty_tile(&name))).strong());
-                        ui.label(egui::RichText::new(if built {
-                            "Added objects appear in every spawn of this tile. Moving or removing the game's own objects saves an own copy of the tile (the original still spawns)."
-                        } else {
-                            "Loading its objects…"
-                        }).small());
-                        exit = ui.button("Close this tab").clicked();
-                    });
-                    if exit {
-                        if self.unsaved {
-                            self.close_confirm = Some(self.active_tab);
-                        } else {
-                            self.exit_tile();
-                        }
-                    }
-                    ui.add_space(8.0);
-                }
-                if let Some(a) = self.restore_offer.clone() {
-                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                        ui.label(egui::RichText::new("Unsaved work from your last session").strong());
-                        ui.label(egui::RichText::new(format!("{} scenery edits", a.scenery.as_object().map(|o| o.len()).unwrap_or(0))).small());
-                        ui.horizontal(|ui| {
-                            if ui.button("Restore").clicked() {
-                                self.restore_offer = None;
-                                self.restore(&ui.ctx().clone(), a.clone());
-                            }
-                            if ui.button("Discard").clicked() {
-                                self.restore_offer = None;
-                                if let Some(ch) = &self.chapter {
-                                    session::clear_autosave(ch);
-                                }
-                            }
-                        });
-                    });
-                    ui.add_space(8.0);
-                }
-                self.ui_inspector(ui);
-                ui.add_space(10.0);
-                ui.separator();
-                self.ui_save_panel(ui);
-            });
-        });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.ui_viewport(ui, frame));
 
         if self.show_env {

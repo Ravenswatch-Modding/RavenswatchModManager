@@ -903,6 +903,9 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         for st in as_map.get("terrain") or []:
             lines += ["", "[[content.terrain]]"]
             lines += [f"{k} = {_q(v) if isinstance(v, str) else _val(v)}" for k, v in st.items()]
+        for ob in as_map.get("objects") or []:
+            lines += ["", "[[content.objects]]"]
+            lines += [f"{k} = {_toml_value(v)}" for k, v in ob.items()]
         lines += _edit_lines("content.tilegen", edits)
     for level, e in sorted(scenery.items()):
         lines += _scenery_lines(chapter, level, e)
@@ -914,7 +917,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         "id": as_map["id"], "play": bool(as_map.get("play")),
         "pool": {k: list((as_map.get("pool") or {}).get(k) or []) for k in ("add", "remove")},
         "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or []),
-        **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {})}
+        **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {}),
+        **({"objects": list(as_map["objects"])} if as_map.get("objects") else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
             or _norm_json(back.get("scenery") or {}) != _norm_json(scenery)):
@@ -929,6 +933,17 @@ _SCENERY_KEYS = ("moves", "removes", "adds")
 def _norm_json(v):
     import json
     return json.loads(json.dumps(v, sort_keys=True))
+
+
+def _toml_value(v) -> str:
+    """A string, number, bool, list or inline table, as TOML."""
+    if isinstance(v, str):
+        return _q(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_value(x)}" for k, x in v.items()) + " }"
+    return _val(v)
 
 
 def _scenery_lines(chapter: Chapter, level: str, e: dict) -> list[str]:
@@ -996,7 +1011,8 @@ def _read_first(data: dict) -> dict | None:
                                      for k in ("add", "remove")},
                             "place": dict(c.get("place") or {}),
                             "terrain": list(c.get("terrain") or []),
-                            **_blank_of(c)}}
+                            **_blank_of(c),
+                            **({"objects": list(c["objects"])} if c.get("objects") else {})}}
     return None
 
 

@@ -31,6 +31,7 @@ fn main() -> eframe::Result<()> {
             "--chapter" => opts.chapter = args.next(),
             "--snapshot" => opts.snapshot = args.next().map(Into::into),
             "--self-check" => opts.self_check = true,
+            "--empty" => opts.empty = true,
             "--tile-check" => opts.tile_check = true,
             "--open-tile" => opts.open_tile = args.next(),
             "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),

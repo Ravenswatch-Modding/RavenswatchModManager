@@ -371,6 +371,12 @@ def test_blank_map_is_flat_empty_and_owns_its_levels(tmp_path, base, folder):
         if layer is not None:
             assert max(layer.cells) == 0.0, name
     assert TR.fill(raw_terrain, "Base Water Height", 0.0) == raw_terrain
+    # no painted surfaces, white vertex colour
+    for name, layer in terrain.layers.items():
+        if name not in TR.METRE_LAYERS and layer.kind == "float":
+            assert max(layer.cells) == 0.0, name
+        elif layer.kind == "rgba":
+            assert set(layer.cells) == {255}, name
     # every vanilla scenery / collision sublevel is replaced by an emptied clone
     listed = refs(root) + refs(scenery)
     vanilla = [r for r in listed if "Scenery_" in r or r.endswith("_Collisions.level.ot")]
@@ -395,3 +401,67 @@ def test_blank_is_validated(tmp_path):
         with pytest.raises(ContentError):
             maps.emit("m", ContentDef(kind="map", id="Bad_Blank", fields={
                 "base": "Dark_Hills", "blank": bad}), tmp_path)
+
+
+# ---- objects ---------------------------------------------------------------
+
+def _tetra_glb() -> bytes:
+    from rsmm.engine import gltf
+    b = gltf.GlbBuilder()
+    pi = b.add_positions([(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)])
+    ni = b.add_vec3([(0, 1, 0)] * 4)
+    ui = b.add_vec2([(0, 0)] * 4)
+    ii = b.add_indices([0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3])
+    m = b.add_mesh(gltf.Mesh(name="t", primitives=[gltf.Primitive(
+        attributes={"POSITION": pi, "NORMAL": ni, "TEXCOORD_0": ui}, indices=ii)]))
+    b.add_node(gltf.Node(name="t", mesh=m), is_root=True)
+    return b.build_glb()
+
+
+@needs_corpus
+@pytest.mark.parametrize("base,folder", [("Dark_Hills", "DarkHills"),
+                                         ("Storm_Island", "Storm_Island")])
+def test_objects_stand_in_the_maps_own_scenery(tmp_path, base, folder):
+    from rsmm.engine import image as IMG
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+
+    mod = tmp_path / "mod"
+    (mod / "art").mkdir(parents=True)
+    (mod / "art" / "hut.glb").write_bytes(_tetra_glb())
+    (mod / "art" / "hut.png").write_bytes(IMG.encode_png(4, 4, bytes([200, 30, 30, 255] * 16)))
+    shipped = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
+    hut = {"model": "art/hut.glb", "texture": "art/hut.png",
+           "collision": [{"kind": "ground", "size": [2, 1, 2], "at": [0, -1, 0]}]}
+    mid = f"Built_{folder}"
+    out = mod / "assets"
+    maps.emit("m", ContentDef(kind="map", id=mid, fields={
+        "base": base, "blank": True, "objects": [
+            {"entity": shipped, "pos": [10, 0, 20], "yaw": 90},
+            {**hut, "pos": [5, 0, 5], "scale": 2},
+            {**hut, "pos": [-5, 0, 5]}]}), out)
+
+    own = f"DarkHills\\SceneryObjects_DarkHills\\{mid}_Obj0.entity.ot"
+    assert (out / PC.entity_cooked_path(own)).is_file()
+    assert not (out / PC.entity_cooked_path(own.replace("Obj0", "Obj1"))).is_file()  # one per model
+    levels = sorted((out / "Ot" / folder).glob(f"Map_{mid}_Scenery_*.level.ot.GameStream.gen"))
+    placed = [p for lv in levels for _i, p in LP.objects(lv.read_bytes()) if p.pos[1] > -500]
+    assert sorted((p.ref, p.pos) for p in placed) == sorted([
+        (shipped, (10.0, 0.0, 20.0)), (own, (5.0, 0.0, 5.0)), (own, (-5.0, 0.0, 5.0))])
+    cache = RC.parse((out / f"Definitions/Maps/{mid}.mapdef.UsedRscCache.ot").read_bytes())
+    for ref in (shipped, own):
+        assert any(f"|{ref}|" in ln for ln in cache), ref
+
+
+_RUIN = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
+
+
+@needs_corpus
+def test_objects_are_validated(tmp_path):
+    for bad in ([{"pos": [0, 0, 0]}],
+                [{"entity": "Nope\\X.entity.ot", "pos": [0, 0, 0]}],
+                [{"model": "art/missing.glb", "pos": [0, 0, 0]}],
+                [{"entity": _RUIN, "pos": [0, 0]}]):
+        with pytest.raises(ContentError):
+            maps.emit("m", ContentDef(kind="map", id="Bad_Obj", fields={
+                "base": "Dark_Hills", "objects": bad}), tmp_path / "assets")
