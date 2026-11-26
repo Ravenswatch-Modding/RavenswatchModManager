@@ -16,6 +16,12 @@ Fields:
 A ``set`` step may read its value from the mod's config instead of ``value``:
 ``config = "<field>"``, plus ``times = <n>`` to multiply a number field by
 ``n`` (the shipped value, so a 1.0 multiplier leaves the game as it was).
+``scale = "<field>"`` replaces ``value`` and ``times``: it reads the shipped
+number at the step's ``set`` path and writes that number times the config
+field, so a game patch that rebalances the value carries into the mod. It
+reads the shipped file, never an earlier block's output, so two blocks on one
+file do not compound. The target must be a number; ``scale`` is refused beside
+``value``, ``config`` or ``times``.
 Any step may carry ``when = "<bool field>"``: it applies only while that
 switch is on (e.g. a ``link`` that forces a branch).
 
@@ -31,6 +37,7 @@ from pathlib import Path
 
 from ...engine import ability_edit as AE
 from ...engine import corpus
+from ...engine.entity_graph_edit import EntityEditError, EntityFile
 from ..content import ContentDef, ContentError, written_this_run
 from . import _common as C
 
@@ -50,18 +57,45 @@ def _rel(entity: str) -> str:
     return f"{_ROOT}/{p}{_GEN_SUFFIX}"
 
 
-def _resolve_config(defn: ContentDef, steps: list[dict], mod_root: Path) -> list[dict]:
+def _shipped_number(defn: ContentDef, step: dict, ef: EntityFile) -> int | float:
+    """The shipped number at ``step["set"]`` (``Part.field``)."""
+    spec = str(step["set"])
+    if ".cinebloc[" in spec:
+        part, _, fld = spec.partition(".cinebloc[")
+        fld = "cinebloc[" + fld
+    else:
+        part, _, fld = spec.rpartition(".")
+    if not part:
+        raise ContentError(f"entity {defn.id}: set = {spec!r}: write it as 'Part.field'")
+    try:
+        shipped = ef.get_value(part, fld)
+    except EntityEditError as e:
+        raise ContentError(f"entity {defn.id}: scale on {spec!r}: {e}") from e
+    if isinstance(shipped, bool) or not isinstance(shipped, int | float):
+        raise ContentError(f"entity {defn.id}: scale on {spec!r} needs a number field, "
+                           f"the shipped value is {shipped!r}")
+    # A float read from f32 bytes carries decode noise (2.2 reads 2.2000000477);
+    # seven significant digits is what an f32 holds.
+    return float(f"{shipped:.7g}") if isinstance(shipped, float) else shipped
+
+
+def _resolve_config(defn: ContentDef, steps: list[dict], mod_root: Path,
+                    shipped: bytes | None = None) -> list[dict]:
     """A ``set`` step may take its value from the mod's config instead of a
     literal: ``config = "<field>"`` reads the player's value (or the schema
     default), and ``times = <n>`` multiplies a number by it — so one
-    "health multiplier" field can scale every shipped value it names."""
-    if not any("config" in s or "when" in s for s in steps):
+    "health multiplier" field can scale every shipped value it names.
+    ``scale = "<field>"`` multiplies the SHIPPED number at the ``set`` path by
+    the player's value instead, so the mod holds no copy of the shipped value;
+    ``shipped`` is the pristine file it is read from."""
+    if not any("config" in s or "when" in s or "scale" in s for s in steps):
         return steps
     from rsmm.sdk.config import ConfigError, ConfigStore, config_value
     try:
         store = ConfigStore(mod_root)
     except (OSError, ConfigError, ValueError) as e:
         raise ContentError(f"entity {defn.id}: config unreadable: {e}") from e
+    graph: list[EntityFile] = []
     out = []
     for s in steps:
         if "when" in s:
@@ -75,6 +109,30 @@ def _resolve_config(defn: ContentDef, steps: list[dict], mod_root: Path) -> list
             if not on:
                 continue
             s = {k: v for k, v in s.items() if k != "when"}
+        if "scale" in s:
+            if "set" not in s or {"value", "config", "times"} & s.keys():
+                raise ContentError(f"entity {defn.id}: 'scale' goes on a set step, "
+                                   f"in place of 'value', 'config' and 'times'")
+            try:
+                mult = config_value(store, s["scale"])
+            except ConfigError as e:
+                raise ContentError(f"entity {defn.id}: {e}") from e
+            if isinstance(mult, bool) or not isinstance(mult, int | float):
+                raise ContentError(f"entity {defn.id}: scale = {s['scale']!r} needs a number "
+                                   f"field, it is {mult!r}")
+            if shipped is None:
+                raise ContentError(f"entity {defn.id}: scale needs the shipped file")
+            if not graph:
+                try:
+                    graph.append(EntityFile(shipped))
+                except EntityEditError as e:
+                    raise ContentError(f"entity {defn.id}: {e}") from e
+            base = _shipped_number(defn, s, graph[0])
+            value = round(base * mult, 6)
+            if isinstance(base, int):
+                value = int(round(value))
+            out.append({k: v for k, v in s.items() if k != "scale"} | {"value": value})
+            continue
         if "config" not in s:
             out.append(s)
             continue
@@ -104,13 +162,12 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
         raise ContentError(f"entity {defn.id}: cross-file clone steps are not supported here; "
                            f"use same-file clone / set / link / add_link / remove_link / percent")
 
-    steps = _resolve_config(defn, steps, out_dir.parent)
-
     rel = _rel(entity)
     shipped = corpus.read(rel)
     if shipped is None:
         raise ContentError(f"entity {defn.id}: no shipped entity {entity!r} ({rel}) — "
                            f"is the game install readable?")
+    steps = _resolve_config(defn, steps, out_dir.parent, shipped)
     stem = Path(rel).name.removesuffix(_GEN_SUFFIX)
     dest = out_dir / Path(*rel.split("/"))
     before = dest.read_bytes() if written_this_run(dest) else shipped
