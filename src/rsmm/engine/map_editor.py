@@ -898,6 +898,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         if as_map.get("place"):
             inner = ", ".join(f"{_q(k)} = {_q(v)}" for k, v in as_map["place"].items())
             lines.append(f"place   = {{ {inner} }}")
+        if as_map.get("blank") is not None:
+            lines.append(f"blank   = {{ height = {_val(float(as_map['blank']))} }}")
         for st in as_map.get("terrain") or []:
             lines += ["", "[[content.terrain]]"]
             lines += [f"{k} = {_q(v) if isinstance(v, str) else _val(v)}" for k, v in st.items()]
@@ -911,7 +913,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
     want_map = None if as_map is None else {
         "id": as_map["id"], "play": bool(as_map.get("play")),
         "pool": {k: list((as_map.get("pool") or {}).get(k) or []) for k in ("add", "remove")},
-        "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or [])}
+        "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or []),
+        **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
             or _norm_json(back.get("scenery") or {}) != _norm_json(scenery)):
@@ -992,8 +995,17 @@ def _read_first(data: dict) -> dict | None:
                             "pool": {k: [_pool_path(n, biome) for n in pool.get(k) or []]
                                      for k in ("add", "remove")},
                             "place": dict(c.get("place") or {}),
-                            "terrain": list(c.get("terrain") or [])}}
+                            "terrain": list(c.get("terrain") or []),
+                            **_blank_of(c)}}
     return None
+
+
+def _blank_of(c: dict) -> dict:
+    """``{"blank": height}`` when a map declaration starts from an empty map."""
+    b = c.get("blank")
+    if b is None or b is False:
+        return {}
+    return {"blank": float(b.get("height", 0.0)) if isinstance(b, dict) else 0.0}
 
 
 def read_manifest_edits(text: str) -> tuple[str, dict] | None:

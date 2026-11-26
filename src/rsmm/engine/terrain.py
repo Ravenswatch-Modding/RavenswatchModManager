@@ -423,6 +423,36 @@ def write(level_bytes: bytes, t: Terrain) -> bytes:
     return _emit(cf, sec, bytes(out))
 
 
+def fill(level_bytes: bytes, name: str, value: float) -> bytes:
+    """`level_bytes` with EVERY float or constant layer called `name` set to
+    `value` (raw cell units, 0..1). Storm Island and Avalon carry two layers
+    named ``Base Water Height``, a constant and a painted grid, which `read`
+    can only hold one of; this sets both. Raises if no layer has the name."""
+    cf, sec, inner = LP._inner(level_bytes)
+    g = LP._graph(inner)
+    classes = _class_names(g)
+    out = bytearray(inner)
+    hit = 0
+    for b, _e, p in g.objects:
+        (ci,) = struct.unpack_from("<I", p, 0)
+        cn = classes[ci] if ci < len(classes) else ""
+        if cn not in (FLOAT_LAYER, CONST_LAYER):
+            continue
+        (ln,) = struct.unpack_from("<I", p, 4)
+        if p[8:8 + ln].decode("latin-1") != name:
+            continue
+        if cn == CONST_LAYER:
+            struct.pack_into("<f", out, b + 4 + _const_value_off(p, name), value)
+        else:
+            off = _grid_offset(p, 8 + ln)
+            _size, _h, nb = struct.unpack_from("<III", p, off)
+            out[b + 4 + off + 12:b + 4 + off + 12 + nb] = struct.pack("<f", value) * (nb // 4)
+        hit += 1
+    if not hit:
+        raise TerrainError(f"no float layer {name!r} in this level")
+    return _emit(cf, sec, bytes(out))
+
+
 def _sub_box_at(p: bytes, lo, hi, what: str) -> int:
     """Offset of the one world box in a terrain tile object, lying inside the
     terrain's box `lo..hi` (a mesh tile covers it whole, a physics tile a

@@ -93,7 +93,9 @@ impl Loader {
                 };
                 let out = match job {
                     Job::Mesh(path) => {
-                        let r = fetch(&be, &path).and_then(|b| decode_glb(&b));
+                        // `file.glb#i` = only sub-mesh i (one material slot).
+                        let (file, sub) = split_submesh(&path);
+                        let r = fetch(&be, file).and_then(|b| decode_glb_part(&b, sub));
                         Loaded::Mesh(path, r)
                     }
                     Job::Texture(path, swap) => {
@@ -123,14 +125,27 @@ fn fetch(be: &Backend, rel: &str) -> Result<Vec<u8>> {
     Ok(r.body)
 }
 
-pub fn decode_glb(bytes: &[u8]) -> Result<MeshData> {
+/// `"3D/x.fbx.glb#2"` -> `("3D/x.fbx.glb", Some(2))`.
+pub fn split_submesh(path: &str) -> (&str, Option<usize>) {
+    match path.rsplit_once('#') {
+        Some((f, k)) => match k.parse() {
+            Ok(k) => (f, Some(k)),
+            Err(_) => (path, None),
+        },
+        None => (path, None),
+    }
+}
+
+/// The glb's meshes merged, or only node `submesh_<k>` when `only` is set.
+pub fn decode_glb_part(bytes: &[u8], only: Option<usize>) -> Result<MeshData> {
+    let want = only.map(|k| format!("submesh_{k}"));
     let g = gltf::Gltf::from_slice(bytes).context("not a glb")?;
     let blob = g.blob.as_deref();
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for node in g.nodes() {
         let Some(mesh) = node.mesh() else { continue };
-        if node.name() == Some("AABB") {
+        if node.name() == Some("AABB") || want.as_deref().is_some_and(|w| node.name() != Some(w)) {
             continue;
         }
         for prim in mesh.primitives() {
@@ -183,4 +198,16 @@ pub fn decode_png(bytes: &[u8], swap_rb: bool) -> Result<TextureData> {
         levels.push((w, h, cur.as_raw().clone()));
     }
     Ok(TextureData { levels, has_alpha })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_submesh;
+
+    #[test]
+    fn submesh_suffix() {
+        assert_eq!(split_submesh("3D/a.fbx.glb#2"), ("3D/a.fbx.glb", Some(2)));
+        assert_eq!(split_submesh("3D/a.fbx.glb"), ("3D/a.fbx.glb", None));
+        assert_eq!(split_submesh("3D/a#b.glb"), ("3D/a#b.glb", None));
+    }
 }

@@ -204,10 +204,8 @@ def editor(tmp_path, monkeypatch):
 
 def test_page_embeds_a_token_and_writes_demand_it(editor):
     call, _port, srv = editor
-    code, page = call("/")                     # the map page, at /map/
-    assert code == 200
-    token = re.search(rb'const TOKEN = "([^"]+)"', page).group(1).decode()
-    assert token == srv.token and token != "__RSMM_TOKEN__"
+    assert call("/")[0] == 404                 # API only: the native app has the page
+    token = srv.token
     body = {"chapter": "DarkHills", "mod_id": "x-y", "edits": {}}
     assert call("/api/save", body)[0] == 403
     assert call("/api/save", body, token="wrong")[0] == 403
@@ -367,6 +365,16 @@ def test_a_map_manifest_reads_back_as_its_clone(play):
     assert block["tilegen"] == edits
     assert block["place"]["new0"] == "Avalon/64x64_Ponds_And_Fountains_Camp"
     assert block["terrain"][0]["op"] == "raise"
+
+
+def test_a_blank_map_reads_back():
+    import tomllib
+
+    as_map = {"id": "Empty_Hills", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "blank": 4.0}
+    text = ME.manifest_toml("empty", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+    assert tomllib.loads(text)["content"][0]["blank"] == {"height": 4.0}
 
 
 @pytest.mark.parametrize("map_id", ["", "1abc", "has space", "a-b", "x"])

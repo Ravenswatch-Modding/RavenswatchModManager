@@ -175,6 +175,11 @@ pub enum Mode {
     Smooth,
     /// Set an exact height (metres).
     Level,
+    /// Lift (Ctrl: drop) the ground one terrace step, the way the shipped
+    /// chapters are built: flat plateaus on multiples of `step` metres
+    /// (Dark Hills -10/-8/-4/0/4/8/12, 86-94% of cells flat). The target is
+    /// picked once per drag (`level`), so one drag paints one flat layer.
+    Layer,
     /// Paint material slot (1..=4 = R..A) up / down.
     Paint(usize),
     Erase(usize),
@@ -188,17 +193,29 @@ pub struct Brush {
     /// Metres per dab for height, 0..1 per dab for paint / tint.
     pub strength: f32,
     pub level: f32,
+    /// Terrace height for `Mode::Layer`, metres.
+    pub step: f32,
     pub falloff: &'static str,
     pub color: [f32; 3],
 }
 
 impl Default for Brush {
     fn default() -> Self {
-        Brush { mode: Mode::Raise, radius: 8.0, strength: 0.25, level: 0.0, falloff: "smooth", color: [0.55, 0.45, 0.35] }
+        Brush { mode: Mode::Raise, radius: 8.0, strength: 0.25, level: 0.0, step: 4.0, falloff: "smooth", color: [0.55, 0.45, 0.35] }
     }
 }
 
 impl Brush {
+    /// The terrace a `Layer` drag starting on ground at height `h` paints:
+    /// the next step above (`down`: below). Ground already on a step moves a
+    /// whole step, not onto itself.
+    pub fn layer_target(&self, h: f32, down: bool) -> f32 {
+        let step = self.step.max(0.5);
+        let k = h / step;
+        let eps = 0.05;
+        if down { ((k - eps).ceil() - 1.0) * step } else { ((k + eps).floor() + 1.0) * step }
+    }
+
     /// The stroke for one dab at `at`; `invert` swaps raise/lower, paint/erase.
     /// `sources` maps a material slot to its painted layer.
     pub fn stroke(&self, at: Vec3, invert: bool, sources: &[Option<String>], color_layer: Option<&str>) -> Option<Stroke> {
@@ -208,6 +225,7 @@ impl Brush {
             (Mode::Flatten, _) => ("flatten", HEIGHT.to_owned(), None, None),
             (Mode::Smooth, _) => ("smooth", HEIGHT.to_owned(), None, None),
             (Mode::Level, _) => ("flatten", HEIGHT.to_owned(), Some(self.level), None),
+            (Mode::Layer, _) => ("set", HEIGHT.to_owned(), Some(self.level), None),
             (Mode::Paint(k), inv) | (Mode::Erase(k), inv) => {
                 let up = matches!(self.mode, Mode::Paint(_)) != inv;
                 let layer = sources.get(k.checked_sub(1)?)?.clone()?;
@@ -225,5 +243,21 @@ impl Brush {
             layer,
             color,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layer_target_steps_one_terrace() {
+        let b = Brush::default(); // 4 m steps
+        assert_eq!(b.layer_target(0.0, false), 4.0);
+        assert_eq!(b.layer_target(0.0, true), -4.0);
+        assert_eq!(b.layer_target(2.5, false), 4.0);
+        assert_eq!(b.layer_target(2.5, true), 0.0);
+        assert_eq!(b.layer_target(7.99, false), 12.0);
+        assert_eq!(b.layer_target(-8.0, true), -12.0);
     }
 }

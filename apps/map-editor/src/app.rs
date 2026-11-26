@@ -254,6 +254,10 @@ enum Cmd {
     ToolScale,
 }
 
+/// Chapters a blank map can start from: the tile-generated ones (the `map`
+/// kind's `blank` needs a terrain and a recipe).
+const BLANK_BASES: &[&str] = &["DarkHills", "Storm_Island", "Avalon"];
+
 /// Name, shortcut, command: the palette's list and the shortcut sheet.
 const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Save", "Ctrl+S", Cmd::Save),
@@ -371,6 +375,8 @@ pub struct MapEditor {
     box_start: Option<egui::Pos2>,
     keep_edits: Value,
     keep_map: Option<Value>,
+    /// Ground height the File > New blank map menu starts from.
+    new_blank_height: f32,
     opened_doc: Option<Value>,
     unsaved: bool,
     last_autosave: Instant,
@@ -490,6 +496,7 @@ impl MapEditor {
             box_start: None,
             keep_edits: json!({}),
             keep_map: None,
+            new_blank_height: 0.0,
             opened_doc: None,
             unsaved: false,
             last_autosave: Instant::now(),
@@ -1268,8 +1275,9 @@ impl MapEditor {
         } else {
             Vec::new()
         };
+        let blank = self.blank().is_some();
         (0..s.obj_xf.len())
-            .filter(|i| !self.edits.removed.contains(i))
+            .filter(|i| !blank && !self.edits.removed.contains(i))
             .map(Sel::Obj)
             .chain(self.edits.adds.iter().map(|a| Sel::Add(a.uid)))
             .chain(spots)
@@ -1304,9 +1312,19 @@ impl MapEditor {
         }
     }
 
+    /// The flat ground height of a blank map (`map.blank`), kept in the map
+    /// clone document so it saves, autosaves and reopens with it.
+    fn blank(&self) -> Option<f32> {
+        self.keep_map.as_ref()?.get("blank")?.as_f64().map(|v| v as f32)
+    }
+
     /// Paste `items` (entity, level, transform relative to their centre) with
     /// their centre at `at`; selects what was pasted.
     fn paste_items(&mut self, ctx: &egui::Context, items: Vec<(String, String, Xf)>, at: Vec3) -> usize {
+        if self.blank().is_some() {
+            self.status = "Placing objects on a blank map is the next step (they would land in the shipped chapter, which a blank map no longer loads)".into();
+            return 0;
+        }
         let allowed: HashSet<&str> = self.props.iter().map(|p| p.entity.as_str()).collect();
         let (ok, refused): (Vec<_>, Vec<_>) = items.into_iter().partition(|(e, _, _)| allowed.contains(e.as_str()));
         for (e, _, _) in &ok {
@@ -1358,6 +1376,10 @@ impl MapEditor {
     }
 
     fn place(&mut self, ctx: &egui::Context, entity: String, at: Vec3) {
+        if self.blank().is_some() {
+            self.status = "Placing objects on a blank map is the next step (they would land in the shipped chapter, which a blank map no longer loads)".into();
+            return;
+        }
         let Some(s) = &self.scenery else { return };
         // The level of the nearest shipped object, as the browser editor does.
         let best = (0..s.obj_xf.len())
@@ -1405,6 +1427,13 @@ impl MapEditor {
     fn replay_terrain(&mut self) {
         let Some(base) = &self.terrain_base else { return };
         let mut t = base.clone();
+        if let Some(h) = self.blank() {
+            // What `blank` writes: flat ground, no water, nothing blocked.
+            let h = h.clamp(t.min.y, t.max.y);
+            t.h.fill(h);
+            t.water = None;
+            t.block = None;
+        }
         let mut w = self.look_base.as_ref().map(|l| l.weights.clone()).unwrap_or_default();
         let mut c = self.look_base.as_ref().and_then(|l| l.color.clone());
         for st in &self.edits.strokes {
@@ -2251,12 +2280,14 @@ impl MapEditor {
         let deltas: HashMap<usize, Mat4> =
             self.edits.moves.iter().map(|(&i, xf)| (i, xf.mat() * s.obj_xf[i].mat().inverse())).collect();
         let mut shipped = Vec::with_capacity(s.parts.len());
+        // A blank map sinks every shipped object (`map.blank`).
+        let blank = self.blank().is_some();
         for p in &s.parts {
             let mut v = Vec::with_capacity(p.base.len());
             for (j, base) in p.base.iter().enumerate() {
                 let ow = p.owners[j] as usize;
                 let sel = Sel::Obj(ow);
-                if self.edits.removed.contains(&ow) || self.hidden.contains(&sel) {
+                if blank || self.edits.removed.contains(&ow) || self.hidden.contains(&sel) {
                     continue;
                 }
                 let (m, tint) = match deltas.get(&ow) {
@@ -2551,6 +2582,10 @@ impl MapEditor {
                 if let Some(g) = hover_ground {
                     if self.last_dab.is_none() {
                         self.history.push(&self.edits); // one undo step per stroke
+                        if self.brush.mode == BrushMode::Layer {
+                            self.brush.level = self.brush.layer_target(g.y, cmd_key);
+                            self.status = format!("Layer: painting a flat terrace at {:.1} m", self.brush.level);
+                        }
                     }
                     let spacing = (self.brush.radius * 0.3).max(0.25);
                     if self.last_dab.is_none_or(|l| (l - g).with_y(0.0).length() >= spacing) {
@@ -3053,6 +3088,7 @@ impl MapEditor {
         let ctx = ui.ctx().clone();
         let pick: std::cell::Cell<Option<Cmd>> = std::cell::Cell::new(None);
         let mut open_chapter: Option<String> = None;
+        let mut open_blank: Option<(String, f32)> = None;
         let mut open_mod: Option<String> = None;
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut egui::Ui, label: &str, key: &str, c: Cmd| {
@@ -3066,6 +3102,16 @@ impl MapEditor {
                     for c in &self.chapters {
                         if ui.button(&c.label).clicked() {
                             open_chapter = Some(c.key.clone());
+                            ui.close();
+                        }
+                    }
+                });
+                ui.menu_button("New blank map", |ui| {
+                    ui.label(egui::RichText::new("Flat ground, no scenery, no invisible walls. Keeps the chapter's look, light, enemies and tile spots.").small().weak());
+                    ui.add(egui::Slider::new(&mut self.new_blank_height, -40.0..=40.0).step_by(2.0).text("ground m"));
+                    for c in &self.chapters {
+                        if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("Start from {}", c.label)).clicked() {
+                            open_blank = Some((c.key.clone(), self.new_blank_height));
                             ui.close();
                         }
                     }
@@ -3210,6 +3256,20 @@ impl MapEditor {
                 self.show_env = !self.show_env;
             }
         });
+        if let Some((k, h)) = open_blank {
+            if self.unsaved {
+                self.autosave();
+            }
+            self.mod_id.clear();
+            self.mod_name.clear();
+            self.keep_edits = json!({});
+            self.keep_map = Some(json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": [], "blank": h}));
+            self.as_map = true;
+            self.map_id = format!("Map_{}_Blank", k);
+            self.open_chapter(&ctx, k);
+            self.restore_offer = None;
+            self.status = format!("New blank map: flat ground at {h} m. Paint it, place spots, then File > Save As");
+        }
         if let Some(k) = open_chapter {
             if self.unsaved {
                 self.autosave();
@@ -3686,12 +3746,16 @@ impl MapEditor {
         let b = &mut self.brush;
         ui.label(egui::RichText::new("Shape").strong());
         ui.horizontal_wrapped(|ui| {
-            for (m, l) in [(BrushMode::Raise, "Raise"), (BrushMode::Lower, "Lower"), (BrushMode::Flatten, "Flatten"), (BrushMode::Smooth, "Smooth"), (BrushMode::Level, "Set height")] {
+            for (m, l) in [(BrushMode::Raise, "Raise"), (BrushMode::Lower, "Lower"), (BrushMode::Flatten, "Flatten"), (BrushMode::Smooth, "Smooth"), (BrushMode::Level, "Set height"), (BrushMode::Layer, "Layer")] {
                 ui.selectable_value(&mut b.mode, m, l);
             }
         });
         if b.mode == BrushMode::Level {
             ui.add(egui::Slider::new(&mut b.level, -50.0..=50.0).text("height m"));
+        }
+        if b.mode == BrushMode::Layer {
+            ui.add(egui::Slider::new(&mut b.step, 1.0..=8.0).step_by(1.0).text("step m"));
+            ui.label(egui::RichText::new("Each drag paints one flat terrace a step above the ground you start on (Ctrl: below). The shipped chapters use 4 m steps, sometimes 2 m.").small().weak());
         }
         ui.label(egui::RichText::new("Paint the ground").strong());
         ui.horizontal_wrapped(|ui| {

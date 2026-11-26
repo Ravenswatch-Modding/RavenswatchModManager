@@ -1,12 +1,13 @@
-"""`rsmm editor` — items, talents, abilities and maps in one local page.
+"""`rsmm editor` — items, talents, heroes and abilities in one local page.
 
     rsmm editor                      open on the Items tab
-    rsmm editor --tab map            ...or on another tab
+    rsmm editor --tab abilities      ...or on another tab
     rsmm editor --port 9000 --no-browser
 
-``item-editor``, ``talent-editor``, ``ability-editor`` and ``map-editor`` are
-aliases that open it on their tab (see ``_dispatch.LEGACY``). The editors live
-in ``rsmm.cli.editor``.
+``item-editor``, ``talent-editor`` and ``ability-editor`` are aliases that open
+it on their tab (see ``_dispatch.LEGACY``). The editors live in
+``rsmm.cli.editor``. Maps are edited in the native map editor
+(``apps/map-editor``), which drives the ``/map/api`` routes over ``--stdio``.
 """
 
 from __future__ import annotations

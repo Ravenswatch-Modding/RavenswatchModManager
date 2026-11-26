@@ -310,6 +310,22 @@ def material_color(mat_path: str) -> str | None:
 
 
 @functools.lru_cache(maxsize=4096)
+def submesh_count(rel: str) -> int:
+    """How many ``submesh_<i>`` nodes the glb at `rel` has (the uncooker
+    writes one per material slot; 0 when it cannot be read)."""
+    import json
+    data = asset_bytes(rel)
+    if not data or data[:4] != b"glTF":
+        return 0
+    try:
+        (n,) = struct.unpack_from("<I", data, 12)
+        doc = json.loads(data[20:20 + n])
+    except (struct.error, ValueError):
+        return 0
+    return sum(1 for nd in doc.get("nodes", []) if str(nd.get("name", "")).startswith("submesh_"))
+
+
+@functools.lru_cache(maxsize=4096)
 def material_albedo(mat_path: str) -> tuple[str | None, bool]:
     """``(png path, swap_rb)`` of a material's albedo texture, when one can be drawn."""
     data = _bytes("3D", mat_path)
@@ -381,16 +397,29 @@ def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
     own: list[tuple[Part, Matrix]] = []
     meshes = 0
     mesh: str | None = None
-    tex: tuple[str | None, bool] = (None, False)
-    color: str | None = None
+    mats: list[str] = []
+    seen: set[str] = set()
 
     def flush():
-        if not mesh:
+        if not mesh or mesh in seen:
+            return                       # a mesh named again (skeleton / anim refs) draws once
+        seen.add(mesh)
+        if mesh == _DECAL_MESH:
+            tex = next((t for t in map(material_albedo, mats) if t[0]), (None, False))
+            if tex[0]:
+                own.append((Part(mesh, tex[0], tex[1], None, True), IDENTITY))
+            return                       # a decal with nothing to show draws nothing
+        if len(mats) > 1 and submesh_count(mesh) == len(mats):
+            # One material per sub-mesh, in order (166/166 sampled scenery
+            # meshes): each slot drawn with its own texture.
+            for i, m in enumerate(mats):
+                tex = material_albedo(m)
+                own.append((Part(f"{mesh}#{i}", tex[0], tex[1],
+                                 None if tex[0] else material_color(m)), IDENTITY))
             return
-        decal = mesh == _DECAL_MESH
-        if decal and not tex[0]:
-            return                       # a decal with nothing to show
-        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color, decal), IDENTITY))
+        tex = next((t for t in map(material_albedo, mats) if t[0]), (None, False))
+        color = next((c for c in map(material_color, mats) if c), None)
+        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color), IDENTITY))
 
     for root, path in refs:
         low = path.lower()
@@ -402,10 +431,9 @@ def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
             skip = ("_lod" in name or "_anim_" in name or "\\animations\\" in low
                     or rel.startswith(_HELPER_MESHES))
             mesh = rel if not skip and available(rel) else None
-            tex, color = (None, False), None
-        elif root == "3D" and low.endswith(".mat.ot") and mesh and tex[0] is None:
-            tex = material_albedo(path)
-            color = color or material_color(path)
+            mats = []
+        elif root == "3D" and low.endswith(".mat.ot") and mesh:
+            mats.append(path)
     flush()
     if own or meshes:
         return tuple(own)                # an entity with meshes of its own stops here

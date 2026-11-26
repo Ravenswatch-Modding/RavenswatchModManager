@@ -469,6 +469,7 @@
             "then": {
               "properties": {
                 "base": {},
+                "blank": {},
                 "chapter": {},
                 "id": {},
                 "kind": {},

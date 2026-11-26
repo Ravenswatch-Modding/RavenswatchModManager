@@ -57,7 +57,6 @@ LEGACY = {
     "item-editor":    ("rsmm.cli.cmd_editor",                ["--tab", "items"]),
     "talent-editor":  ("rsmm.cli.cmd_editor",                ["--tab", "talents"]),
     "ability-editor": ("rsmm.cli.cmd_editor",                ["--tab", "abilities"]),
-    "map-editor":     ("rsmm.cli.cmd_editor",                ["--tab", "map"]),
 }
 
 BUILTIN = {
@@ -176,7 +175,6 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         ("item-editor", "",                        "= editor --tab items"),
         ("talent-editor", "",                      "= editor --tab talents"),
         ("ability-editor", "",                     "= editor --tab abilities"),
-        ("map-editor", "",                         "= editor --tab map"),
     )),
     ("game", (
         ("run",      "[--set-launch-options]",     "launch Ravenswatch via Steam"),

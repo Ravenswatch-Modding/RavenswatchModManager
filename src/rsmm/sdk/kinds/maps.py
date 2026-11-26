@@ -40,6 +40,21 @@ Fields:
                                   amount, falloff, layer }]`` — see
                                   `rsmm.engine.terrain.apply_strokes`. Mesh,
                                   collision and navmesh follow at load.
+    ``blank``    (true or ``{ height = <m> }``, optional) start from an EMPTY
+                                  map instead of the base's landscape: the
+                                  ground flat at ``height`` metres (default 0;
+                                  the shipped chapters build in 4 m terraces),
+                                  no water, ``LD Block`` cleared, and every
+                                  scenery object, ramp stamp, invisible wall
+                                  and collision volume of the base sunk under
+                                  the map (`level_placements.sink_all`) on
+                                  levels of the clone's own. Enemy camps and
+                                  other gameplay objects that stood on the old
+                                  ground are re-seated on the new one. The
+                                  recipe's slots stay (a run needs its start
+                                  and boss) and sit on the flat ground;
+                                  ``terrain`` strokes paint on top of it.
+                                  ⚠ Unplaytested.
     ``tilegen``  (table, optional) the clone's generation recipe, same
                                   vocabulary as the ``tilegen`` kind (``kinds``,
                                   ``quotas``, ``slots``, ``fill``) but applied
@@ -64,12 +79,14 @@ chapter generated 140 tiles and none of them the shrine (was 6).
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from ...engine import corpus
 from ...engine import enemy_pools as EP
+from ...engine import level_placements as LP
 from ...engine import map_cook as MC
 from ...engine import map_editor as ME
 from ...engine import map_pool as MP
@@ -261,12 +278,73 @@ def _copy_cache(src_cache: bytes, p: _Placed) -> set[str]:
     return (set(RC.parse(src_cache)) - {RC.entry_for(p.src_rel)}) | {RC.entry_for(p.rel)}
 
 
-def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
-           folder: str, swaps: dict[str, str]) -> dict:
-    """Lay `strokes` on the base terrain; re-seat the recipe's slots on it.
+#: A scenery or collision sublevel a blank map empties, by the part of its
+#: stem it keeps in the clone's name (``Map_Dark_Hills_Scenery_NorthEast`` ->
+#: ``Scenery_NorthEast``). The scenery PARENT (``..._Scenery``) is cloned anyway.
+_EMPTIED = re.compile(r"_((?:Scenery_.+)|Collisions)$")
+_GAMEPLAY = re.compile(r"_(Gameplay(?:_.+)?)$")
+#: How close (metres) to the old ground a gameplay object must stand to be
+#: re-seated on the new ground; anything else is left where it was.
+_ON_GROUND = 1.0
 
-    Adds the terrain and scenery clones to `swaps` and returns their bytes."""
-    if not isinstance(strokes, list) or not strokes:
+
+def _stem(ref: str) -> str:
+    return ref.rsplit("\\", 1)[-1].removesuffix(".level.ot")
+
+
+def _blank_height(map_id: str, blank) -> float | None:
+    if blank is None or blank is False:
+        return None
+    if blank is True:
+        return 0.0
+    if isinstance(blank, dict) and set(blank) <= {"height"}:
+        h = blank.get("height", 0.0)
+        if isinstance(h, (int, float)) and not isinstance(h, bool) and math.isfinite(h):
+            return float(h)
+    raise ContentError(f"map {map_id}: 'blank' is true or {{ height = <metres> }}")
+
+
+#: Layers a blank map zeroes: no water (0 = the box floor) and nothing marked
+#: blocked. Each may be missing from a terrain; Storm Island and Avalon carry
+#: water twice (`terrain.fill`).
+_BLANK_ZERO = ("Base Water Height", "LD Block")
+
+
+def _blank_ground(map_id: str, t: TR.Terrain, height: float) -> None:
+    """Flat ground at `height`."""
+    lo, hi = t.box_min[1], t.box_max[1]
+    if not lo < height < hi:
+        raise ContentError(f"map {map_id}: blank height {height:g} m is outside the "
+                           f"terrain's {lo:g}..{hi:g} m")
+    cells = t.layers[TR.HEIGHT].cells
+    v = (height - lo) / (hi - lo)
+    for i in range(len(cells)):
+        cells[i] = v
+
+
+def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain) -> bytes | None:
+    """`raw` with every object that stood on `old` ground standing on `new`."""
+    moves = {}
+    for oid, pl in LP.objects(raw):
+        x, y, z = pl.pos
+        if abs(y - old.height_at(x, z)) <= _ON_GROUND:
+            ny = new.height_at(x, z)
+            if abs(ny - y) > 0.01:
+                moves[oid] = ((x, ny, z), pl.quat, pl.scale)
+    return LP.set_transforms(raw, moves) if moves else None
+
+
+def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
+           folder: str, swaps: dict[str, str], blank: float | None = None) -> dict:
+    """Lay `strokes` on the base terrain (flattened first for a `blank` map);
+    re-seat the recipe's slots on it.
+
+    Adds the terrain and scenery clones to `swaps` and returns their bytes. A
+    blank map also returns ``extra``: ``{old ref: (bytes, parent)}`` for each
+    emptied scenery / collision sublevel and re-seated gameplay level, where
+    ``parent`` names the level that lists it (``"scenery"`` or ``"root"``)."""
+    strokes = [] if strokes is None and blank is not None else strokes
+    if not isinstance(strokes, list) or not (strokes or blank is not None):
         raise ContentError(f"map {map_id}: 'terrain' is a list of brush strokes")
     terrain_refs = [r for r in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]
                     if r.endswith("_Terrain.level.ot")]
@@ -284,8 +362,16 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     names = {st.get("layer", TR.HEIGHT) for st in strokes if isinstance(st, dict)} | {TR.HEIGHT}
     try:
         t = TR.read(raw, names)
-        TR.apply_strokes(t, strokes)
+        if blank is not None:
+            _blank_ground(map_id, t, blank)
+        if strokes:
+            TR.apply_strokes(t, strokes)
         painted = TR.write(raw, t)
+        if blank is not None:
+            have = set(TR.read(raw, set(_BLANK_ZERO)).layers)
+            for name in _BLANK_ZERO:
+                if name in have:
+                    painted = TR.fill(painted, name, 0.0)
     except TR.TerrainError as e:
         raise ContentError(f"map {map_id}: {e}") from e
     for s in recipe.slots.values():
@@ -293,17 +379,40 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
             y = t.height_at(s.pos[0], s.pos[2])
             if abs(y - s.pos[1]) > 0.01:
                 s.pos = (s.pos[0], y, s.pos[2])
-    for old, tag in ((terrain_ref, "Terrain"), (scenery_ref, "Scenery")):
-        swaps[old] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
-        if corpus.exists(PC.level_cooked_path(swaps[old])):
-            raise ContentError(f"map {map_id}: the clone's level {swaps[old]} collides "
+    extra: dict[str, tuple[bytes, str]] = {}
+    if blank is not None:
+        old = TR.read(raw, {TR.HEIGHT})
+        try:
+            scenery = LP.sink_all(scenery)[0]
+            for parent, level in (("scenery", scenery), ("root", root)):
+                for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                    if not r.endswith(".level.ot") or r in extra:
+                        continue
+                    if _EMPTIED.search(_stem(r)):
+                        child = _read(PC.level_cooked_path(r), f"the base map's {_stem(r)}")
+                        extra[r] = (LP.sink_all(child)[0], parent)
+                    elif parent == "root" and _GAMEPLAY.search(_stem(r)):
+                        child = _read(PC.level_cooked_path(r), f"the base map's {_stem(r)}")
+                        moved = _reseat(child, old, t)
+                        if moved is not None:
+                            extra[r] = (moved, parent)
+        except LP.LevelPlacementError as e:
+            raise ContentError(f"map {map_id}: blank: {e}") from e
+    tags = [(terrain_ref, "Terrain"), (scenery_ref, "Scenery")]
+    tags += [(r, (_EMPTIED.search(_stem(r)) or _GAMEPLAY.search(_stem(r))).group(1))
+             for r in extra]
+    for old_ref, tag in tags:
+        swaps[old_ref] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
+        if corpus.exists(PC.level_cooked_path(swaps[old_ref])):
+            raise ContentError(f"map {map_id}: the clone's level {swaps[old_ref]} collides "
                                f"with a shipped level; pick another id.")
-    return {"refs": (terrain_ref, scenery_ref), "terrain": painted, "scenery": scenery}
+    return {"refs": (terrain_ref, scenery_ref), "terrain": painted, "scenery": scenery,
+            "extra": extra}
 
 
 def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   written: list[Path], edits: dict | None = None, place=None,
-                  biome: str = "", strokes=None,
+                  biome: str = "", strokes=None, blank: float | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -331,7 +440,7 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     _h, doc = PC._refs_doc("oCGameStream", root)
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
-        if edits or place or strokes:
+        if edits or place or strokes or blank is not None:
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -361,7 +470,8 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
-        painted = _paint(map_id, tg, root, recipe, strokes, folder, swaps) if strokes else {}
+        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank)
+                   if strokes or blank is not None else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
     except (ME.MapEditError, TG.TileGenError) as e:
@@ -372,12 +482,19 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     if painted:
         terrain_ref, scenery_ref = painted["refs"]
         tg_swaps[terrain_ref] = swaps[terrain_ref]
+        # Avalon's tile-generation level lists the scenery level too: left on
+        # the vanilla one it would load the vanilla terrain beside the clone's.
+        if scenery_ref in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]:
+            tg_swaps[scenery_ref] = swaps[scenery_ref]
         root_swaps[scenery_ref] = swaps[scenery_ref]
+        scenery_swaps = {terrain_ref: swaps[terrain_ref]}
+        for old, (blob, parent) in painted["extra"].items():
+            (scenery_swaps if parent == "scenery" else root_swaps)[old] = swaps[old]
+            out[old] = PC.clone_tile_level(blob, old, swaps[old], {})
         out[terrain_ref] = PC.clone_tile_level(painted["terrain"], terrain_ref,
                                                swaps[terrain_ref], {})
         out[scenery_ref] = PC.clone_tile_level(painted["scenery"], scenery_ref,
-                                               swaps[scenery_ref],
-                                               {terrain_ref: swaps[terrain_ref]})
+                                               swaps[scenery_ref], scenery_swaps)
     out[tg_ref] = PC.clone_tile_level(tg, tg_ref, swaps[tg_ref], tg_swaps)
     out[root_ref] = PC.clone_tile_level(root, root_ref, swaps[root_ref], root_swaps)
     for old, blob in out.items():
@@ -417,9 +534,10 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     base_rel = f"{_MAPS}/{base_stem}{MC.MAP_GEN_SUFFIX}"
     base_bytes = _read(base_rel, f"base map {base!r}")
     root_ref = MC.read_mapdef(base_bytes)["level_ref"][1]
+    blank = _blank_height(defn.id, defn.fields.get("blank"))
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
-                                           defn.fields.get("terrain"))
+                                           defn.fields.get("terrain"), blank)
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []

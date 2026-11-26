@@ -46,7 +46,6 @@ TABS = {
     "scripts": ("Scripts", "/content/?tab=scripts"),
     "hero": ("Hero", "/hero/"),
     "abilities": ("Abilities", "/abilities/"),
-    "map": ("Map", "/map/"),
     "save": ("Save file", "/save/"),
 }
 
@@ -152,8 +151,6 @@ def render(name: str, token: str, **subs: str) -> str:
     """A page with the shared CSS/JS inlined and the launch's token filled in."""
     page = (_read(name).replace("{{common.css}}", _read("common.css"))
             .replace("{{common.js}}", _read("common.js"))
-            .replace("{{models.js}}", _read("models.js"))
-            .replace("{{tilemode.js}}", _read("tilemode.js"))
             .replace("{{newmod.html}}", _read("newmod.html")))
     for key, value in subs.items():
         page = page.replace(key, value)
@@ -250,7 +247,10 @@ def handle(ctx: Context, method: str, target: str, headers: Mapping[str, str],
         # Relative URLs in the page resolve under the mount only with the slash.
         return Reply(301, "text/plain", b"", headers={"Location": f"/{mount}/"})
     if rest == "" and method == "GET":
-        return Reply(200, HTML, render(editor.PAGE, ctx.token).encode("utf-8"))
+        page = getattr(editor, "PAGE", None)
+        if page is None:   # an API-only mount (the native map editor's backend)
+            return _fail(404, "not found")
+        return Reply(200, HTML, render(page, ctx.token).encode("utf-8"))
 
     data: dict = {}
     if method == "POST":

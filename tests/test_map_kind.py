@@ -335,3 +335,63 @@ def test_a_map_without_terrain_refuses_strokes(tmp_path):
         maps.emit("m", ContentDef(kind="map", id="Other_Hut", fields={
             "base": "Baba_Yaga", "terrain": [{"op": "raise", "x": 0, "z": 0,
                                                "radius": 5, "amount": 1}]}), tmp_path)
+
+
+# ---- blank map -------------------------------------------------------------
+
+@needs_corpus
+@pytest.mark.parametrize("base,folder", [("Dark_Hills", "DarkHills"),
+                                         ("Storm_Island", "Storm_Island"),
+                                         ("Avalon", "Avalon")])
+def test_blank_map_is_flat_empty_and_owns_its_levels(tmp_path, base, folder):
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+    from rsmm.engine import terrain as TR
+    from rsmm.engine import tilegen as TG
+
+    mid = f"Blank_{folder}"
+    maps.emit("m", ContentDef(kind="map", id=mid, fields={
+        "base": base, "blank": {"height": 4}}), tmp_path)
+
+    def own(ref):
+        return (tmp_path / PC.level_cooked_path(ref)).read_bytes()
+
+    def refs(blob):
+        return PC._refs_doc("oCGameStream", blob)[1]["asset_refs"]
+
+    root = own(f"{folder}\\Map_{mid}.level.ot")
+    scenery = own(f"{folder}\\Map_{mid}_Scenery.level.ot")
+    raw_terrain = own(f"{folder}\\Map_{mid}_Terrain.level.ot")
+    terrain = TR.read(raw_terrain)
+    # flat at 4 m; every water layer (Storm Island / Avalon have two) and LD Block zero
+    h = terrain.layers[TR.HEIGHT].cells
+    assert min(h) == max(h) == pytest.approx((4 + 50) / 100)
+    for name in ("LD Block", "Base Water Height"):
+        layer = terrain.layers.get(name)
+        if layer is not None:
+            assert max(layer.cells) == 0.0, name
+    assert TR.fill(raw_terrain, "Base Water Height", 0.0) == raw_terrain
+    # every vanilla scenery / collision sublevel is replaced by an emptied clone
+    listed = refs(root) + refs(scenery)
+    vanilla = [r for r in listed if "Scenery_" in r or r.endswith("_Collisions.level.ot")]
+    assert vanilla and all(f"Map_{mid}_" in r for r in vanilla), vanilla
+    for r in vanilla:
+        blob = own(r)
+        assert all(p.pos[1] < -500 for _, p in LP.objects(blob))
+        assert all(min(y for _x, y, _z in pts) < -500 for _, _n, pts in LP.walls(blob))
+    assert all(p.pos[1] < -500 for _, p in LP.objects(scenery))
+    # no level of the clone still names the vanilla terrain or scenery parent
+    tg = own(f"{folder}\\Map_{mid}_TileGeneration.level.ot")
+    for blob in (root, scenery, tg):
+        assert not any(r.endswith(f"\\Map_{base}_Terrain.level.ot") for r in refs(blob))
+    assert not any(r.endswith(f"\\Map_{base}_Scenery.level.ot") for r in refs(root) + refs(tg))
+    # slots sit on the flat ground
+    assert {round(s.pos[1], 2) for s in TG.read(tg).slots.values() if s.kinds} == {4.0}
+
+
+@needs_corpus
+def test_blank_is_validated(tmp_path):
+    for bad in ({"height": 80}, {"height": "x"}, {"level": 1}, "yes"):
+        with pytest.raises(ContentError):
+            maps.emit("m", ContentDef(kind="map", id="Bad_Blank", fields={
+                "base": "Dark_Hills", "blank": bad}), tmp_path)
