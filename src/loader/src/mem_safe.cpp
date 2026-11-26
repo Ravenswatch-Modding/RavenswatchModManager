@@ -18,6 +18,100 @@ constexpr DWORD kWritable = PAGE_READWRITE | PAGE_WRITECOPY |
                             PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
 } // namespace
 
+// ---------------------------------------------------------------------------
+// Fault-tolerant copy.
+//
+// mem_accessible() answers "was this page readable a moment ago", not "will it
+// still be when we read it". On 2026-11-26 a client crashed in lua_read_u64
+// with rax=1 (the guard said yes) and the faulting page MEM_FREE in the dump:
+// the engine's heap released it on another thread during LevelGs::_Unload,
+// between the VirtualQuery and the load. MinGW has no __try/__except, so the
+// copy itself must be recoverable: rsmm_fault_copy is a stack-less leaf in
+// asm, and a vectored handler that only claims faults whose RIP lies inside it
+// moves RIP to rsmm_fault_copy_fault, which returns 0. Nothing else is touched
+// — any fault outside that range is passed on untouched.
+//
+// Copies 8 bytes at a time while it can, so an aligned 8-byte read is still a
+// single mov (a pointer the game is rewriting can't come back torn).
+// ---------------------------------------------------------------------------
+extern "C" int rsmm_fault_copy(void* dst, const void* src, std::size_t n);
+extern "C" char rsmm_fault_copy_fault[];
+
+asm(R"(
+    .text
+    .p2align 4
+    .globl rsmm_fault_copy
+rsmm_fault_copy:
+1:  cmpq $8, %r8
+    jb 2f
+    movq (%rdx), %rax
+    movq %rax, (%rcx)
+    addq $8, %rdx
+    addq $8, %rcx
+    subq $8, %r8
+    jmp 1b
+2:  testq %r8, %r8
+    jz 3f
+    movb (%rdx), %al
+    movb %al, (%rcx)
+    incq %rdx
+    incq %rcx
+    decq %r8
+    jmp 2b
+3:  movl $1, %eax
+    ret
+    .globl rsmm_fault_copy_fault
+rsmm_fault_copy_fault:
+    xorl %eax, %eax
+    ret
+)");
+
+namespace {
+
+LONG CALLBACK fault_copy_veh(EXCEPTION_POINTERS* ep) {
+    const DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_IN_PAGE_ERROR &&
+        code != EXCEPTION_GUARD_PAGE) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    const auto rip = ep->ContextRecord->Rip;
+    const auto begin = reinterpret_cast<DWORD64>(&rsmm_fault_copy);
+    const auto fault = reinterpret_cast<DWORD64>(&rsmm_fault_copy_fault);
+    if (rip < begin || rip >= fault) return EXCEPTION_CONTINUE_SEARCH;
+    // Leaf with no stack use: RSP still holds the caller's return address,
+    // so jumping to the `xor eax,eax; ret` tail returns 0 to the caller.
+    ep->ContextRecord->Rip = fault;
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+void ensure_fault_handler() {
+    // Thread-safe static init. FIRST in the chain so a crash reporter's
+    // handler can't see a fault we are about to recover from. If registration
+    // fails the copy still runs — that is the pre-handler behaviour, no worse.
+    static PVOID handle = AddVectoredExceptionHandler(1, &fault_copy_veh);
+    (void)handle;
+}
+
+} // namespace
+
+bool mem_copy_from(void* dst, std::uintptr_t src, std::size_t n) {
+    if (!dst || !mem_accessible(src, n, false)) return false;
+    ensure_fault_handler();
+    return rsmm_fault_copy(dst, reinterpret_cast<const void*>(src), n) != 0;
+}
+
+bool mem_copy_to(std::uintptr_t dst, const void* src, std::size_t n) {
+    if (!src || !mem_accessible(dst, n, true)) return false;
+    ensure_fault_handler();
+    return rsmm_fault_copy(reinterpret_cast<void*>(dst), src, n) != 0;
+}
+
+bool mem_store_unchecked(std::uintptr_t dst, const void* src, std::size_t n) {
+    if (!src || dst == 0 || n == 0) return false;
+    ensure_fault_handler();
+    return rsmm_fault_copy(reinterpret_cast<void*>(dst), src, n) != 0;
+}
+
 bool mem_accessible(std::uintptr_t addr, std::size_t size, bool need_write) {
     if (addr == 0 || size == 0) return false;
     // Reject the first 64 KiB (never mappable on Windows) and anything that
@@ -61,9 +155,9 @@ std::size_t mem_read_cstr(std::uintptr_t addr, char* out, std::size_t cap) {
         // near a page boundary still copies its readable prefix.
         std::size_t chunk = cap - 1 - n;
         if (chunk > 64) chunk = 64;
-        while (chunk > 0 && !mem_accessible(addr + n, chunk, false)) chunk /= 2;
+        char p[64];
+        while (chunk > 0 && !mem_copy_from(p, addr + n, chunk)) chunk /= 2;
         if (chunk == 0) break;
-        const auto* p = reinterpret_cast<const char*>(addr + n);
         for (std::size_t i = 0; i < chunk; ++i) {
             if (p[i] == '\0') { out[n] = '\0'; return n; }
             out[n++] = p[i];
