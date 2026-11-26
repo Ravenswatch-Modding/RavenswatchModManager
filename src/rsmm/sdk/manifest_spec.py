@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import difflib
 
-#: Keys every `[[content]]` block may carry, whatever its kind.
-CONTENT_COMMON: frozenset[str] = frozenset({"kind", "id", "schema_version"})
+#: Keys every `[[content]]` block may carry, whatever its kind. `when` names a
+#: bool config field; the registry skips the block while it is off.
+CONTENT_COMMON: frozenset[str] = frozenset({"kind", "id", "schema_version", "when"})
 
 #: Top-level fields each content kind reads, beyond :data:`CONTENT_COMMON`.
 #: Modes are unioned: a kind that also checks per-mode (enemy, item ban,

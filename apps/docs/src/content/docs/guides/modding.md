@@ -455,6 +455,10 @@ grouping, search and art in one round trip. Read the value back with the normal
 config API (`ConfigStore(mod_dir).get("banned")`); the `rsmm-item-bans` mod's
 `[[content]]` ban block takes its item list from exactly that.
 
+A bool field can also switch a whole `[[content]]` block on and off. Write
+`when = "<field>"` on the block, for any kind: while the field is off the block
+writes nothing, and the files it wrote on an earlier apply are removed.
+
 #### A saved config reaches the game on the next launch, never sooner
 
 Nothing about config is hot-reloaded. The loader hands a mod its values once,
