@@ -156,7 +156,7 @@ def test_engine_gen_lua_sigs_valid():
     """Every callable in engine_gen.lua carries a sig of valid codes whose
     length matches its cabi arity (ret code + one per param)."""
     smap = S.load_symbol_map()
-    valid = set("viuplfds")
+    valid = set("viubplfds")
     for s in smap.callable_symbols:
         sig = cmd_symbols._cabi_sig(s.cabi)
         assert sig and all(c in valid for c in sig), f"{s.name}: bad sig {sig!r}"

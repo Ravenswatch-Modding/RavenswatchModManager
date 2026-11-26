@@ -109,7 +109,7 @@ return {
   ["ModalUiController_OnShow"] = { pattern = "ModalUiController_OnShow", offset = 0x0, sig = "vp" },
   ["ModifierEvent_Ctor"] = { pattern = "ModifierEvent_Ctor", offset = 0x0, sig = "ppp" },
   ["ModifierSettings_CreateDesc"] = { pattern = "ModifierSettings_CreateDesc", offset = 0x0, sig = "ppupppp" },
-  ["ModifierSettings_RegisterDesc"] = { pattern = "ModifierSettings_RegisterDesc", offset = 0x0, sig = "ppp" },
+  ["ModifierSettings_RegisterDesc"] = { pattern = "ModifierSettings_RegisterDesc", offset = 0x0, sig = "bpp" },
   ["ModifierValueDesc_Ctor"] = { pattern = "ModifierValueDesc_Ctor", offset = 0x0, sig = "pp" },
   ["NamedEvent_ChannelMap_Find"] = { pattern = "NamedEvent_ChannelMap_Find", offset = 0x0, sig = "pppp" },
   ["NamedEvent_ChooseMelody_Ctor"] = { pattern = "NamedEvent_ChooseMelody_Ctor", offset = 0x0, sig = "pp" },

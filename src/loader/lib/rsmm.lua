@@ -449,8 +449,8 @@ end
 --
 --     local res = R.engine.call("Resource_LookupByPath", path, 0, 0, 0)
 --
--- Arg/return marshalling per the symbol's sig codes (v/i/u/p/l/f/d/s):
--- integers for i/u/p/l, numbers for f/d, Lua strings for s. Returns the
+-- Arg/return marshalling per the symbol's sig codes (v/i/u/b/p/l/f/d/s):
+-- integers for i/u/b/p/l, numbers for f/d, Lua strings for s. Returns the
 -- typed result (nil for void or if the symbol can't be resolved).
 function R.engine.call(name, ...)
     local e = engine_map()[name]
