@@ -308,3 +308,65 @@ def test_scale_errors_name_the_step(tmp_path, step, msg):
     d = ContentDef(kind="entity", id="e", fields={})
     with pytest.raises(ContentError, match=msg):
         entities._resolve_config(d, [step], _cfg_root(tmp_path), corpus.read(_PIPER_REL))
+
+
+_PIPER_COPY = "Heroes/Hero_Piper/Hero_Piper_Copy"
+_PIPER_COPY_REL = f"EntitySettings/{_PIPER_COPY}.entity.ot.EntitySettingsResource.gen"
+
+
+def _list_emit(tmp_path, monkeypatch, entity, *, id="L"):
+    """Emit a block over ``entity``; the Piper copy ships a different delay."""
+    from rsmm.engine.entity_graph_edit import EntityFile
+    real = corpus.read
+
+    def read(rel):
+        if rel != _PIPER_COPY_REL:
+            return real(rel)
+        ef = EntityFile(real(_PIPER_REL))
+        ef.set_value("Primary Ability Shots Delay", "value", 4.0)
+        return ef.to_bytes()
+
+    monkeypatch.setattr(corpus, "read", read)
+    _cfg_root(tmp_path)
+    out = tmp_path / "assets"
+    out.mkdir(exist_ok=True)
+    entities.emit("m", ContentDef(kind="entity", id=id, fields={
+        "entity": entity, "steps": [{"set": _DELAY, "scale": "health"}]}), out)
+    return out
+
+
+@needs_piper
+def test_a_list_scales_each_entity_from_its_own_shipped_value(tmp_path, monkeypatch):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    shipped = EntityFile(corpus.read(_PIPER_REL)).get_value("Primary Ability Shots Delay", "value")
+    out = _list_emit(tmp_path, monkeypatch, [_PIPER, _PIPER_COPY])
+    one = EntityFile((out / Path(*_PIPER_REL.split("/"))).read_bytes())
+    two = EntityFile((out / Path(*_PIPER_COPY_REL.split("/"))).read_bytes())
+    assert _delay(one) == pytest.approx(shipped * 1.5, rel=1e-6)
+    assert _delay(two) == pytest.approx(6.0, rel=1e-6)                # 4.0 * 1.5
+
+
+@needs_piper
+def test_a_string_still_means_one_entity(tmp_path, monkeypatch):
+    out = _list_emit(tmp_path, monkeypatch, _PIPER)
+    assert [p.name for p in out.rglob("*.gen")] == [Path(_PIPER_REL).name]
+
+
+@pytest.mark.parametrize("entity, msg", [
+    ([], "needs 'entity'"),
+    ([_ENTITY, 3], "needs 'entity'"),
+    ([_ENTITY, ""], "needs 'entity'"),
+    ([_ENTITY, _ENTITY + ".entity.ot"], f"entity Dup: {_ENTITY!r}.* listed twice"),
+])
+def test_a_bad_entity_list_is_refused_naming_the_block(tmp_path, entity, msg):
+    with pytest.raises(ContentError, match=msg):
+        entities.emit("m", ContentDef(kind="entity", id="Dup", fields={
+            "entity": entity, "steps": [{"remove_link": "A.b[0]"}]}), tmp_path)
+    assert not list(tmp_path.rglob("*.gen"))
+
+
+def test_an_error_in_one_listed_entity_names_the_block_and_the_entity(tmp_path):
+    with pytest.raises(ContentError, match=r"entity Bad \(Objects/Nope/Nothing_Here\): no shipped"):
+        entities.emit("m", ContentDef(kind="entity", id="Bad", fields={
+            "entity": ["Objects/Nope/Nothing_Here"], "steps": [{"remove_link": "A.b[0]"}]}),
+            tmp_path)

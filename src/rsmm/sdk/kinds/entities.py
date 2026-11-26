@@ -1,4 +1,4 @@
-"""Edits to ONE shipped entity file, in place — SDK entry point.
+"""Edits to shipped entity files, in place — SDK entry point.
 
 ``[[content]] kind = "entity"`` applies the same graph steps a hero's abilities
 use (``set``, ``link``, ``add_link``, ``remove_link``; see
@@ -8,9 +8,14 @@ the applier installs it as a plain asset override and ``rsmm restore`` puts the
 original back. Part names are the ones ``rsmm entity-graph`` shows.
 
 Fields:
-    ``entity``  (str, required)  the entity's path under EntitySettings, e.g.
+    ``entity``  (str or list of str, required)  the entity's path under
+                                 EntitySettings, e.g.
                                  ``Objects/Map_Boss_Spawner/Map_Boss_Spawner_Graph_Model``
                                  (``.entity.ot`` optional, ``\\`` or ``/``).
+                                 A list applies the same steps to each file, and
+                                 each starts from its own shipped copy, so ``scale``
+                                 reads each file's own number. An empty list, a
+                                 non-string item or a repeated path is refused.
     ``steps``   (list, required) ``[[content.steps]]`` tables, applied in order.
 
 A ``set`` step may read its value from the mod's config instead of ``value``:
@@ -33,6 +38,7 @@ earlier block of this mod already wrote.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from ...engine import ability_edit as AE
@@ -149,39 +155,56 @@ def _resolve_config(defn: ContentDef, steps: list[dict], mod_root: Path,
 
 
 def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
-    """Write the edited entity file into the mod's ``assets/`` tree."""
+    """Write the edited entity files into the mod's ``assets/`` tree."""
     C.validate_id("entity", defn.id)
     entity = defn.fields.get("entity")
-    if not entity or not isinstance(entity, str):
+    many = isinstance(entity, list)
+    names = entity if many else [entity]
+    if not entity or not all(isinstance(n, str) and n for n in names):
         raise ContentError(f"entity {defn.id}: needs 'entity', the file's path under "
-                           f"EntitySettings (e.g. Objects/Map_Boss_Spawner/Map_Boss_Spawner_Model)")
+                           f"EntitySettings (e.g. Objects/Map_Boss_Spawner/Map_Boss_Spawner_Model)"
+                           f", or a list of such paths")
     steps = defn.fields.get("steps")
     if not isinstance(steps, list) or not steps or not all(isinstance(s, dict) for s in steps):
         raise ContentError(f"entity {defn.id}: needs 'steps', a list of [[content.steps]] tables")
     if any("clone" in s and s.get("from") for s in steps):
         raise ContentError(f"entity {defn.id}: cross-file clone steps are not supported here; "
                            f"use same-file clone / set / link / add_link / remove_link / percent")
+    rels = [_rel(n) for n in names]
+    for n, rel in zip(names, rels, strict=True):
+        if rels.count(rel) > 1:
+            raise ContentError(f"entity {defn.id}: {n!r} is listed twice ({rel})")
+    written: list[Path] = []
+    for n, rel in zip(names, rels, strict=True):
+        # A list block's errors name the entity too, so the bad one is findable.
+        shown = replace(defn, id=f"{defn.id} ({n})") if many else defn
+        written += _emit_file(mod_id, defn, shown, n, rel, steps, out_dir)
+    return written
 
-    rel = _rel(entity)
+
+def _emit_file(mod_id: str, defn: ContentDef, shown: ContentDef, entity: str, rel: str,
+               steps: list[dict], out_dir: Path) -> list[Path]:
+    """Apply ``steps`` to one shipped entity file. ``shown`` is ``defn`` as
+    errors should name it; the seed and log keep the block's own id."""
     shipped = corpus.read(rel)
     if shipped is None:
-        raise ContentError(f"entity {defn.id}: no shipped entity {entity!r} ({rel}) — "
+        raise ContentError(f"entity {shown.id}: no shipped entity {entity!r} ({rel}) — "
                            f"is the game install readable?")
-    steps = _resolve_config(defn, steps, out_dir.parent, shipped)
+    steps = _resolve_config(shown, steps, out_dir.parent, shipped)
     stem = Path(rel).name.removesuffix(_GEN_SUFFIX)
     dest = out_dir / Path(*rel.split("/"))
     before = dest.read_bytes() if written_this_run(dest) else shipped
     try:
         res = AE.apply({stem: before}, steps, main=stem, seed=f"{mod_id}:{defn.id}")
     except AE.AbilityEditError as e:
-        raise ContentError(f"entity {defn.id}: {e}") from e
+        raise ContentError(f"entity {shown.id}: {e}") from e
     for w in res.warnings:
-        _log.warning("entity %s: %s", defn.id, w)
+        _log.warning("entity %s: %s", shown.id, w)
     blob = res.files.get(stem, before)
     if blob == before:
-        _log.info("entity %s/%s: no change to %s", mod_id, defn.id, stem)
+        _log.info("entity %s/%s: no change to %s", mod_id, shown.id, stem)
         return []
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(blob)
-    _log.info("entity %s/%s: patched %s", mod_id, defn.id, rel)
+    _log.info("entity %s/%s: patched %s", mod_id, shown.id, rel)
     return [dest]
