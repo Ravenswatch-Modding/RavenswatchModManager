@@ -487,3 +487,19 @@ def test_scenery_edits_land_on_the_clones_copy(tmp_path):
     assert got[oid].pos[1] < pl.pos[1] - 500          # sunk on the clone's copy
     assert not (tmp_path / level).exists()            # the shipped level is not emitted
     assert dict(LP.objects(corpus.read(level)))[oid].pos == pl.pos
+
+
+@needs_corpus
+def test_a_blank_map_has_no_enemy_camps_but_keeps_its_day_cycle(tmp_path):
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+
+    maps.emit("m", ContentDef(kind="map", id="Calm_Hills", fields={
+        "base": "Dark_Hills", "blank": True}), tmp_path)
+    level = PC.level_cooked_path("DarkHills\\Map_Calm_Hills_Gameplay.level.ot")
+    own = (tmp_path / level).read_bytes()
+    placed = [p for _i, p in LP.objects(own)]
+    camps = [p for p in placed if "Enemy_Camp" in p.ref]
+    assert len(camps) == 104 and all(p.pos[1] < -500 for p in camps)
+    day = [p for p in placed if "Day_Cycle_Manager" in p.ref]
+    assert len(day) == 1 and day[0].pos[1] > -500

@@ -48,9 +48,11 @@ Fields:
                                   scenery object, ramp stamp, invisible wall
                                   and collision volume of the base sunk under
                                   the map (`level_placements.sink_all`) on
-                                  levels of the clone's own. Enemy camps and
-                                  other gameplay objects that stood on the old
-                                  ground are re-seated on the new one. The
+                                  levels of the clone's own. The chapter's
+                                  fixed enemy camps are sunk too; other
+                                  gameplay objects (day/night manager,
+                                  teleporters, boss spawner) that stood on
+                                  the old ground are re-seated on the new one. The
                                   recipe's slots stay (a run needs its start
                                   and boss) and sit on the flat ground;
                                   ``terrain`` strokes paint on top of it.
@@ -362,11 +364,22 @@ def _blank_ground(map_id: str, t: TR.Terrain, height: float) -> None:
         cells[i] = v
 
 
-def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain) -> bytes | None:
-    """`raw` with every object that stood on `old` ground standing on `new`."""
+#: The chapter's fixed enemy camps (Gameplay level, 61-105 per chapter): a
+#: blank map has none. The day/night manager, teleporters and the boss
+#: spawner in the same level stay.
+_ENEMY_CAMP = re.compile(r"_Enemy_Camp[^\\]*\.entity\.ot$", re.I)
+
+
+def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
+            sink: re.Pattern | None = None) -> bytes | None:
+    """`raw` with every object that stood on `old` ground standing on `new`,
+    and every object whose entity matches `sink` sunk under the map."""
     moves = {}
     for oid, pl in LP.objects(raw):
         x, y, z = pl.pos
+        if sink is not None and sink.search(pl.ref):
+            moves[oid] = ((x, y - SE.SINK, z), pl.quat, pl.scale)
+            continue
         if abs(y - old.height_at(x, z)) <= _ON_GROUND:
             ny = new.height_at(x, z)
             if abs(ny - y) > 0.01:
@@ -584,7 +597,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
                         extra[r] = (LP.sink_all(child)[0], parent)
                     elif parent == "root" and _GAMEPLAY.search(_stem(r)):
                         child = _read(PC.level_cooked_path(r), f"the base map's {_stem(r)}")
-                        moved = _reseat(child, old, t)
+                        moved = _reseat(child, old, t, _ENEMY_CAMP)
                         if moved is not None:
                             extra[r] = (moved, parent)
         except LP.LevelPlacementError as e:
