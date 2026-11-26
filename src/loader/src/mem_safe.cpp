@@ -31,8 +31,9 @@ constexpr DWORD kWritable = PAGE_READWRITE | PAGE_WRITECOPY |
 // moves RIP to rsmm_fault_copy_fault, which returns 0. Nothing else is touched
 // — any fault outside that range is passed on untouched.
 //
-// Copies 8 bytes at a time while it can, so an aligned 8-byte read is still a
-// single mov (a pointer the game is rewriting can't come back torn).
+// Copies 8 bytes at a time while it can, then one 4-, 2- and 1-byte move for
+// the tail, so every aligned 1/2/4/8-byte read or write is still a single mov
+// (a pointer, float or u32 the game is rewriting can't come back torn).
 // ---------------------------------------------------------------------------
 extern "C" int rsmm_fault_copy(void* dst, const void* src, std::size_t n);
 extern "C" char rsmm_fault_copy_fault[];
@@ -50,14 +51,24 @@ rsmm_fault_copy:
     addq $8, %rcx
     subq $8, %r8
     jmp 1b
-2:  testq %r8, %r8
+2:  cmpq $4, %r8
+    jb 4f
+    movl (%rdx), %eax
+    movl %eax, (%rcx)
+    addq $4, %rdx
+    addq $4, %rcx
+    subq $4, %r8
+4:  cmpq $2, %r8
+    jb 5f
+    movw (%rdx), %ax
+    movw %ax, (%rcx)
+    addq $2, %rdx
+    addq $2, %rcx
+    subq $2, %r8
+5:  testq %r8, %r8
     jz 3f
     movb (%rdx), %al
     movb %al, (%rcx)
-    incq %rdx
-    incq %rcx
-    decq %r8
-    jmp 2b
 3:  movl $1, %eax
     ret
     .globl rsmm_fault_copy_fault
