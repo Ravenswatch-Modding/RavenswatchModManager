@@ -869,7 +869,12 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         'tags        = ["maps", "generation"]',
     ]
     scenery = {lv: e for lv, e in (scenery or {}).items() if any(e.get(k) for k in _SCENERY_KEYS)}
-    if scenery:
+    # Ground, objects and scenery a clone carries are loaded by every player
+    # from their own copy, like scenery edits; only the recipe is the host's.
+    own_levels = as_map is not None and any(
+        as_map.get(k) for k in ("terrain", "objects", "scenery")) or (
+        as_map is not None and as_map.get("blank") is not None)
+    if scenery or own_levels:
         lines += ["# Every player loads the chapter's scenery from their own copy, so",
                   "# everyone in the lobby needs this mod at the same version.",
                   'multiplayer_scope = "deterministic-shared"']

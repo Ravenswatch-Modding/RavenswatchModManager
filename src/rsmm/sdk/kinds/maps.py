@@ -478,7 +478,10 @@ def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
     mesh_ref = f"{P._asset_dir(donor_meshes[0])}/{tag}.fbx".replace("/", "\\")
     write(PC.art_cooked_path(mesh_ref),
           PC.cook_model(src.read_bytes(), P._donor_geometry(donor_meshes[0], map_id),
-                        transform={"fit": "rig"}))
+                        # Exactly as authored, bound whole to the donor's one bone
+                        # (a scenery prop never bends; nearest-vertex weights would
+                        # only warn about a pose it does not have).
+                        transform={"fit": "rig", "skin": "rigid"}))
     swaps = dict.fromkeys(donor_meshes, mesh_ref)
     if o.get("texture"):
         mat = _read(PC.art_cooked_path(_MODEL_MATERIAL), "the model donor material")
