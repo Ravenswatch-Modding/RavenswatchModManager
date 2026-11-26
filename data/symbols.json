@@ -1280,7 +1280,7 @@
      "void*"
     ]
    },
-   "note": "The engine's DURABLE add-a-stat-modifier routine. Reads the modifier request (built by ModifierEvent_Ctor into an oCGameEventNetworkModifier, vftable 0x140f322d0), constructs an oCEntityValueModifier (flag@+0x30=1, id@+0x38, value union@+0x08, amount f32@+0x3c, base f32@+0x40, subscriber list @+0x570), inserts it into the per-key modifier registry (store+0x88 SwissTable), then re-folds the override cache entry (store+0xc0 via EntityValueOverride_Alloc) so the new value takes effect immediately AND survives recompute. Combine mode `op` (read from the value-def @+0x68) selects the fold: 1=ADDITIVE (val += amount*scale), 2=SET (override value + base), 3=MATCH-REPLACE (replace a modifier with the same source/id), 4=MIN/priority (keep smallest-delta). This is the correct entry point for a permanent stat change. NOTE: param_2 is a fully-built modifier event; wiring from Lua needs the event payload (op/key/amount, id@+0x54, the virtual fill at def+0x20) decoded + a live playtest before it can be trusted engine-mutating. Decompile-verified live 2026-07-13.",
+   "note": "The engine's DURABLE add-a-stat-modifier routine. Reads the modifier request (built by ModifierEvent_Ctor into an oCGameEventNetworkModifier, vftable 0x140f322d0), constructs an oCEntityValueModifier (flag@+0x30=1, id@+0x38, value union@+0x08, amount f32@+0x3c, base f32@+0x40, subscriber list @+0x570), inserts it into the per-key modifier registry (store+0x88 SwissTable), then re-folds the override cache entry (store+0xc0 via EntityValueOverride_Alloc) so the new value takes effect immediately AND survives recompute. The value-def's +0x70 is the reapply policy for a key that already has live modifiers: 0 leave them, 1 extend their duration, 2 refresh duration and start time, 3 overwrite the modifier with the same source and id, 4 at the cap overwrite the one with the least time left. +0x68 is the stack cap (0 = unlimited), and +0x74 is the value computer kind (0 Add, 1 Sub, 2 Mult, 3 Max, 4 Min, 5 Reduce, 6 Oldest). [2026-11-26 custom-status RE, static.] This is the correct entry point for a permanent stat change. NOTE: param_2 is a fully-built modifier event; wiring from Lua needs the event payload (op/key/amount, id@+0x54, the virtual fill at def+0x20) decoded + a live playtest before it can be trusted engine-mutating. Decompile-verified live 2026-07-13.",
    "refs": [
     "docs/_re/kinds/stats.md"
    ],
@@ -7124,6 +7124,126 @@
    "refs": [
     "src/loader/src/hook_camera.cpp"
    ]
+  },
+  {
+   "name": "DtGame_Init",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_1401cadc0",
+   "status": "ok",
+   "signature": "void(void* game, void* arg)",
+   "cabi": {
+    "ret": "void",
+    "params": [
+     "void*",
+     "void*"
+    ]
+   },
+   "note": "oCDtGame vftable slot 8: root post-load init. Runs the boot registrars, then SkinRoster_Build. Static-only (2026-11-26 custom-status RE)."
+  },
+  {
+   "name": "StatusValueDefs_Register",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_1401d2b40",
+   "status": "ok",
+   "signature": "void(void)",
+   "cabi": {
+    "ret": "void",
+    "params": []
+   },
+   "note": "Registers the 20 Status value definitions. One caller: DtGame_Init at 0x1401cb786, right before SkinRoster_Build. Detour point for custom statuses."
+  },
+  {
+   "name": "ModifierSettings_CreateDesc",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_1406dd600",
+   "status": "ok",
+   "signature": "void*(void* mgr, uint32_t id, void* name, void* category, void* defaultValue, void* str2)",
+   "cabi": {
+    "ret": "void*",
+    "params": [
+     "void*",
+     "uint32_t",
+     "void*",
+     "void*",
+     "void*",
+     "void*"
+    ]
+   },
+   "note": "Allocates an oSModifierValueDesc, sets name/category/default/id (+0x6c), +0x78=1, appends to mgr+0x20, then calls RegisterDesc. defaultValue and str2 go on the stack ([rsp+0x20], [rsp+0x28]). Appends before the duplicate check: register once."
+  },
+  {
+   "name": "ModifierSettings_RegisterDesc",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_1406dd830",
+   "status": "ok",
+   "signature": "uint8_t(void* mgr, void* desc)",
+   "cabi": {
+    "ret": "uint8_t",
+    "params": [
+     "void*",
+     "void*"
+    ]
+   },
+   "note": "Inserts desc into the id hash at mgr+0x30 keyed by desc+0x6c. Returns 0 on a duplicate id."
+  },
+  {
+   "name": "ModifierValueDesc_Ctor",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_1406ddae0",
+   "status": "ok",
+   "signature": "void*(void* self)",
+   "cabi": {
+    "ret": "void*",
+    "params": [
+     "void*"
+    ]
+   },
+   "note": "oSModifierValueDesc ctor (0x80 bytes)."
+  },
+  {
+   "name": "ModifierAppSettingsSection_Class",
+   "kind": "data",
+   "category": "engine-core",
+   "va": "0x141477a88",
+   "status": "va",
+   "signature": null,
+   "refs": [],
+   "note": "Class-descriptor pointer for oCModifierApplicationSettingsSection; pass to the type's IsKindOf (vt+0x58) when walking AppSettings_SectionList."
+  },
+  {
+   "name": "ValueCategory_Status",
+   "kind": "data",
+   "category": "engine-core",
+   "va": "0x1412edda8",
+   "status": "va",
+   "signature": null,
+   "refs": [],
+   "note": "CRC-string 'Status' passed as the category to CreateDesc."
+  },
+  {
+   "name": "StatusSettings_CategoryKey",
+   "kind": "data",
+   "category": "engine-core",
+   "va": "0x1412ee788",
+   "status": "va",
+   "signature": null,
+   "refs": [],
+   "note": "CRC-string 'Status' the prune enumerates by; same CRC as ValueCategory_Status."
+  },
+  {
+   "name": "EngineString_Empty",
+   "kind": "data",
+   "category": "engine-core",
+   "va": "0x1412f6e40",
+   "status": "va",
+   "signature": null,
+   "refs": [],
+   "note": "Engine empty string {\"\", 0x80000000}."
   }
  ],
  "_event_catalog_doc": "Observation events the loader republishes by raw name from the central telemetry sink (Analytics_SubmitNamedEvent). No address — the firehose detour reads the name at runtime, so any name the game adds also fires even if absent here. These are confirmed names harvested by string-xref (cluster 0x140f13a00-0x140f13f00); subscribe via R.on('<name>', cb) with RSMM_ENABLE_GAME_EVENTS=1. Shown by `rsmm symbols events`. Each entry's `fields` are the property names the emitter passes (literals in the emitting function, 2026-09-11 catalog); the loader decodes them onto the event table, so a handler reads ev.<field>. Entries with `confirmed` were seen firing in game with those fields (solo run, 2026-10-10); the rest are from the static catalog only.",

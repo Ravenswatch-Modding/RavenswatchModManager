@@ -501,7 +501,7 @@ def _cabi_type(cabi: dict) -> str:
 
 def _cabi_code(ctype: str) -> str:
     """Map a C type to the native caller's 1-char signature code
-    (see script_lua.cpp::lua_call_native): v/i/u/p/l/f/d/s."""
+    (see script_lua.cpp::lua_call_native): v/i/u/b/p/l/f/d/s."""
     t = ctype.strip()
     if t == "void":
         return "v"
@@ -513,6 +513,8 @@ def _cabi_code(ctype: str) -> str:
         return "i"
     if t in ("unsigned", "unsigned int", "uint32_t"):
         return "u"
+    if t in ("uint8_t", "unsigned char"):
+        return "b"  # masked to the low byte: only AL is defined on return
     if t in ("int64_t", "uint64_t", "long long", "size_t", "intptr_t", "uintptr_t"):
         return "l"
     if t == "float":

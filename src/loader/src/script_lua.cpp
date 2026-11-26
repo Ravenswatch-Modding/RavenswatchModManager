@@ -1422,6 +1422,7 @@ int lua_call_native(lua_State* L) {
         switch (t) {
             case 'i': args[i] = static_cast<std::uint64_t>(static_cast<std::int32_t>(luaL_checkinteger(L, li))); break;
             case 'u': args[i] = static_cast<std::uint64_t>(static_cast<std::uint32_t>(luaL_checkinteger(L, li))); break;
+            case 'b': args[i] = static_cast<std::uint64_t>(static_cast<std::uint8_t>(luaL_checkinteger(L, li))); break;
             case 'l':
             case 'p': args[i] = static_cast<std::uint64_t>(luaL_checkinteger(L, li)); break;
             // 'f' carries the FLOAT's 32 bits in the low half (the ABI's XMM
@@ -1437,7 +1438,7 @@ int lua_call_native(lua_State* L) {
     // call anyway and only then raise, so a typo'd signature still ran an
     // engine function with a wrong prototype.
     switch (ret_t) {
-        case 'v': case 'i': case 'u': case 'l': case 'p': case 'f': case 'd': case 's': break;
+        case 'v': case 'i': case 'u': case 'b': case 'l': case 'p': case 'f': case 'd': case 's': break;
         default: return luaL_error(L, "rsmm.call: bad ret type '%c'", ret_t);
     }
 
@@ -1447,6 +1448,8 @@ int lua_call_native(lua_State* L) {
         case 'v': return 0;
         case 'i': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::int32_t>(raw))); return 1;
         case 'u': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::uint32_t>(raw))); return 1;
+        // A byte return defines only AL; the rest of RAX is garbage.
+        case 'b': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::uint8_t>(raw))); return 1;
         case 'l':
         case 'p': lua_pushinteger(L, static_cast<lua_Integer>(raw)); return 1;
         case 'f': { float f; auto lo = static_cast<std::uint32_t>(raw);

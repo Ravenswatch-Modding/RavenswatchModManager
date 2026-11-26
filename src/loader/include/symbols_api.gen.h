@@ -180,6 +180,13 @@ inline DreamShardDef_PostLoad_fn DreamShardDef_PostLoad() {
     return reinterpret_cast<DreamShardDef_PostLoad_fn>(rsmm::fn_resolve(Sym::DreamShardDef_PostLoad_Pattern));
 }
 
+// DtGame_Init  (DtGame_Init)
+//   void(void* game, void* arg)
+using DtGame_Init_fn = void(*)(void*, void*);
+inline DtGame_Init_fn DtGame_Init() {
+    return reinterpret_cast<DtGame_Init_fn>(rsmm::fn_resolve(Sym::DtGame_Init_Pattern));
+}
+
 // EnemyCampTierDef_PostLoad  (EnemyCampTierDef_PostLoad)
 //   bool(void* definition)
 using EnemyCampTierDef_PostLoad_fn = uint32_t(*)(void*);
@@ -679,6 +686,27 @@ inline ModifierEvent_Ctor_fn ModifierEvent_Ctor() {
     return reinterpret_cast<ModifierEvent_Ctor_fn>(rsmm::fn_resolve(Sym::ModifierEvent_Ctor_Pattern));
 }
 
+// ModifierSettings_CreateDesc  (ModifierSettings_CreateDesc)
+//   void*(void* mgr, uint32_t id, void* name, void* category, void* defaultValue, void* str2)
+using ModifierSettings_CreateDesc_fn = void*(*)(void*, uint32_t, void*, void*, void*, void*);
+inline ModifierSettings_CreateDesc_fn ModifierSettings_CreateDesc() {
+    return reinterpret_cast<ModifierSettings_CreateDesc_fn>(rsmm::fn_resolve(Sym::ModifierSettings_CreateDesc_Pattern));
+}
+
+// ModifierSettings_RegisterDesc  (ModifierSettings_RegisterDesc)
+//   uint8_t(void* mgr, void* desc)
+using ModifierSettings_RegisterDesc_fn = uint8_t(*)(void*, void*);
+inline ModifierSettings_RegisterDesc_fn ModifierSettings_RegisterDesc() {
+    return reinterpret_cast<ModifierSettings_RegisterDesc_fn>(rsmm::fn_resolve(Sym::ModifierSettings_RegisterDesc_Pattern));
+}
+
+// ModifierValueDesc_Ctor  (ModifierValueDesc_Ctor)
+//   void*(void* self)
+using ModifierValueDesc_Ctor_fn = void*(*)(void*);
+inline ModifierValueDesc_Ctor_fn ModifierValueDesc_Ctor() {
+    return reinterpret_cast<ModifierValueDesc_Ctor_fn>(rsmm::fn_resolve(Sym::ModifierValueDesc_Ctor_Pattern));
+}
+
 // NamedEvent_ChannelMap_Find  (NamedEvent_ChannelMap_Find)
 //   iter*(void* channel_map, iter* out, uint32_t* event_id)
 using NamedEvent_ChannelMap_Find_fn = void*(*)(void*, void*, void*);
@@ -1025,6 +1053,13 @@ inline SkillController_SetTier_fn SkillController_SetTier() {
 using SkinGrid_Populate_fn = void(*)(void*, void*);
 inline SkinGrid_Populate_fn SkinGrid_Populate() {
     return reinterpret_cast<SkinGrid_Populate_fn>(rsmm::fn_resolve(Sym::SkinGrid_Populate_Pattern));
+}
+
+// StatusValueDefs_Register  (StatusValueDefs_Register)
+//   void(void)
+using StatusValueDefs_Register_fn = void(*)(void);
+inline StatusValueDefs_Register_fn StatusValueDefs_Register() {
+    return reinterpret_cast<StatusValueDefs_Register_fn>(rsmm::fn_resolve(Sym::StatusValueDefs_Register_Pattern));
 }
 
 // StringVector_AssignFromArray  (StringVector_AssignFromArray)
