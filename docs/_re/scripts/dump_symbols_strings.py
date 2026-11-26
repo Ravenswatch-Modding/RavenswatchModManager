@@ -9,7 +9,11 @@
 import os
 import json
 
-OUT_DIR = os.environ.get("RSMM_OUT", "/home/ovilli/Documents/Programming/RavenswatchModManager/docs/_re/out")
+# Default: docs/_re/out, beside this script's scripts/ folder.
+_SCRIPT = getSourceFile().getAbsolutePath()
+OUT_DIR = os.environ.get("RSMM_OUT") or os.path.join(
+    os.path.dirname(os.path.dirname(_SCRIPT)), "out")
+os.makedirs(OUT_DIR, exist_ok=True)
 
 fm = currentProgram.getFunctionManager()
 syms = []
@@ -22,7 +26,7 @@ for fn in fm.getFunctions(True):
         "sig": fn.getSignature().getPrototypeString(True),
         "size": fn.getBody().getNumAddresses(),
     })
-with open(os.path.join(OUT_DIR, "symbols.json"), "w") as f:
+with open(os.path.join(OUT_DIR, "symbols.json"), "w", encoding="utf-8") as f:
     json.dump(syms, f, indent=1)
 print("[RSMM] symbols: %d" % len(syms))
 
@@ -35,7 +39,7 @@ for d in listing.getDefinedData(True):
             v = d.getValue()
             if v is None:
                 continue
-            sv = unicode(v)
+            sv = str(v)
             if len(sv) < 3:
                 continue
             strs.append({
@@ -46,6 +50,6 @@ for d in listing.getDefinedData(True):
             })
         except Exception:
             pass
-with open(os.path.join(OUT_DIR, "strings.json"), "w") as f:
+with open(os.path.join(OUT_DIR, "strings.json"), "w", encoding="utf-8") as f:
     json.dump(strs, f, indent=1, ensure_ascii=False)
 print("[RSMM] strings: %d" % len(strs))
