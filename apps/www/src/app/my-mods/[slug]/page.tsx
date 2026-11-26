@@ -27,7 +27,7 @@ import { type ListingDraft, listingChanges, readListingDraft } from '../../../li
 import { MIN_DESCRIPTION_CHARS, descriptionLength } from '../../../lib/thin-content';
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../../lib/upload';
 import { useScreenshotGallery } from '../../../lib/use-screenshot-gallery';
-import { archiveVersionMismatch, readArchiveVersion } from '../../../lib/zip-manifest';
+import { readArchiveVersion } from '../../../lib/zip-manifest';
 import { FileDrop } from '../../components/file-drop';
 import { MDEditor } from '../../components/md-editor';
 import { ModStats } from '../../components/mod-stats';
@@ -591,23 +591,25 @@ function ManageModEditor({ slug }: { slug: string }) {
   // New version section
   const [newVersion, setNewVersion] = useState('');
   const [newZip, setNewZip] = useState<File | null>(null);
+  const [readingNewZip, setReadingNewZip] = useState(false);
   const [changelog, setChangelog] = useState<string | undefined>('');
   const [zipProgress, setZipProgress] = useState<{ loaded: number; total: number } | null>(null);
-  // The new version's number comes from the archive: it has to match anyway.
   const newZipPick = useRef(0);
   async function chooseNewZip(file: File | null) {
     const pick = ++newZipPick.current;
     setNewZip(file);
+    setNewVersion('');
+    setReadingNewZip(!!file);
     if (!file) return;
     const packed = await readArchiveVersion(file);
-    if (packed && pick === newZipPick.current) setNewVersion(packed);
+    if (pick !== newZipPick.current) return;
+    if (packed && SEMVER_RE.test(packed)) setNewVersion(packed);
+    setReadingNewZip(false);
   }
   const newVersionMut = useMutation({
     mutationFn: async () => {
       if (!newZip) throw new Error('no zip selected');
-      if (!SEMVER_RE.test(newVersion)) throw new Error('version must be semver x.y.z');
-      const mismatch = await archiveVersionMismatch(newZip, newVersion);
-      if (mismatch) throw new Error(mismatch);
+      if (!newVersion) throw new Error('Add a valid version to manifest.toml and re-pack the mod.');
       const sha = await sha256Hex(newZip);
       const mod = detail.data?.mod;
       if (!mod) throw new Error('mod not loaded');
@@ -1094,17 +1096,16 @@ function ManageModEditor({ slug }: { slug: string }) {
                       <Input
                         id="newver"
                         value={newVersion}
-                        onChange={(e) => setNewVersion(e.target.value)}
-                        placeholder="0.2.0"
-                        aria-invalid={
-                          newVersion.length > 0 && !SEMVER_RE.test(newVersion) ? true : undefined
-                        }
+                        readOnly
+                        placeholder={readingNewZip ? 'Reading archive…' : 'From manifest.toml'}
+                        aria-describedby="new-version-hint"
+                        aria-invalid={newZip && !readingNewZip && !newVersion ? true : undefined}
                       />
-                      {newVersion.length > 0 && !SEMVER_RE.test(newVersion) ? (
-                        <p className="text-xs text-danger">
-                          Must be semver, e.g. 0.2.0 (three numbers separated by dots).
-                        </p>
-                      ) : null}
+                      <p id="new-version-hint" className="text-xs text-muted-foreground">
+                        {newZip && !readingNewZip && !newVersion
+                          ? 'Add a valid version to manifest.toml and re-pack the mod.'
+                          : 'The registry uses the version from your archive.'}
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="newzip">New archive</Label>
@@ -1141,7 +1142,7 @@ function ManageModEditor({ slug }: { slug: string }) {
                     ) : null}
                     <Button
                       onClick={() => newVersionMut.mutate()}
-                      disabled={!newZip || !SEMVER_RE.test(newVersion) || newVersionMut.isPending}
+                      disabled={!newZip || !newVersion || newVersionMut.isPending}
                     >
                       {newVersionMut.isPending ? <Spinner /> : <Upload className="h-4 w-4" />}{' '}
                       Publish version
