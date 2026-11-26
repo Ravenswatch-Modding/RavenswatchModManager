@@ -280,3 +280,39 @@ def test_raw_spans_skips_node_operator_id():
     payload = EE._B + struct.pack("<IIII", 5, 0x17B29BE2, 4, 0) + EE._E
     spans = EE._raw_spans(payload, frozenset(), node_cls=5)
     assert all(not (a <= 11 < b) for a, b in spans)
+
+
+@needs
+def test_get_value_reads_what_set_value_writes_on_every_form():
+    """get, set, get on each addressable form; the second get returns the new value."""
+    ef = _piper()
+    selector = "Albedo Mix Smooth Speed Selector"
+    forms = [
+        ("Primary Ability Shots Delay", "value", 0.25),          # value union (f32)
+        ("Ability Trait Seed 3d Node", "value_5", False),        # value union (bool)
+        ("Ability Trait Seed 3d Node", "mode", 3),               # raw u32
+        ("Ability Trait Seed 3d Node", "flag_81", True),         # raw bool
+        ("Smooth Value Physic Anim", "epsilon?", 0.5),           # raw f32
+        (selector, "entries[0][1]", 7.0),                        # a list item's literal
+    ]
+    for comp, field, new in forms:
+        before = ef.get_value(comp, field)
+        assert before != new, (comp, field)
+        ef.set_value(comp, field, new)
+        assert ef.get_value(comp, field) == pytest.approx(new), (comp, field)
+    assert ef.get_value(selector, "entries[0][1]") == 7.0
+    assert ef.get_value("Primary Ability Shots Delay", "value") == 0.25
+    back = EE.EntityFile(ef.to_bytes(), "Hero_Piper")
+    assert back.get_value("Primary Ability Shots Delay", "value") == 0.25
+
+
+@pytest.mark.skipif(corpus.read(BEOWULF) is None, reason="no Beowulf")
+def test_get_value_reads_an_object_literal_by_index():
+    ef = EE.EntityFile(corpus.read(BEOWULF), "Hero_Beowulf")
+    spawner = "Primary Ability Effect Spawner"
+    assert ef.get_value(spawner, "transform[5]") == 0.0
+    ef.set_value(spawner, "transform[5]", 1.5)
+    assert ef.get_value(spawner, "transform[5]") == 1.5
+    assert ef.get_value(spawner, "transform[8]") == 1.0
+    with pytest.raises(EE.EntityEditError, match="no index 11"):
+        ef.get_value(spawner, "transform[11]")

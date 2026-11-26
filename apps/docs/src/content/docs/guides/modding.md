@@ -178,6 +178,11 @@ A `stat` field can take its number from the mod's config instead:
 setting and multiplies it by 15 (write the shipped value there, so 1.0 leaves the
 game as it was). Like every content config, it takes effect on the next launch.
 
+`min = { scale = "pack_size" }` skips the copied number: apply reads the shipped
+`min` from the game's own file and writes it times the player's `pack_size`, so a
+game patch that rebalances the value carries into your mod. `scale` stands alone,
+without `config` or `times`, and names a number field.
+
 The same blocks from the optional Python SDK. `python mods/build_MyMod.py`, run
 from the clone with its `.venv` active, writes `mods/MyMod/manifest.toml`:
 

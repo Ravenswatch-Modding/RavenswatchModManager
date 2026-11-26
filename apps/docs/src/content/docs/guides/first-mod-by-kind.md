@@ -226,6 +226,19 @@ times  = 2.0          # shipped value
 
 Like every content config, a change takes effect on the next launch.
 
+**Scale the shipped number without copying it.** `scale = "<field>"` replaces
+`value`, `config` and `times`: apply reads the shipped number at the step's `set`
+path and writes it times the player's value, so a game patch that rebalances that
+number carries into your mod. It reads the shipped file, never an earlier block's
+output, so two blocks scaling one value do not compound. The target must be a
+number field, and `scale` is an error beside `value`, `config` or `times`.
+
+```toml
+[[content.steps]]
+set   = "Chapter 2 Max Health Multiplier Selector.obj_4[1]"
+scale = "health"
+```
+
 Any step can also carry `when = "<bool field>"`: it applies only while that
 switch is on. That is how a mod offers an optional structural change, e.g. a
 `link` that sends a tester's `on_false` to the same state as its `on_true`.

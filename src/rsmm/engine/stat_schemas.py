@@ -153,6 +153,19 @@ def index_entries(cooking: Path, asset_map: dict[str, str]) -> list[Entry]:
     return entries
 
 
+def read_field(cooked: bytes, schema: Schema, field_name: str) -> float | int | bool:
+    """The value ``patch_field`` would overwrite."""
+    lb = cooked.rfind(MARK_BEGIN)
+    le = cooked.rfind(MARK_END)
+    resolved = _resolved(schema, cooked[lb + 4:le]) if lb != -1 and le > lb else None
+    if resolved is None:
+        raise ValueError(f"{schema.cls}: no readable value in this file")
+    for fn, off, fmt in resolved[0]:
+        if fn == field_name:
+            return struct.unpack_from(fmt, cooked, lb + 4 + off)[0]
+    raise ValueError(f"unknown field {field_name!r} for {schema.cls}")
+
+
 def patch_field(cooked: bytes, schema: Schema, field_name: str,
                 value: float | int | bool) -> bytes:
     lb = cooked.rfind(MARK_BEGIN)

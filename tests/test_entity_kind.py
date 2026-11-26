@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from rsmm.engine import corpus
@@ -225,3 +227,84 @@ def test_label_format_keeps_the_text_and_adds_a_number(tmp_path):
     with pytest.raises(ContentError):
         _emit(tmp_path, {**_BOSS_FORMAT, "inputs": [{"node": "Name Get Value", "type": "text"}]},
               id="Bad", entity=_BOSS)
+
+
+_PIPER = "Heroes/Hero_Piper/Hero_Piper"
+_PIPER_REL = f"EntitySettings/{_PIPER}.entity.ot.EntitySettingsResource.gen"
+_DELAY = "Primary Ability Shots Delay.value"
+needs_piper = pytest.mark.skipif(corpus.read(_PIPER_REL) is None, reason="no hero corpus")
+
+
+def _scale_emit(root, *steps, id="Scale", config=""):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    _cfg_root(root)
+    if config:
+        (root / "config.toml").write_text(config, encoding="utf-8")
+    out = root / "assets"
+    out.mkdir(exist_ok=True)
+    entities.emit("m", ContentDef(kind="entity", id=id, fields={
+        "entity": _PIPER, "steps": list(steps)}), out)
+    return EntityFile((out / Path(*_PIPER_REL.split("/"))).read_bytes())
+
+
+def _delay(ef):
+    return ef.get_value("Primary Ability Shots Delay", "value")
+
+
+@needs_piper
+def test_scale_writes_the_shipped_number_times_the_config_field(tmp_path):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    shipped = EntityFile(corpus.read(_PIPER_REL)).get_value("Primary Ability Shots Delay", "value")
+    ef = _scale_emit(tmp_path, {"set": _DELAY, "scale": "health"})    # health = 1.5
+    assert _delay(ef) == pytest.approx(round(float(f"{shipped:.7g}") * 1.5, 6), rel=1e-6)
+
+
+@needs_piper
+def test_scale_matches_a_literal_times_of_the_shipped_value(tmp_path):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    shipped = EntityFile(corpus.read(_PIPER_REL)).get_value("Primary Ability Shots Delay", "value")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    a = _scale_emit(tmp_path / "a", {"set": _DELAY, "scale": "health"})
+    b = _scale_emit(tmp_path / "b", {"set": _DELAY, "config": "health",
+                                     "times": float(f"{shipped:.7g}")})
+    assert a.to_bytes() == b.to_bytes()
+
+
+@needs_piper
+def test_two_blocks_scaling_one_value_do_not_compound(tmp_path):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    shipped = EntityFile(corpus.read(_PIPER_REL)).get_value("Primary Ability Shots Delay", "value")
+    _scale_emit(tmp_path, {"set": _DELAY, "scale": "health"}, id="A")
+    ef = _scale_emit(tmp_path, {"set": _DELAY, "scale": "health"}, id="B")
+    assert _delay(ef) == pytest.approx(shipped * 1.5, rel=1e-6)       # not shipped * 2.25
+
+
+@needs_piper
+def test_when_gates_a_scale_step(tmp_path):
+    from rsmm.engine.entity_graph_edit import EntityFile
+    shipped = EntityFile(corpus.read(_PIPER_REL)).get_value("Primary Ability Shots Delay", "value")
+    on = _scale_emit(tmp_path, {"set": _DELAY, "scale": "health", "when": "on"})
+    assert _delay(on) == pytest.approx(shipped * 1.5, rel=1e-6)
+    d = ContentDef(kind="entity", id="e", fields={})
+    steps = [{"set": _DELAY, "scale": "health", "when": "on"}]
+    (tmp_path / "config.toml").write_text("on = false\n", encoding="utf-8")
+    assert entities._resolve_config(d, steps, tmp_path, corpus.read(_PIPER_REL)) == []
+
+
+@needs_piper
+@pytest.mark.parametrize("step, msg", [
+    ({"set": _DELAY, "scale": "health", "value": 1}, "in place of"),
+    ({"set": _DELAY, "scale": "health", "config": "health"}, "in place of"),
+    ({"set": _DELAY, "scale": "health", "times": 2}, "in place of"),
+    ({"scale": "health"}, "goes on a set step"),
+    ({"set": _DELAY, "scale": "nope"}, "not a field"),
+    ({"set": _DELAY, "scale": "on"}, "needs a number field"),
+    ({"set": "Ability Trait Seed 3d Node.value_5", "scale": "health"}, "needs a number field"),
+    ({"set": "Ability Trait Seed 3d Node.flag_81", "scale": "health"}, "needs a number field"),
+    ({"set": "No Such Part.value", "scale": "health"}, "No Such Part"),
+])
+def test_scale_errors_name_the_step(tmp_path, step, msg):
+    d = ContentDef(kind="entity", id="e", fields={})
+    with pytest.raises(ContentError, match=msg):
+        entities._resolve_config(d, [step], _cfg_root(tmp_path), corpus.read(_PIPER_REL))
