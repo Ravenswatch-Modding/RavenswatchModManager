@@ -251,6 +251,11 @@ Any step can also carry `when = "<bool field>"`: it applies only while that
 switch is on. That is how a mod offers an optional structural change, e.g. a
 `link` that sends a tester's `on_false` to the same state as its `on_true`.
 
+To gate a whole block, put `when = "<bool field>"` on the `[[content]]` block
+itself, for any kind. While the switch is off the block writes nothing, and the
+field must be a bool in `config_schema.toml`. A step's own `when` still applies,
+so a step runs only when both switches are on.
+
 ---
 
 ## `mesh` — put your model in the game

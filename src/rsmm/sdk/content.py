@@ -17,7 +17,7 @@ import sys
 import threading
 from contextlib import suppress
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import import_module
 from pathlib import Path
 
@@ -549,7 +549,28 @@ class ContentRegistry:
         emit = getattr(mod, "emit", None)
         if not callable(emit):
             raise ContentError(f"kind {d.kind!r} module has no emit()")
+        if "when" in d.fields:
+            if not self._block_is_on(d, out_dir):
+                return []
+            d = replace(d, fields={k: v for k, v in d.fields.items() if k != "when"})
         return emit(self.mod_id, d, out_dir)
+
+    @staticmethod
+    def _block_is_on(d: ContentDef, out_dir: Path) -> bool:
+        """The block's ``when = "<bool field>"``: the player's value of that
+        config field (or its schema default)."""
+        from .config import ConfigError, ConfigStore, config_value
+        where = f"{d.kind} {d.id}"
+        try:
+            on = config_value(ConfigStore(out_dir.parent), d.fields["when"])
+        except ConfigError as e:
+            raise ContentError(f"{where}: when: {e}") from e
+        except (OSError, ValueError) as e:
+            raise ContentError(f"{where}: config unreadable: {e}") from e
+        if not isinstance(on, bool):
+            raise ContentError(f"{where}: when = {d.fields['when']!r} must name an "
+                               f"on/off (bool) field")
+        return on
 
 
 _KIND_MODULES = {
