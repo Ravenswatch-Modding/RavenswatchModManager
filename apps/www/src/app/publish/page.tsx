@@ -27,7 +27,7 @@ import { api } from '../../lib/api';
 import { useSession } from '../../lib/auth-client';
 
 import { fmtBytes, hexToBase64, putFile, sha256Hex } from '../../lib/upload';
-import { archiveVersionMismatch, readManifestText } from '../../lib/zip-manifest';
+import { readManifestText } from '../../lib/zip-manifest';
 import { FileDrop } from '../components/file-drop';
 import { MDEditor } from '../components/md-editor';
 
@@ -77,7 +77,7 @@ export default function PublishPage() {
   const [zip, setZip] = useState<File | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [slug, setSlug] = useState('');
-  const [version, setVersion] = useState('0.1.0');
+  const [version, setVersion] = useState('');
   const [name, setName] = useState('');
   const [author, setAuthor] = useState('');
   const [summary, setSummary] = useState('');
@@ -93,13 +93,12 @@ export default function PublishPage() {
   // What choosing the archive did to the form: nothing to read, or which fields
   // it filled (and which it declined because the manifest's value is unusable).
   const [fromManifest, setFromManifest] = useState<
-    { kind: 'none' } | { kind: 'filled'; filled: string[]; declined: string[] } | null
+    { kind: 'reading' } | { kind: 'none' } | { kind: 'filled'; filled: string[]; declined: string[] } | null
   >(null);
   // The form as it is NOW, for the async prefill below: it must only touch
   // fields the user has not already filled, judged after the archive is read.
   const formNow = useRef({
     slug,
-    version,
     name,
     author,
     summary,
@@ -111,7 +110,6 @@ export default function PublishPage() {
   });
   formNow.current = {
     slug,
-    version,
     name,
     author,
     summary,
@@ -144,7 +142,13 @@ export default function PublishPage() {
   const blockers: string[] = [];
   if (!zip) blockers.push('choose a .zip archive');
   if (!slugValid) blockers.push('enter a valid slug (lowercase letters, digits, - or _)');
-  if (!versionValid) blockers.push('enter a version like 0.1.0');
+  if (zip && !versionValid) {
+    blockers.push(
+      fromManifest?.kind === 'reading'
+        ? 'wait for the archive to finish loading'
+        : 'add a valid version to manifest.toml and re-pack',
+    );
+  }
   if (!nameValid) blockers.push('enter a display name');
   const canSubmit = !!zip && slugValid && versionValid && nameValid && !busy;
 
@@ -163,13 +167,13 @@ export default function PublishPage() {
    * (id, name, version, author, summary, tags, license, links) instead of asking
    * for it a second time. The version is always taken. Otherwise only EMPTY fields
    * — or the account-name author default — are written, so nothing else the user
-   * typed is overwritten. A manifest that is missing or unreadable leaves the
-   * form exactly as it was.
+   * typed is overwritten.
    */
   async function chooseZip(file: File | null) {
     const pick = ++zipPick.current;
     setZip(file);
-    setFromManifest(null);
+    setVersion('');
+    setFromManifest(file ? { kind: 'reading' } : null);
     if (!file) return;
     const text = await readManifestText(file);
     if (pick !== zipPick.current) return; // a newer archive was chosen meanwhile
@@ -193,13 +197,7 @@ export default function PublishPage() {
       setName(meta.name);
       filled.push('name');
     }
-    if (meta.version) {
-      if (SEMVER_RE.test(meta.version)) {
-        // Always: the store version has to match the archive's anyway.
-        setVersion(meta.version);
-        filled.push('version');
-      } else declined.push('version');
-    }
+    if (meta.version && SEMVER_RE.test(meta.version)) setVersion(meta.version);
     if (meta.author && (now.author.trim() === '' || now.author === session?.user?.name)) {
       setAuthor(meta.author);
       filled.push('author');
@@ -235,10 +233,8 @@ export default function PublishPage() {
   }
 
   async function publish() {
-    if (!zip) return;
+    if (!zip || !canSubmit) return;
     try {
-      const mismatch = await archiveVersionMismatch(zip, version);
-      if (mismatch) throw new Error(mismatch);
       setPhase({ kind: 'hashing' });
       const sha = await sha256Hex(zip);
 
@@ -427,7 +423,7 @@ export default function PublishPage() {
             ) : null}
             {fromManifest?.kind === 'none' ? (
               <output className="block text-xs text-muted-foreground">
-                No readable manifest.toml in this archive, so fill in the fields below by hand.
+                This archive needs a readable manifest.toml. Check the file and re-pack the mod.
               </output>
             ) : null}
           </div>
@@ -475,17 +471,14 @@ export default function PublishPage() {
               <Input
                 id="version"
                 value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                placeholder="0.1.0"
-                aria-invalid={!versionValid ? true : undefined}
+                readOnly
+                placeholder={fromManifest?.kind === 'reading' ? 'Reading archive…' : 'From manifest.toml'}
+                aria-describedby="publish-version-hint"
+                aria-invalid={zip && fromManifest?.kind !== 'reading' && !versionValid ? true : undefined}
               />
-              {versionValid ? (
-                <p className="text-xs text-muted-foreground">Semver, e.g. 0.1.0.</p>
-              ) : (
-                <p className="text-xs text-danger">
-                  Three numbers separated by dots, e.g. 0.1.0.
-                </p>
-              )}
+              <p id="publish-version-hint" className="text-xs text-muted-foreground">
+                The registry uses the version from your archive.
+              </p>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="name">Display name</Label>
