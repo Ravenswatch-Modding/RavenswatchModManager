@@ -28,6 +28,23 @@ beforeEach(() => {
 });
 
 describe('private-only browse preference', () => {
+  it('supports bounded exact slug lookups for installed Library mods', async () => {
+    const response = await modsRouter.request('/?slugs=bloodlust,nocturne');
+    expect(response.status).toBe(200);
+    expect(state.queries).toHaveLength(2);
+    expect(state.queries[0]?.text).toMatch(/"mods"\."slug" in \(\$\d+, \$\d+\)/);
+    expect(state.queries[0]?.params).toEqual(expect.arrayContaining(['bloodlust', 'nocturne']));
+  });
+
+  it('rejects invalid or oversized slug lookups before querying the database', async () => {
+    const invalid = await modsRouter.request('/?slugs=bloodlust,../admin');
+    expect(invalid.status).toBe(400);
+
+    const oversized = Array.from({ length: 101 }, (_, index) => `mod-${index}`).join(',');
+    expect((await modsRouter.request(`/?slugs=${oversized}`)).status).toBe(400);
+    expect(state.queries).toHaveLength(0);
+  });
+
   it.each(['1', 'true'])(
     'excludes private tags in results, totals, and both facets (%s)',
     async (value) => {

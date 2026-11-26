@@ -22,6 +22,7 @@ import { SupportNudge } from '../components/support-nudge';
 import { useDialog, useToast } from '../components/toast';
 import { UpdatesPanel } from '../components/updates-panel';
 import { useModToggle } from '../components/use-mod-toggle';
+import { api } from '../lib/api';
 import { hasRunBefore } from '../lib/first-run';
 import { msg } from '../lib/i18n';
 import { useT } from '../lib/i18n-react';
@@ -38,6 +39,7 @@ import {
 import { useListingViewState } from '../lib/listing-view-state';
 import { localModsQueryOptions } from '../lib/local-mods-query';
 import type { ModCategory } from '../lib/mod-types';
+import { fetchPrivateOnlyRegistrySlugs } from '../lib/private-only-registry';
 import { registryCardLabels } from '../lib/registry-labels';
 import { disableHookWarning, listLocalMods, uninstallLocalMod } from '../lib/rsmm';
 import {
@@ -129,6 +131,17 @@ function LibraryPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [dirtyConfigs, setDirtyConfigs] = useState<Set<string>>(new Set());
   const localModsState = useApp((s) => s.localMods);
+  const installedSlugs = useMemo(
+    () => [...new Set(Object.values(localModsState).map((mod) => mod.slug))].sort(),
+    [localModsState],
+  );
+  const privateOnlyRegistry = useQuery({
+    queryKey: ['registry', 'private-only-library', installedSlugs],
+    queryFn: () => fetchPrivateOnlyRegistrySlugs(installedSlugs, (params) => api.mods.list(params)),
+    enabled: installedSlugs.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
   // Library is *profile-scoped*: a mod is in the user's library iff
   // it's been explicitly added to the active profile's load order.
   // Mods present on disk but not in this profile live in /browse with
@@ -559,6 +572,7 @@ function LibraryPage() {
                 onReorder={reorderMod}
                 conflictCounts={conflictCountByMod}
                 missingDeps={missingDepCounts}
+                privateOnlySlugs={privateOnlyRegistry.data}
               />
             ) : (
               <div className="space-y-4">
@@ -640,6 +654,7 @@ interface RowProps {
   onReorder?: (id: string, toIndex: number) => void;
   conflictCounts: Map<string, number>;
   missingDeps: Map<string, number>;
+  privateOnlySlugs: ReadonlySet<string> | undefined;
 }
 
 function ListView({
@@ -651,6 +666,7 @@ function ListView({
   uninstalling,
   conflictCounts,
   missingDeps,
+  privateOnlySlugs,
 }: RowProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -709,7 +725,9 @@ function ListView({
                 imageUrl: mod.image,
                 nsfw: mod.nsfw,
               }}
-              privateOnly={hasPrivateOnlyTag(mod.tags)}
+              privateOnly={
+                hasPrivateOnlyTag(mod.tags) || (privateOnlySlugs?.has(mod.slug) ?? false)
+              }
               locale={t.tag}
               labels={registryCardLabels(t, mod)}
               listLeading={

@@ -84,6 +84,25 @@ const TAG_FACET_LIMIT = 12;
 
 const listQuerySchema = z.object({
   q: z.string().optional(),
+  // Exact slug batch lookup for the desktop Library. Its local manifests can
+  // predate a store-side safety label, so the UI reconciles just installed
+  // mods against current registry tags instead of downloading every listing.
+  slugs: z
+    .string()
+    .max(6_499)
+    .optional()
+    .transform((value) => [...new Set(value?.split(',') ?? [])])
+    .pipe(
+      z
+        .array(
+          z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[a-z0-9_-]+$/),
+        )
+        .max(100),
+    ),
   tag: z.string().optional(),
   // Comma-separated, AND semantics: a mod must carry EVERY tag listed. `tag`
   // (singular) stays for existing callers and is folded in as one more required
@@ -146,6 +165,7 @@ const versionScanParamSchema = z.object({
 modsRouter.get('/', zValidator('query', listQuerySchema), async (c) => {
   const {
     q,
+    slugs,
     tag,
     tags,
     minRating,
@@ -186,6 +206,7 @@ modsRouter.get('/', zValidator('query', listQuerySchema), async (c) => {
           ilike(schema.mods.authorName, `%${qEsc}%`),
         )
       : undefined,
+    slugs.length ? inArray(schema.mods.slug, slugs) : undefined,
     featured === true ? eq(schema.mods.featured, true) : undefined,
     nsfw === false ? eq(schema.mods.nsfw, false) : undefined,
     hidePrivateOnly

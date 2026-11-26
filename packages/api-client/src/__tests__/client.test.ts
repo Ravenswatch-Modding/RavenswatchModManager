@@ -114,10 +114,17 @@ describe('request plumbing', () => {
 
   it('encodes list params into the query string', async () => {
     const { api, script } = client([json(EMPTY_PAGE)]);
-    await api.mods.list({ q: 'damage meter', tags: ['ui', 'hud'], limit: 10, sort: 'popular' });
+    await api.mods.list({
+      q: 'damage meter',
+      slugs: ['bloodlust', 'nocturne'],
+      tags: ['ui', 'hud'],
+      limit: 10,
+      sort: 'popular',
+    });
 
     const qs = new URL(script.call(0).url).searchParams;
     expect(qs.get('q')).toBe('damage meter');
+    expect(qs.get('slugs')).toBe('bloodlust,nocturne');
     expect(qs.get('tags')).toBe('ui,hud');
     expect(qs.get('limit')).toBe('10');
     expect(qs.get('sort')).toBe('popular');
