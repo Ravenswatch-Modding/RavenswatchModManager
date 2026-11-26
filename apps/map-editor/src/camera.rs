@@ -117,6 +117,29 @@ impl Camera {
         self.target += (-r * dx + f * dy) * per_px;
     }
 
+    /// Unity's right-drag: turn the view about the EYE (first-person look),
+    /// so the target swings around in front of it.
+    pub fn look(&mut self, dx: f32, dy: f32) {
+        if self.ortho {
+            return self.orbit(dx, dy);
+        }
+        let eye = self.eye();
+        self.yaw += dx * 0.004;
+        self.pitch = (self.pitch + dy * 0.004).clamp(-MAX_PITCH, MAX_PITCH);
+        self.target = eye - self.back() * self.dist;
+    }
+
+    /// Unity's middle-drag: slide the view in the screen plane.
+    pub fn pan_screen(&mut self, dx: f32, dy: f32, viewport_h: f32) {
+        let per_px = 2.0 * self.half_height() / viewport_h.max(1.0);
+        self.target += (-self.right() * dx + self.up() * dy) * per_px;
+    }
+
+    /// Fly the eye (and the target with it) by `d` metres in world space.
+    pub fn fly(&mut self, d: Vec3) {
+        self.target += d;
+    }
+
     /// Move the target straight up / down (Shift + wheel, Shift + middle drag, Q / E).
     pub fn lift(&mut self, metres: f32) {
         self.target.y += metres;
@@ -145,5 +168,27 @@ impl Camera {
 
     pub fn view_top(&mut self) {
         self.pitch = MAX_PITCH;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn looking_around_keeps_the_eye_still() {
+        let mut c = Camera { target: Vec3::new(10.0, 0.0, 5.0), dist: 50.0, ..Camera::default() };
+        let eye = c.eye();
+        c.look(120.0, -40.0);
+        assert!((c.eye() - eye).length() < 1e-3);
+        assert!((c.target - eye).length() - 50.0 < 1e-3);
+    }
+
+    #[test]
+    fn a_screen_pan_keeps_the_view_direction() {
+        let mut c = Camera::default();
+        let f = c.forward();
+        c.pan_screen(30.0, 20.0, 800.0);
+        assert!((c.forward() - f).length() < 1e-6 && c.target != Vec3::ZERO);
     }
 }

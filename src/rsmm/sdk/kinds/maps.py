@@ -372,7 +372,7 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain) -> bytes | None:
 #: one-material ruin block (the `poi` kind's proven donor).
 _MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
 _MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
-_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "scale"}
+_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "scale", "name"}
 _MAX_OBJECTS = 4000
 
 

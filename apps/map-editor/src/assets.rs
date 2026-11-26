@@ -118,6 +118,10 @@ impl Loader {
 }
 
 fn fetch(be: &Backend, rel: &str) -> Result<Vec<u8>> {
+    // The mod's own models and textures are read from disk (`models.rs`).
+    if let Some(path) = rel.strip_prefix("file:") {
+        return std::fs::read(path).with_context(|| path.to_owned());
+    }
     let r = be.call("GET", &format!("/map/api/file?path={}", q(rel)), None)?;
     if !r.ok() {
         bail!("{rel}: {}", r.error_text());

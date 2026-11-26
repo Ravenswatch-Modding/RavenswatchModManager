@@ -20,6 +20,7 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 anyhow = "1"
+rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal"] }
 
 [profile.release]
 opt-level = 3

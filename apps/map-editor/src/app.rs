@@ -52,6 +52,11 @@ pub struct Options {
     pub tile_check: bool,
     /// Open the first pool tile whose name contains this, once loaded.
     pub open_tile: Option<String>,
+    /// Import these files once the scene is loaded and place the first model
+    /// at the `--view` point (checks the import path headless).
+    pub import: Vec<std::path::PathBuf>,
+    /// Open this Project folder at start (`Game/DarkHills/...`).
+    pub project: Option<String>,
 }
 
 struct Chapter {
@@ -83,6 +88,10 @@ enum Event {
     Pool(String, anyhow::Result<Vec<PoolTile>>),
     TileObjects(String, anyhow::Result<Value>),
     TileProps(anyhow::Result<Vec<Prop>>),
+    /// Files picked in Import… (or dropped on the window).
+    Imported(Vec<std::path::PathBuf>),
+    /// A file of the mod's own art reached the backend's staging area.
+    Staged(String, anyhow::Result<String>),
     Error(String),
 }
 
@@ -340,6 +349,10 @@ pub struct MapEditor {
     tree: Vec<Node>,
     props: Vec<Prop>,
     templates: HashMap<String, Option<Template>>,
+    /// The mod's own models (Project > Your models).
+    models: Vec<crate::models::Model>,
+    /// `art/<name>` -> its staged id at the backend (what a save copies).
+    staged: HashMap<String, String>,
     requested: HashSet<String>,
     pending_assets: usize,
     failed_assets: Vec<String>,
@@ -386,6 +399,18 @@ pub struct MapEditor {
     box_start: Option<egui::Pos2>,
     keep_edits: Value,
     keep_map: Option<Value>,
+    /// The Project panel's open folder (`Assets`, `Game/DarkHills/...`).
+    project_dir: String,
+    /// Project tile size in points (the slider; Ctrl+wheel over the grid).
+    tile_size: f32,
+    /// Rendered Project thumbnails, by entity.
+    thumbs: HashMap<String, egui::TextureId>,
+    /// Tiles on screen this frame still waiting for a thumbnail.
+    thumb_want: Vec<String>,
+    /// Until when the viewport shows the zoom readout.
+    zoom_shown: Option<Instant>,
+    /// Metres per second while flying (right button + WASD); the wheel sets it.
+    fly_speed: f32,
     /// Ground height the File > New blank map menu starts from.
     new_blank_height: f32,
     opened_doc: Option<Value>,
@@ -472,6 +497,8 @@ impl MapEditor {
             tree: Vec::new(),
             props: Vec::new(),
             templates: HashMap::new(),
+            models: Vec::new(),
+            staged: HashMap::new(),
             requested: HashSet::new(),
             pending_assets: 0,
             failed_assets: Vec::new(),
@@ -513,6 +540,12 @@ impl MapEditor {
             keep_edits: json!({}),
             keep_map: None,
             new_blank_height: 0.0,
+            fly_speed: 25.0,
+            project_dir: opts.project.clone().unwrap_or_else(|| crate::project::ASSETS.to_owned()),
+            tile_size: 92.0,
+            thumbs: HashMap::new(),
+            thumb_want: Vec::new(),
+            zoom_shown: None,
             opened_doc: None,
             unsaved: false,
             last_autosave: Instant::now(),
@@ -715,6 +748,20 @@ impl MapEditor {
         if self.templates.contains_key(entity) {
             return;
         }
+        if let Some(rel) = entity.strip_prefix(crate::models::PREFIX) {
+            // One of the mod's own models: drawn from the file on disk.
+            let t = match self.models.iter().find(|m| m.mesh.rel == rel) {
+                Some(m) => {
+                    let key = m.part();
+                    self.request_part_assets(&key);
+                    vec![(key, vec![Mat4::IDENTITY])]
+                }
+                None => Vec::new(),
+            };
+            self.templates.insert(entity.to_owned(), Some(t));
+            self.dirty = true;
+            return;
+        }
         self.templates.insert(entity.to_owned(), None);
         let e = entity.to_owned();
         self.spawn(ctx, move |be| {
@@ -741,6 +788,8 @@ impl MapEditor {
             edits.strokes = serde_json::from_value(st.clone()).unwrap_or_default();
         }
         if let Some(o) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("objects")) {
+            let folder = std::path::PathBuf::from(doc["folder"].as_str().unwrap_or_default());
+            self.register_mod_models(&o, &folder);
             edits.load_objects(&o);
         }
         if let Some(m) = &self.keep_map {
@@ -911,6 +960,13 @@ impl MapEditor {
                     Ok(p) => self.props = p,
                     Err(e) => self.failed_assets.push(format!("props: {e:#}")),
                 },
+                Event::Imported(paths) => self.import_files(ctx, paths),
+                Event::Staged(rel, r) => match r {
+                    Ok(id) => {
+                        self.staged.insert(rel, id);
+                    }
+                    Err(e) => self.failed_assets.push(format!("import: {e:#}")),
+                },
                 Event::Template(e, r) => match r {
                     Ok(t) => {
                         for (k, _) in &t {
@@ -1034,6 +1090,15 @@ impl MapEditor {
         }
         if self.opts.self_check && !self.self_check_sent && self.pending.is_none() && !self.clean_pending {
             self.run_self_check(ctx);
+        }
+        if !self.opts.import.is_empty() && self.scenery.is_some() && self.terrain.is_some() && !self.clean_pending {
+            let files = std::mem::take(&mut self.opts.import);
+            self.import_files(ctx, files);
+            if let Some(e) = self.models.first().map(|m| m.entity()) {
+                let [x, z, _] = self.opts.view.unwrap_or([0.0, 0.0, 0.0]);
+                let y = self.ground_y(x, z).unwrap_or(0.0);
+                self.place(ctx, e, Vec3::new(x, y, z));
+            }
         }
         if let Some(want) = self.opts.open_tile.clone() {
             if self.tile.is_none() && self.scenery.is_some() && self.terrain.is_some() && !self.pool.is_empty() {
@@ -1409,7 +1474,8 @@ impl MapEditor {
     /// their centre at `at`; selects what was pasted.
     fn paste_items(&mut self, ctx: &egui::Context, items: Vec<(String, String, Xf)>, at: Vec3) -> usize {
         let allowed: HashSet<&str> = self.props.iter().map(|p| p.entity.as_str()).collect();
-        let (ok, refused): (Vec<_>, Vec<_>) = items.into_iter().partition(|(e, _, _)| allowed.contains(e.as_str()));
+        let (ok, refused): (Vec<_>, Vec<_>) =
+            items.into_iter().partition(|(e, _, _)| allowed.contains(e.as_str()) || e.starts_with(crate::models::PREFIX));
         for (e, _, _) in &ok {
             self.ensure_template(ctx, e);
         }
@@ -2573,29 +2639,35 @@ impl MapEditor {
 
         // ---- camera ----
         let before = self.camera;
+        // Unity's Scene view: right-drag looks around, Alt+left-drag orbits,
+        // middle-drag pans, Alt+right-drag and the wheel zoom.
         if resp.dragged_by(egui::PointerButton::Secondary) && self.modal.is_none() {
+            let d = resp.drag_delta();
+            if alt {
+                self.camera.zoom(-d.y * 3.0 + d.x * 3.0);
+            } else {
+                self.camera.look(d.x, d.y);
+            }
+        }
+        if alt && resp.dragged_by(egui::PointerButton::Primary) && self.modal.is_none() {
             let d = resp.drag_delta();
             self.camera.orbit(d.x, d.y);
         }
         if resp.dragged_by(egui::PointerButton::Middle) {
             let d = resp.drag_delta();
-            if shift {
-                // Shift + middle drag: straight up / down.
-                self.camera.lift(d.y * 2.0 * self.camera.half_height() / rect.height());
-            } else {
-                self.camera.pan(d.x, d.y, rect.height());
-            }
+            self.camera.pan_screen(d.x, d.y, rect.height());
         }
         if resp.hovered() {
-            // Shift+wheel arrives as a horizontal scroll on most systems.
             let scroll = ctx.input(|i| i.smooth_scroll_delta);
             let amount = if scroll.y != 0.0 { scroll.y } else { scroll.x };
             if amount != 0.0 {
-                if shift {
-                    // Shift + wheel: move the view up / down.
-                    self.camera.lift(amount * self.camera.dist * 0.002);
+                if ctx.input(|i| i.pointer.secondary_down()) {
+                    // Unity: the wheel while flying sets the fly speed.
+                    self.fly_speed = (self.fly_speed * (1.0 + amount * 0.002)).clamp(1.0, 500.0);
+                    self.status = format!("Fly speed {:.0} m/s", self.fly_speed);
                 } else {
                     self.camera.zoom(amount);
+                    self.zoom_shown = Some(Instant::now() + Duration::from_millis(1200));
                 }
             }
         }
@@ -2603,11 +2675,13 @@ impl MapEditor {
         if !typing && self.modal.is_none() {
             let (dt, rmb) = ctx.input(|i| (i.stable_dt.min(0.1), i.pointer.secondary_down()));
             let key = |k: egui::Key| ctx.input(|i| i.key_down(k));
-            // WASD + Q/E fly while the right button is held (Blender / Unreal
-            // style), arrows always; with nothing selected WASD flies too.
-            let fly = rmb || self.sel.is_empty();
-            let speed = self.camera.dist * 1.2 * dt * if shift { 3.0 } else { 1.0 };
-            let f = Vec3::new(self.camera.forward().x, 0.0, self.camera.forward().z).normalize_or(Vec3::Z);
+            // Unity: hold the right button, then WASD flies where you look,
+            // Q / E go down / up, Shift is faster. Arrows move on the ground
+            // plane at any time.
+            let fly = rmb && !alt;
+            let speed = if fly { self.fly_speed } else { self.camera.dist * 1.2 } * dt * if shift { 3.0 } else { 1.0 };
+            let ground_f = Vec3::new(self.camera.forward().x, 0.0, self.camera.forward().z).normalize_or(Vec3::Z);
+            let f = if fly { self.camera.forward() } else { ground_f };
             let rgt = self.camera.right();
             let mut mv = Vec3::ZERO;
             if key(egui::Key::ArrowUp) || (fly && key(egui::Key::W)) {
@@ -2616,20 +2690,20 @@ impl MapEditor {
             if key(egui::Key::ArrowDown) || (fly && key(egui::Key::S) && !cmd_key) {
                 mv -= f;
             }
-            if key(egui::Key::ArrowLeft) || (fly && key(egui::Key::A) && !alt) {
+            if key(egui::Key::ArrowLeft) || (fly && key(egui::Key::A)) {
                 mv -= rgt;
             }
             if key(egui::Key::ArrowRight) || (fly && key(egui::Key::D) && !cmd_key) {
                 mv += rgt;
             }
-            if rmb && key(egui::Key::E) || key(egui::Key::PageUp) {
+            if fly && key(egui::Key::E) || key(egui::Key::PageUp) {
                 mv += Vec3::Y;
             }
-            if rmb && key(egui::Key::Q) || key(egui::Key::PageDown) {
+            if fly && key(egui::Key::Q) || key(egui::Key::PageDown) {
                 mv -= Vec3::Y;
             }
             if mv != Vec3::ZERO {
-                self.camera.target += mv.normalize() * speed;
+                self.camera.fly(mv.normalize() * speed);
             }
         }
         if self.camera != before {
@@ -2647,7 +2721,7 @@ impl MapEditor {
         };
 
         // ---- pointer ----
-        if resp.drag_started_by(egui::PointerButton::Primary) && self.modal.is_none() && self.tool == Tool::Select {
+        if resp.drag_started_by(egui::PointerButton::Primary) && self.modal.is_none() && self.tool == Tool::Select && !alt {
             if let Some(p) = resp.interact_pointer_pos() {
                 if let Some(h) = gizmo_hover {
                     let kind = match self.gizmo {
@@ -2679,7 +2753,7 @@ impl MapEditor {
         }
         // Terrain brush: paint while the left button is held.
         if self.tool == Tool::Brush && self.modal.is_none() {
-            let down = ctx.input(|i| i.pointer.primary_down()) && resp.hovered() || resp.dragged_by(egui::PointerButton::Primary);
+            let down = !alt && (ctx.input(|i| i.pointer.primary_down()) && resp.hovered() || resp.dragged_by(egui::PointerButton::Primary));
             if down && !ctx.input(|i| i.pointer.secondary_down()) {
                 if let Some(g) = hover_ground {
                     if self.last_dab.is_none() {
@@ -2796,7 +2870,7 @@ impl MapEditor {
                 self.cancel_modal();
             }
             ctx.request_repaint();
-        } else if resp.clicked() {
+        } else if resp.clicked() && !alt {
             if let Some(p) = resp.interact_pointer_pos() {
                 match self.tool.clone() {
                     Tool::Place(entity) => {
@@ -2870,6 +2944,7 @@ impl MapEditor {
             }
             _ => {}
         }
+        self.make_thumbs(rs);
         let mut parts: Vec<DrawPart> = Vec::new();
         if let Some(s) = &self.scenery {
             parts.extend(s.parts.iter().zip(&self.shipped_draw).map(|(p, inst)| DrawPart { key: &p.key, instances: inst }));
@@ -2899,6 +2974,7 @@ impl MapEditor {
                 shadows: self.shadows,
                 env: &self.env,
                 draw_water: self.tile.is_none(),
+                no_terrain: false,
             },
         );
         self.frame_ms = self.frame_ms * 0.9 + t0.elapsed().as_secs_f32() * 1000.0 * 0.1;
@@ -2992,6 +3068,21 @@ impl MapEditor {
         // View label (top-left) like Blender.
         let view = format!("{} · {}", if self.camera.ortho { "Orthographic" } else { "Perspective" }, view_name(&self.camera));
         painter.text(rect.left_top() + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, view, egui::FontId::proportional(13.0), egui::Color32::from_white_alpha(210));
+        // Zoom readout while zooming: how far in, against the whole-map view.
+        if let Some(until) = self.zoom_shown {
+            if Instant::now() < until {
+                let factor = 640.0 / self.camera.dist.max(0.1);
+                let text = format!("Zoom {}  ·  {:.0} m away", if factor >= 10.0 { format!("{factor:.0}×") } else { format!("{factor:.1}×") }, self.camera.dist);
+                let at = rect.center_top() + egui::vec2(0.0, 14.0);
+                let g = painter.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
+                let bg = egui::Rect::from_center_size(at + egui::vec2(0.0, g.size().y * 0.5), g.size() + egui::vec2(18.0, 8.0));
+                painter.rect_filled(bg, 6.0, egui::Color32::from_black_alpha(170));
+                painter.galley(bg.center() - g.size() * 0.5, g, egui::Color32::WHITE);
+                ui.ctx().request_repaint();
+            } else {
+                self.zoom_shown = None;
+            }
+        }
     }
 
     fn draw_minimap(&mut self, ui: &mut egui::Ui, rect: egui::Rect, aspect: f32) {
@@ -3210,11 +3301,12 @@ impl MapEditor {
                         }
                     }
                 });
-                ui.menu_button("New empty chapter", |ui| {
-                    ui.label(egui::RichText::new("Flat unpainted ground, no scenery, no invisible walls, and only a start and a boss spot. Keeps the chapter's sky and light.").small().weak());
+                ui.menu_button("New chapter…", |ui| {
+                    ui.label(egui::RichText::new("An empty chapter: flat unpainted ground, no scenery, no invisible walls, one start and one boss spot.").small().weak());
+                    ui.label(egui::RichText::new("Pick its world: the sky, light, music, enemies and tiles it uses.").small().weak());
                     ui.add(egui::Slider::new(&mut self.new_blank_height, -40.0..=40.0).step_by(2.0).text("ground m"));
                     for c in &self.chapters {
-                        if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("Start from {}", c.label)).clicked() {
+                        if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("{} world", c.label)).clicked() {
                             open_blank = Some((c.key.clone(), self.new_blank_height));
                             ui.close();
                         }
@@ -3494,6 +3586,10 @@ impl MapEditor {
 
     /// Create menu (Hierarchy "+", right-click on empty space or a row).
     fn ui_create_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Import model…").on_hover_text(".glb models and .png textures; or drop the files on the window").clicked() {
+            self.pick_files(ui.ctx());
+            ui.close();
+        }
         if ui.button("Prop…").on_hover_text("Pick one in the Project panel, then click the ground, or drag it into the scene").clicked() {
             self.show_bottom = true;
             self.bottom_tab = BottomTab::Project;
@@ -3518,6 +3614,166 @@ impl MapEditor {
             self.run(&ctx, Cmd::Paste);
             ui.close();
         }
+    }
+
+    /// Render up to a few Project thumbnails whose item is fully loaded.
+    fn make_thumbs(&mut self, rs: &eframe::egui_wgpu::RenderState) {
+        const SIZE: u32 = 160;
+        let Some(r) = self.renderer.as_mut() else { return };
+        let mut made = 0;
+        for e in std::mem::take(&mut self.thumb_want) {
+            if made >= 3 || self.thumbs.contains_key(&e) {
+                continue;
+            }
+            let Some(Some(t)) = self.templates.get(&e) else { continue };
+            // Wait for every mesh and texture, so the preview is the real thing.
+            let ready = t.iter().all(|(k, _)| (k.decal || r.has_mesh(&k.mesh)) && k.texture.as_ref().is_none_or(|tx| r.texture_known(tx, k.swap_rb)));
+            if !ready {
+                continue;
+            }
+            let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            let inst: Vec<Vec<Instance>> = t.iter().map(|(_, ms)| ms.iter().map(|m| Instance { m: m.to_cols_array_2d(), tint: [0.0; 4] }).collect()).collect();
+            for (k, ms) in t {
+                let Some((c, rad)) = r.mesh_bounds(&k.mesh) else { continue };
+                for m in ms {
+                    let wc = m.transform_point3(c);
+                    let wr = rad * m.x_axis.length().max(m.y_axis.length()).max(m.z_axis.length());
+                    lo = lo.min(wc - Vec3::splat(wr));
+                    hi = hi.max(wc + Vec3::splat(wr));
+                }
+            }
+            if lo.x > hi.x {
+                self.thumbs.insert(e, egui::TextureId::default());
+                continue;
+            }
+            let cam = Camera { target: (lo + hi) * 0.5, yaw: 0.65, pitch: 0.45, dist: 1.0, ..self.camera };
+            let mut cam = Camera { ortho: false, ..cam };
+            cam.frame((lo + hi) * 0.5, (hi - lo).length() * 0.3);
+            let parts: Vec<DrawPart> = t.iter().zip(&inst).map(|((k, _), i)| DrawPart { key: k, instances: i }).collect();
+            let id = r.render_thumb(
+                rs,
+                (SIZE, SIZE),
+                &Frame {
+                    camera: &cam,
+                    parts,
+                    lines: &[],
+                    top_lines: &[],
+                    min_px: 0.0,
+                    haze: 0.0,
+                    exposure: self.exposure,
+                    shadows: false,
+                    env: &self.env,
+                    draw_water: false,
+                    no_terrain: true,
+                },
+            );
+            self.thumbs.insert(e, id);
+            made += 1;
+        }
+    }
+
+    /// Import… : the system's file picker, off the UI thread.
+    fn pick_files(&mut self, ctx: &egui::Context) {
+        self.show_bottom = true;
+        self.bottom_tab = BottomTab::Project;
+        self.spawn(ctx, |_| {
+            let files = rfd::FileDialog::new().set_title("Import models and textures").add_filter("Models and textures", &["glb", "png"]).pick_files();
+            Ok(Event::Imported(files.unwrap_or_default()))
+        });
+    }
+
+    /// Add `.glb` models and `.png` textures to the mod. A texture goes on
+    /// the model with the same file name, else on the last model imported.
+    fn import_files(&mut self, ctx: &egui::Context, paths: Vec<std::path::PathBuf>) {
+        use crate::models::{clean_stem, read_glb, Art, Model};
+        let (mut glbs, mut pngs): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb")));
+        pngs.retain(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")));
+        let mut done = Vec::new();
+        for file in glbs.drain(..) {
+            match read_glb(&file) {
+                Ok((bytes, lo, hi)) => {
+                    let mut name = clean_stem(&file);
+                    while self.models.iter().any(|m| m.name() == name && m.mesh.file != file) {
+                        name.push('_');
+                    }
+                    let rel = format!("art/{name}.glb");
+                    self.models.retain(|m| m.mesh.rel != rel);
+                    self.templates.remove(&format!("{}{rel}", crate::models::PREFIX));
+                    self.models.push(Model { mesh: Art { rel: rel.clone(), file: file.clone() }, texture: None, solid: true, lo, hi });
+                    self.stage(ctx, rel, bytes);
+                    done.push(name);
+                }
+                Err(e) => self.failed_assets.push(format!("import: {e:#}")),
+            }
+        }
+        for file in pngs {
+            let stem = clean_stem(&file);
+            let Some(i) = self.models.iter().position(|m| m.name() == stem).or(self.models.len().checked_sub(1)) else {
+                self.status = format!("{}: import a model first, then its texture", file.display());
+                continue;
+            };
+            let rel = format!("art/{}.png", self.models[i].name());
+            match std::fs::read(&file) {
+                Ok(bytes) if bytes.starts_with(b"\x89PNG") => {
+                    self.models[i].texture = Some(Art { rel: rel.clone(), file: file.clone() });
+                    self.templates.remove(&self.models[i].entity());
+                    self.stage(ctx, rel, bytes);
+                    done.push(format!("{} (texture)", self.models[i].name()));
+                }
+                _ => self.failed_assets.push(format!("import: {} is not a .png", file.display())),
+            }
+        }
+        // Placed copies pick up a new texture.
+        let ents: Vec<String> = self.models.iter().map(|m| m.entity()).collect();
+        for e in ents {
+            self.ensure_template(ctx, &e);
+        }
+        self.dirty = true;
+        if !done.is_empty() {
+            self.unsaved = true;
+            self.status = format!("Imported {}: drag it from Project into the scene", done.join(", "));
+        }
+    }
+
+    fn stage(&self, ctx: &egui::Context, rel: String, bytes: Vec<u8>) {
+        self.spawn(ctx, move |be| {
+            let r = crate::models::upload(be, &rel, &bytes);
+            Ok(Event::Staged(rel, r))
+        });
+    }
+
+    /// A reopened mod's own models, read from its folder.
+    fn register_mod_models(&mut self, objects: &Value, folder: &std::path::Path) {
+        use crate::models::{read_glb, Art, Model};
+        for o in objects.as_array().into_iter().flatten() {
+            let Some(rel) = o["model"].as_str() else { continue };
+            if self.models.iter().any(|m| m.mesh.rel == rel) {
+                continue;
+            }
+            let file = folder.join(rel);
+            match read_glb(&file) {
+                Ok((bytes, lo, hi)) => {
+                    let texture = o["texture"].as_str().map(|t| Art { rel: t.to_owned(), file: folder.join(t) });
+                    if let Some(t) = &texture {
+                        if let Ok(b) = std::fs::read(&t.file) {
+                            self.stage_now(t.rel.clone(), b);
+                        }
+                    }
+                    self.models.push(Model { mesh: Art { rel: rel.to_owned(), file }, texture, solid: o.get("collision").is_some(), lo, hi });
+                    self.stage_now(rel.to_owned(), bytes);
+                }
+                Err(e) => self.failed_assets.push(format!("{rel}: {e:#}")),
+            }
+        }
+    }
+
+    /// `stage` without a context (a reopened mod's art, read at load).
+    fn stage_now(&self, rel: String, bytes: Vec<u8>) {
+        let (be, tx) = (self.backend.clone(), self.events_tx.clone());
+        thread::spawn(move || {
+            let r = crate::models::upload(&be, &rel, &bytes);
+            let _ = tx.send(Event::Staged(rel, r));
+        });
     }
 
     /// Right-click on a Hierarchy row (Unity: the row's context menu).
@@ -3957,7 +4213,7 @@ impl MapEditor {
         if ui.add(egui::Button::new(if painting { "Brush on (B)" } else { "Pick up the brush (B)" }).selected(painting)).clicked() {
             self.tool = if painting { Tool::Select } else { Tool::Brush };
         }
-        ui.label(egui::RichText::new("Left-drag paints · Ctrl inverts · Shift smooths · [ ] size · right-drag still orbits").small().weak());
+        ui.label(egui::RichText::new("Left-drag paints · Ctrl inverts · Shift smooths · [ ] size · right-drag still looks around").small().weak());
         ui.separator();
         let slots: Vec<(usize, String)> = self
             .look_base
@@ -4023,41 +4279,197 @@ impl MapEditor {
         }
     }
 
+    /// Unity's Project window: a folder tree on the left, the open folder's
+    /// contents as tiles on the right. `Assets` = the mod's own models,
+    /// `Game` = the game's props by where they live in its files.
     fn ui_assets(&mut self, ui: &mut egui::Ui) {
-        ui.add(egui::TextEdit::singleline(&mut self.prop_filter).hint_text("Search assets…").desired_width(f32::INFINITY));
-        ui.checkbox(&mut self.all_props, "Include gameplay objects (spawners, FX, chests…)");
-        ui.label(egui::RichText::new("Drag a prop into the scene, or click it and then the ground (Shift keeps placing).").small().weak());
-        if self.props.is_empty() {
-            ui.label("Loading…");
-            return;
+        use crate::project as P;
+        let all_props = self.all_props;
+        let props: Vec<&Prop> = self.props.iter().filter(|p| all_props || p.scenery).collect();
+        let folders = P::folders(props.iter().map(|p| p.entity.as_str()).map(|e| P::folder_of(e)).collect::<Vec<_>>().iter().map(String::as_str));
+        if !self.props.is_empty() && !folders.contains(&self.project_dir) {
+            self.project_dir = P::ASSETS.to_owned();
         }
-        let f = self.prop_filter.to_lowercase();
-        let mut groups: std::collections::BTreeMap<String, Vec<Prop>> = std::collections::BTreeMap::new();
-        for p in self.props.iter().filter(|p| (self.all_props || p.scenery) && (f.is_empty() || p.name.to_lowercase().contains(&f) || p.group.to_lowercase().contains(&f))) {
-            groups.entry(p.group.replace('_', " ")).or_default().push(p.clone());
-        }
-        let mut pick = None;
-        egui::ScrollArea::vertical().id_salt("project").auto_shrink(false).show(ui, |ui| {
-            for (g, list) in groups {
-                egui::CollapsingHeader::new(format!("{g}  ({})", list.len())).default_open(!f.is_empty()).show(ui, |ui| {
+        let mut open_dir: Option<String> = None;
+        let mut pick: Option<String> = None;
+        let mut remove: Option<usize> = None;
+        let mut import = false;
+        let mut want: Vec<String> = Vec::new();
+        let tile = self.tile_size;
+        {
+            // ---- folder tree, in its own resizable column
+            egui::Panel::left("project_tree").resizable(true).default_size(230.0).size_range(150.0..=420.0).show(ui, |ui| {
+              egui::ScrollArea::vertical().id_salt("project_tree").auto_shrink([false, false]).show(ui, |ui| {
+                fn tree(ui: &mut egui::Ui, all: &std::collections::BTreeSet<String>, dir: &str, cur: &str, open: &mut Option<String>) {
+                    let kids = crate::project::children(all, dir);
+                    let label = crate::project::leaf(dir).replace('_', " ");
+                    let row = |ui: &mut egui::Ui, open: &mut Option<String>| {
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 12.0), egui::Sense::hover());
+                            folder_glyph(ui.painter(), r);
+                            if ui.selectable_label(cur == dir, label.as_str()).clicked() {
+                                *open = Some(dir.to_owned());
+                            }
+                        });
+                    };
+                    if kids.is_empty() {
+                        row(ui, open);
+                        return;
+                    }
+                    let id = ui.make_persistent_id(("ptree", dir));
+                    let default_open = cur.starts_with(dir) || dir == crate::project::ASSETS || dir == crate::project::GAME;
+                    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open)
+                        .show_header(ui, |ui| row(ui, open))
+                        .body(|ui| {
+                            for k in kids {
+                                tree(ui, all, k, cur, open);
+                            }
+                        });
+                }
+                tree(ui, &folders, P::ASSETS, &self.project_dir, &mut open_dir);
+                tree(ui, &folders, P::GAME, &self.project_dir, &mut open_dir);
+              });
+            });
+            // ---- the open folder
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.prop_filter).hint_text("Search all…").desired_width(180.0));
+                    ui.checkbox(&mut self.all_props, "Gameplay objects").on_hover_text("Also list spawners, FX, chests…");
+                    if ui.button("Import…").on_hover_text(".glb models (metres, Y up) and .png textures; or drop files on the window").clicked() {
+                        import = true;
+                    }
+                    ui.add(egui::Slider::new(&mut self.tile_size, 56.0..=220.0).show_value(false).text("Icon size"))
+                        .on_hover_text("Or Ctrl + mouse wheel over the icons");
+                });
+                ui.horizontal_wrapped(|ui| {
+                    // Breadcrumb: each part opens that folder.
+                    let mut acc = String::new();
+                    for (i, seg) in self.project_dir.split('/').enumerate() {
+                        if i > 0 {
+                            ui.label("›");
+                            acc.push('/');
+                        }
+                        acc.push_str(seg);
+                        if ui.link(seg).clicked() {
+                            open_dir = Some(acc.clone());
+                        }
+                    }
+                });
+                ui.separator();
+                let f = self.prop_filter.to_lowercase();
+                let searching = !f.is_empty();
+                if ui.ui_contains_pointer() {
+                    // Ctrl + wheel arrives as egui's zoom gesture.
+                    let z = ui.input(|i| i.zoom_delta());
+                    if z != 1.0 {
+                        self.tile_size = (self.tile_size * z).clamp(56.0, 220.0);
+                    }
+                }
+                egui::ScrollArea::vertical().id_salt("project_grid").auto_shrink(false).show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        for p in list {
+                        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                        // Sub-folders (not while searching: a search lists every match).
+                        if !searching {
+                            for d in P::children(&folders, &self.project_dir) {
+                                let r = project_tile(ui, P::leaf(d), TileIcon::Folder, false, d, tile, None);
+                                if r.double_clicked() || r.clicked() {
+                                    open_dir = Some(d.to_owned());
+                                }
+                            }
+                        }
+                        // The mod's own models.
+                        if searching || self.project_dir == P::ASSETS {
+                            for (i, m) in self.models.iter_mut().enumerate() {
+                                if searching && !m.name().to_lowercase().contains(&f) {
+                                    continue;
+                                }
+                                let entity = m.entity();
+                                let on = self.tool == Tool::Place(entity.clone());
+                                let size = m.hi - m.lo;
+                                let tip = format!(
+                                    "{}\n{:.1} × {:.1} × {:.1} m · {}{}\nDrag into the scene, or click then click the ground. Right-click for options.",
+                                    m.mesh.rel,
+                                    size.x,
+                                    size.y,
+                                    size.z,
+                                    m.texture.as_ref().map_or("no texture".to_owned(), |t| t.rel.clone()),
+                                    if m.solid { " · solid" } else { "" }
+                                );
+                                let r = project_tile(ui, m.name(), TileIcon::Model, on, &tip, tile, self.thumbs.get(&entity).copied());
+                                if !self.thumbs.contains_key(&entity) && ui.is_rect_visible(r.rect) {
+                                    want.push(entity.clone());
+                                }
+                                r.dnd_set_drag_payload(entity.clone());
+                                if r.clicked() {
+                                    pick = Some(entity.clone());
+                                }
+                                r.context_menu(|ui| {
+                                    ui.checkbox(&mut m.solid, "Solid (heroes cannot walk through)");
+                                    if ui.button("Remove from the mod").clicked() {
+                                        remove = Some(i);
+                                        ui.close();
+                                    }
+                                });
+                            }
+                        }
+                        // The game's props in this folder (or every match).
+                        let mut shown = 0;
+                        for p in &props {
+                            let here = if searching {
+                                p.name.to_lowercase().contains(&f) || p.group.to_lowercase().contains(&f)
+                            } else {
+                                P::folder_of(&p.entity) == self.project_dir
+                            };
+                            if !here {
+                                continue;
+                            }
+                            shown += 1;
+                            if shown > 600 {
+                                break;
+                            }
                             let on = self.tool == Tool::Place(p.entity.clone());
-                            // Drag into the Scene to place it there (Unity's drag from Project).
-                            let r = ui
-                                .dnd_drag_source(ui.scope_id().with(("asset", &p.entity)), p.entity.clone(), |ui| {
-                                    ui.add(egui::Button::new(&p.name).selected(on).min_size(egui::vec2(120.0, 28.0)));
-                                })
-                                .response
-                                .on_hover_text(format!("{}\nClick, then click the ground; or drag into the scene", p.entity));
+                            let icon = if p.scenery { TileIcon::Prop } else { TileIcon::Gameplay };
+                            let tip = format!("{}\nDrag into the scene, or click then click the ground (Shift keeps placing).", p.entity);
+                            let r = project_tile(ui, &p.name, icon, on, &tip, tile, self.thumbs.get(&p.entity).copied());
+                            if !self.thumbs.contains_key(&p.entity) && ui.is_rect_visible(r.rect) {
+                                want.push(p.entity.clone());
+                            }
+                            r.dnd_set_drag_payload(p.entity.clone());
                             if r.clicked() {
                                 pick = Some(p.entity.clone());
                             }
                         }
+                        if self.props.is_empty() && self.project_dir.starts_with(P::GAME) {
+                            ui.label("Loading the game's props…");
+                        }
+                        if self.project_dir == P::ASSETS && self.models.is_empty() && !searching {
+                            ui.label(egui::RichText::new("Your models go here: press Import… or drop .glb / .png files on the window. A .png goes on the model with the same name.").weak());
+                        }
                     });
                 });
+            });
+        }
+        // Previews for what is on screen: load the item, then render it.
+        let ctx = ui.ctx().clone();
+        for e in &want {
+            self.ensure_template(&ctx, e);
+        }
+        self.thumb_want = want;
+        if let Some(d) = open_dir {
+            self.project_dir = d;
+            self.prop_filter.clear();
+        }
+        if import {
+            self.pick_files(ui.ctx());
+        }
+        if let Some(i) = remove {
+            let e = self.models[i].entity();
+            if self.edits.adds.iter().any(|a| a.entity == e) {
+                self.status = format!("{} is placed in the scene: delete those copies first", self.models[i].name());
+            } else {
+                self.models.remove(i);
             }
-        });
+        }
         if let Some(e) = pick {
             let ctx = ui.ctx().clone();
             self.ensure_template(&ctx, &e);
@@ -4398,6 +4810,23 @@ impl MapEditor {
             m["play"] = json!(self.map_play);
             // Added objects stand in the map's own scenery, never the chapter's.
             m["objects"] = self.edits.objects_doc();
+            // The mod's own models: `{model, texture, collision}` instead of an
+            // entity, and the art a save copies into the mod.
+            let mut art = serde_json::Map::new();
+            for o in m["objects"].as_array_mut().into_iter().flatten() {
+                let Some(rel) = o["entity"].as_str().and_then(|e| e.strip_prefix(crate::models::PREFIX)).map(str::to_owned) else { continue };
+                let Some(model) = self.models.iter().find(|x| x.mesh.rel == rel) else { continue };
+                o.as_object_mut().unwrap().remove("entity");
+                for (k, v) in model.fields().as_object().unwrap() {
+                    o[k] = v.clone();
+                }
+                for a in std::iter::once(&model.mesh).chain(&model.texture) {
+                    if let Some(id) = self.staged.get(&a.rel) {
+                        art.insert(a.rel.clone(), json!(id));
+                    }
+                }
+            }
+            b["art"] = Value::Object(art);
             b["map"] = m;
         }
         if with_id {
@@ -4408,6 +4837,19 @@ impl MapEditor {
     }
 
     fn submit(&mut self, kind: Pending) {
+        // An imported model still on its way to the backend cannot be saved yet.
+        let waiting: Vec<&str> = self
+            .models
+            .iter()
+            .filter(|m| self.edits.adds.iter().any(|a| a.entity == m.entity()))
+            .flat_map(|m| std::iter::once(&m.mesh).chain(&m.texture))
+            .filter(|a| !self.staged.contains_key(&a.rel))
+            .map(|a| a.rel.as_str())
+            .collect();
+        if !waiting.is_empty() {
+            self.status = format!("Still importing {}: try again in a moment", waiting.join(", "));
+            return;
+        }
         let saving = kind == Pending::Save;
         let (b, target) = if self.tile.is_some() {
             let Some((b, notes)) = self.tile_body(saving) else { return };
@@ -4583,11 +5025,13 @@ impl MapEditor {
                 ui.strong("Camera");
                 egui::Grid::new("cam").num_columns(2).striped(true).show(ui, |ui| {
                     for (a, b) in [
-                        ("Orbit", "Right-drag"),
+                        ("Look around", "Right-drag"),
+                        ("Fly", "Hold right button + W A S D, Q / E down / up, Shift faster; wheel sets the speed"),
+                        ("Orbit", "Alt + left-drag"),
                         ("Pan", "Middle-drag"),
-                        ("Zoom", "Wheel"),
-                        ("Up / down", "Shift+wheel, Shift+middle-drag, PageUp / PageDown"),
-                        ("Fly", "Hold right button + W A S D, Q / E down / up (Shift faster)"),
+                        ("Zoom", "Wheel, or Alt + right-drag"),
+                        ("Frame selection", "F (or double-click it in the Hierarchy)"),
+                        ("Up / down", "PageUp / PageDown"),
                         ("Views", "1 front · 3 side · 7 top · 5 ortho"),
                         ("Minimap", "M; click it to jump"),
                     ] {
@@ -4711,8 +5155,21 @@ impl eframe::App for MapEditor {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_events(&ctx);
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        if !dropped.is_empty() {
+            self.import_files(&ctx, dropped);
+        }
         self.make_clean();
         self.handle_keys(&ctx);
+        // Unity's drag preview: what is being dragged follows the cursor.
+        if let (Some(what), Some(at)) = (egui::DragAndDrop::payload::<String>(&ctx), ctx.pointer_latest_pos()) {
+            let name = what.strip_prefix(crate::models::PREFIX).map(crate::models::stem).unwrap_or_else(|| {
+                what.rsplit('\\').next().unwrap_or(&what).trim_end_matches(".entity.ot")
+            });
+            egui::Area::new(egui::Id::unique("drag_preview")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(14.0, 10.0)).interactable(false).show(&ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| ui.label(format!("Place {}", name.replace('_', " "))));
+            });
+        }
 
         egui::Panel::top("menu").show(ui, |ui| self.ui_menu(ui));
         if self.tabs.len() > 1 {
@@ -4998,6 +5455,67 @@ fn parse_template(v: &Value) -> anyhow::Result<Template> {
         out.push((key, f.chunks_exact(16).map(Mat4::from_cols_slice).collect()));
     }
     Ok(out)
+}
+
+#[derive(Clone, Copy)]
+enum TileIcon {
+    Folder,
+    Prop,
+    Gameplay,
+    Model,
+}
+
+/// A small folder, for the Project tree.
+fn folder_glyph(p: &egui::Painter, r: egui::Rect) {
+    let c = egui::Color32::from_rgb(226, 176, 86);
+    p.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(6.0, 3.0)), 1.0, egui::Color32::from_rgb(196, 150, 70));
+    p.rect_filled(egui::Rect::from_min_max(r.min + egui::vec2(0.0, 2.0), r.max), 2.0, c);
+}
+
+/// One Project tile: an icon over the name, Unity's grid view.
+fn project_tile(ui: &mut egui::Ui, name: &str, icon: TileIcon, on: bool, tip: &str, size: f32, thumb: Option<egui::TextureId>) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size - 6.0 + 18.0), egui::Sense::click_and_drag());
+    let vis = ui.style().interact_selectable(&resp, on);
+    let p = ui.painter();
+    if on || resp.hovered() {
+        p.rect_filled(rect, 6.0, vis.weak_bg_fill);
+    }
+    let s = (size / 92.0).max(0.5);
+    let ir = egui::Rect::from_center_size(rect.center_top() + egui::vec2(0.0, 30.0 * s), egui::vec2(46.0, 40.0) * s);
+    let c = |r: u8, g: u8, b: u8| egui::Color32::from_rgb(r, g, b);
+    if let Some(t) = thumb {
+        // A real preview of the model.
+        let sq = egui::Rect::from_center_size(rect.center_top() + egui::vec2(0.0, (size - 24.0) * 0.5 + 3.0), egui::Vec2::splat(size - 24.0));
+        p.image(t, sq, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+    } else {
+    match icon {
+        TileIcon::Folder => {
+            let tab = egui::Rect::from_min_size(ir.min, egui::vec2(20.0, 8.0) * s);
+            p.rect_filled(tab, 2.0, c(196, 150, 70));
+            p.rect_filled(egui::Rect::from_min_max(ir.min + egui::vec2(0.0, 6.0 * s), ir.max), 4.0, c(226, 176, 86));
+        }
+        TileIcon::Prop | TileIcon::Gameplay | TileIcon::Model => {
+            // A little cube: top, left and right faces.
+            let (top, side, front) = match icon {
+                TileIcon::Model => (c(110, 200, 190), c(70, 150, 140), c(90, 175, 165)),
+                TileIcon::Gameplay => (c(220, 140, 120), c(160, 90, 80), c(190, 115, 100)),
+                _ => (c(200, 196, 188), c(130, 126, 120), c(165, 160, 152)),
+            };
+            let (cx, cy, s) = (ir.center().x, ir.center().y, 17.0 * s);
+            let pt = |x: f32, y: f32| egui::pos2(cx + x * s, cy + y * s);
+            let poly = |pts: Vec<egui::Pos2>, col| egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE);
+            p.add(poly(vec![pt(0.0, -1.0), pt(1.0, -0.5), pt(0.0, 0.0), pt(-1.0, -0.5)], top));
+            p.add(poly(vec![pt(-1.0, -0.5), pt(0.0, 0.0), pt(0.0, 1.1), pt(-1.0, 0.6)], side));
+            p.add(poly(vec![pt(0.0, 0.0), pt(1.0, -0.5), pt(1.0, 0.6), pt(0.0, 1.1)], front));
+        }
+    }
+    }
+    let label = egui::Rect::from_min_max(egui::pos2(rect.left() + 3.0, rect.bottom() - 28.0), rect.right_bottom() - egui::vec2(3.0, 2.0));
+    let text = name.replace('_', " ");
+    let galley = ui.painter().layout(text, egui::FontId::proportional(11.5), vis.text_color(), label.width());
+    let clip = ui.painter().with_clip_rect(label);
+    clip.galley(egui::pos2(label.center().x - galley.size().x / 2.0, label.top()), galley, vis.text_color());
+    resp.on_hover_text(tip)
 }
 
 /// `Tiles\\Dark_Hills\\40x40_Camp_01.tiledef.ot` -> `40x40_Camp_01`.

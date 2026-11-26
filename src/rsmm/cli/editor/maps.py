@@ -13,7 +13,11 @@ only exist on a clone. The page is ``pages/map.html``.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import re
 import secrets
+import shutil
 import tempfile
 import tomllib
 from pathlib import Path
@@ -146,7 +150,60 @@ def _mod(req: Request) -> dict:
     if not got:
         raise Fail(404, f"{mod_id} is not a map-editor mod")
     name = tomllib.loads(text).get("mod", {}).get("name", "")
-    return {**got, "name": name}
+    # The folder, so the editor can preview the mod's own models from disk.
+    return {**got, "name": name, "folder": str((req.ctx.mods_dir / mod_id).resolve())}
+
+
+# --------------------------------------------------------------------------
+# the mod's own art (models and textures the editor imported)
+# --------------------------------------------------------------------------
+
+#: Where an imported file waits until a save copies it into ``mods/<id>/art``.
+STAGING = Path(tempfile.gettempdir()) / "rsmm-map-editor-staging"
+#: A staged file's id: content hash + extension.
+_STAGED_ID = re.compile(r"^[0-9a-f]{32}\.(glb|png)$")
+#: Where a model or texture lives in a mod: ``art/<name>.glb|png``.
+ART_PATH = re.compile(r"^art/[A-Za-z0-9][A-Za-z0-9_.-]{0,80}\.(glb|png)$")
+_MAGIC = {"glb": b"glTF", "png": b"\x89PNG"}
+
+
+def _upload(req: Request) -> dict:
+    """Stage one imported ``.glb`` / ``.png`` (``{name, data: base64}``)."""
+    ext = Path(str(req.body.get("name", ""))).suffix.lower().lstrip(".")
+    if ext not in _MAGIC:
+        raise Fail(400, "only .glb models and .png textures can be imported")
+    try:
+        data = base64.b64decode(str(req.body.get("data", "")), validate=True)
+    except ValueError:
+        raise Fail(400, "data: expected base64") from None
+    if not data.startswith(_MAGIC[ext]):
+        raise Fail(400, f"that is not a .{ext} file")
+    sid = f"{hashlib.sha256(data).hexdigest()[:32]}.{ext}"
+    STAGING.mkdir(parents=True, exist_ok=True)
+    (STAGING / sid).write_bytes(data)
+    return {"id": sid}
+
+
+def _as_art(body: dict) -> dict[str, Path]:
+    """``{"art/<name>": staged id}`` -> ``{"art/<name>": staged file}``."""
+    art = body.get("art") or {}
+    if not isinstance(art, dict):
+        raise Fail(400, "art: expected {path: staged id}")
+    out = {}
+    for rel, sid in art.items():
+        if not isinstance(rel, str) or not ART_PATH.match(rel):
+            raise Fail(400, f"art: {rel!r} is not art/<name>.glb or .png")
+        if not isinstance(sid, str) or not _STAGED_ID.match(sid) or not (STAGING / sid).is_file():
+            raise Fail(400, f"art: {rel} was not imported in this session; import it again")
+        out[rel] = STAGING / sid
+    return out
+
+
+def _put_art(art: dict[str, Path], root: Path) -> None:
+    for rel, src in art.items():
+        dest = root / Path(*rel.split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
 
 
 def _as_map(body: dict) -> dict | None:
@@ -211,7 +268,8 @@ def _scenery_changes(ch: ME.Chapter, scenery: dict) -> list[str]:
 
 
 def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
-             scenery: dict | None = None) -> list[str]:
+             scenery: dict | None = None, art: dict[str, Path] | None = None,
+             mod_root: Path | None = None) -> list[str]:
     """What saving would change, proven to cook before anything is written.
 
     A clone is proven by the `map` kind itself, on the very manifest text the
@@ -228,6 +286,11 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
     block = tomllib.loads(text)["content"][0]
     fields = {k: v for k, v in block.items() if k not in ("kind", "id")}
     with tempfile.TemporaryDirectory() as out:
+        # The mod's art, where the map kind looks for it: what this save brings,
+        # over what an earlier save already put in the mod.
+        if mod_root is not None and (mod_root / "art").is_dir():
+            shutil.copytree(mod_root / "art", Path(out) / "art")
+        _put_art(art or {}, Path(out))
         map_kind.emit("map-check", ContentDef("map", block["id"], fields), Path(out))
     pool = as_map["pool"]
     return (changes + [f"pool: + {p}" for p in pool["add"]]
@@ -242,8 +305,10 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
 
 def _check(req: Request) -> dict:
     ch = _chapter(str(req.body.get("chapter", "")))
+    mod_id = str(req.body.get("mod_id", "")).strip().lower()
+    root = req.ctx.mods_dir / mod_id if ME.valid_mod_id(mod_id) else None
     return {"changes": _changes(ch, req.body.get("edits") or {}, _as_map(req.body),
-                                _as_scenery(req.body))}
+                                _as_scenery(req.body), _as_art(req.body), root)}
 
 
 def _save(req: Request) -> dict:
@@ -255,18 +320,20 @@ def _save(req: Request) -> dict:
         raise Fail(400, "mod id: use 2-64 lower-case letters, digits, '-' or '_'")
     as_map = _as_map(body)
     scenery = _as_scenery(body)
-    changes = _changes(ch, edits, as_map, scenery)  # prove it cooks before writing
+    art = _as_art(body)
+    folder = req.ctx.mods_dir / mod_id
+    changes = _changes(ch, edits, as_map, scenery, art, folder)  # prove it cooks before writing
     if not changes:
         raise Fail(400, "nothing to save: every value matches the shipped recipe")
     name = str(body.get("name", "")).strip()[:80]
     text = ME.manifest_toml(mod_id, name, ch, edits, as_map, scenery)
-    folder = req.ctx.mods_dir / mod_id
     man = folder / "manifest.toml"
     if man.is_file() and not man.read_text(encoding="utf-8").startswith(ME.EDITOR_MARK):
         raise Fail(409, f"mods/{mod_id} already exists and was not made by the map "
                         f"editor; pick another id")
     folder.mkdir(parents=True, exist_ok=True)
     tmp = man.with_name(f"manifest.toml.{secrets.token_hex(4)}.tmp")
+    _put_art(art, folder)
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(man)
     return {"path": f"mods/{mod_id}/manifest.toml", "changes": changes, "next": NEXT_STEP}
@@ -296,6 +363,7 @@ ROUTES = {
     ("GET", "/api/mod"): _mod,
     ("POST", "/api/check"): _check,
     ("POST", "/api/save"): _save,
+    ("POST", "/api/upload"): _upload,
     ("GET", "/api/scenery"): _drawn(lambda req, ch: SE.scenery_json(ch)),
     ("GET", "/api/scenery/props"): _drawn(lambda req, ch: {"props": SE.chapter_props(ch)}),
     **_tiles.ROUTES,

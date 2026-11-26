@@ -176,6 +176,8 @@ pub struct Renderer {
     line_buf: Option<wgpu::Buffer>,
     line_cap: u64,
     target: Option<Target>,
+    /// Project thumbnails: each its own target, kept while the editor runs.
+    thumbs: Vec<Target>,
     pub stats: Stats,
 }
 
@@ -199,6 +201,8 @@ pub struct Frame<'a> {
     pub shadows: bool,
     pub env: &'a Environment,
     pub draw_water: bool,
+    /// Leave the ground out (Project thumbnails).
+    pub no_terrain: bool,
 }
 
 impl Renderer {
@@ -642,6 +646,7 @@ impl Renderer {
             line_buf: None,
             line_cap: 0,
             target: None,
+            thumbs: Vec::new(),
             stats: Stats::default(),
         }
     }
@@ -843,6 +848,23 @@ impl Renderer {
 
     pub fn has_mesh(&self, path: &str) -> bool {
         self.meshes.contains_key(path)
+    }
+
+    /// A loaded mesh's bounding sphere, in its own space.
+    pub fn mesh_bounds(&self, path: &str) -> Option<(Vec3, f32)> {
+        self.meshes.get(path).map(|m| (m.center, m.radius))
+    }
+
+    /// Render `f` into a texture of its own (a Project thumbnail) and leave
+    /// the main view's target alone.
+    pub fn render_thumb(&mut self, rs: &egui_wgpu::RenderState, size: (u32, u32), f: &Frame) -> egui::TextureId {
+        let main = self.target.take();
+        let id = self.render(rs, size, f);
+        if let Some(t) = self.target.take() {
+            self.thumbs.push(t);
+        }
+        self.target = main;
+        id
     }
 
     pub fn add_mesh(&mut self, path: String, m: MeshData) {
@@ -1161,7 +1183,7 @@ impl Renderer {
             });
             if f.shadows {
                 sp.set_bind_group(0, &self.shadow_bg, &[]);
-                if let Some((vb, ib, n)) = &self.terrain {
+                if let (Some((vb, ib, n)), false) = (&self.terrain, f.no_terrain) {
                     sp.set_pipeline(&self.shadow_terrain_pipe);
                     sp.set_vertex_buffer(0, vb.slice(..));
                     sp.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
@@ -1205,7 +1227,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             rp.set_bind_group(0, &self.globals_bg, &[]);
-            if let Some((vb, ib, n)) = &self.terrain {
+            if let (Some((vb, ib, n)), false) = (&self.terrain, f.no_terrain) {
                 rp.set_pipeline(&self.terrain_pipe);
                 rp.set_bind_group(1, &self.terrain_bg, &[]);
                 rp.set_vertex_buffer(0, vb.slice(..));

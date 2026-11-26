@@ -602,3 +602,53 @@ def test_terrain_json_skips_a_constant_water_layer(monkeypatch):
     finally:
         ME.terrain_json.cache_clear()
     assert "water" not in got and got["grid"] == 32
+
+
+# --------------------------------------------------------------------------
+# importing the mod's own models
+# --------------------------------------------------------------------------
+
+def test_upload_refuses_what_is_not_a_model_or_texture(editor):
+    import base64
+    call, _port, srv = editor
+    def up(name, data):
+        return call("/api/upload", {"name": name, "data": base64.b64encode(data).decode()},
+                    token=srv.token)
+    assert up("x.exe", b"MZ")[0] == 400
+    assert up("x.glb", b"not gltf")[0] == 400
+    assert up("x.png", b"\x89PNG....")[0] == 200
+
+
+def test_art_paths_and_ids_are_checked(editor):
+    call, _port, srv = editor
+    body = {"chapter": "DarkHills", "mod_id": "x-y", "edits": {},
+            "map": {"id": "M", "pool": {}, "objects": []}}
+    for art in ({"../evil.glb": "0" * 32 + ".glb"}, {"art/a.glb": "../../etc/passwd"},
+                {"art/a.glb": "f" * 32 + ".glb"}):
+        code, out = call("/api/check", {**body, "art": art}, token=srv.token)
+        assert code == 400, (art, out)
+
+
+@needs_corpus
+def test_an_imported_model_saves_into_the_mod(editor, tmp_path):
+    import base64
+
+    from test_map_kind import _tetra_glb
+    call, _port, srv = editor
+    glb = base64.b64encode(_tetra_glb()).decode()
+    code, out = call("/api/upload", {"name": "hut.glb", "data": glb}, token=srv.token)
+    assert code == 200
+    sid = json.loads(out)["id"]
+    body = {"chapter": "DarkHills", "mod_id": "my-map", "edits": {}, "art": {"art/hut.glb": sid},
+            "map": {"id": "My_Map", "play": True, "pool": {"add": [], "remove": []}, "place": {},
+                    "terrain": [], "blank": 0.0,
+                    "objects": [{"model": "art/hut.glb", "pos": [1.0, 0.0, 2.0], "yaw": 0.0,
+                                 "scale": 1.0, "name": "Hut"}]}}
+    code, out = call("/api/save", body, token=srv.token)
+    assert code == 200, out
+    assert "objects: 1 placed on the map" in json.loads(out)["changes"]
+    mod = tmp_path / "mods" / "my-map"
+    assert (mod / "art" / "hut.glb").read_bytes() == _tetra_glb()
+    got = json.loads(call("/api/mod?id=my-map")[1])
+    assert got["map"]["objects"][0]["model"] == "art/hut.glb"
+    assert got["folder"] == str(mod.resolve())

@@ -37,6 +37,9 @@ impl Add {
         if !self.name.is_empty() {
             return self.name.clone();
         }
+        if let Some(rel) = self.entity.strip_prefix(crate::models::PREFIX) {
+            return crate::models::stem(rel).to_owned();
+        }
         let e = self.entity.rsplit('\\').next().unwrap_or(&self.entity);
         e.trim_end_matches(".entity.ot").to_owned()
     }
@@ -415,11 +418,16 @@ impl Edits {
     /// Read `map.objects` back as adds.
     pub fn load_objects(&mut self, doc: &Value) {
         for o in doc.as_array().into_iter().flatten() {
-            let (Some(entity), Some(p)) = (o["entity"].as_str(), o["pos"].as_array()) else { continue };
+            let entity = match (o["entity"].as_str(), o["model"].as_str()) {
+                (Some(e), _) => e.to_owned(),
+                (None, Some(m)) => format!("{}{m}", crate::models::PREFIX),
+                _ => continue,
+            };
+            let Some(p) = o["pos"].as_array() else { continue };
             let f = |i: usize| p.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
             self.push_add(Add {
                 uid: 0,
-                entity: entity.to_owned(),
+                entity,
                 level: String::new(),
                 pos: Vec3::new(f(0), f(1), f(2)),
                 yaw: o["yaw"].as_f64().unwrap_or(0.0) as f32,

@@ -10,6 +10,8 @@ mod backend;
 mod camera;
 mod edit;
 mod icons;
+mod models;
+mod project;
 mod outliner;
 mod brush;
 mod recipe;
@@ -32,6 +34,8 @@ fn main() -> eframe::Result<()> {
             "--snapshot" => opts.snapshot = args.next().map(Into::into),
             "--self-check" => opts.self_check = true,
             "--empty" => opts.empty = true,
+            "--import" => opts.import.extend(args.next().map(Into::into)),
+            "--project" => opts.project = args.next(),
             "--tile-check" => opts.tile_check = true,
             "--open-tile" => opts.open_tile = args.next(),
             "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),
