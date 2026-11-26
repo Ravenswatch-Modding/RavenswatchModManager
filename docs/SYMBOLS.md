@@ -9,7 +9,7 @@ corpus (survives game updates); **va** = base-relative absolute (data globals);
 Functions tagged `callable` have a typed C++ accessor in `engine::` and a Lua
 resolver entry. See [CLAUDE.md] for the workflow.
 
-Total: **413** symbols across 29 categories.
+Total: **422** symbols across 29 categories.
 
 ## analytics
 
@@ -69,9 +69,14 @@ Total: **413** symbols across 29 categories.
 
 | name | address | status | callable | signature / note |
 |------|---------|--------|----------|------------------|
+| `DtGame_Init` | `0x1401cadc0` | ✅ ok | ✔ | void(void* game, void* arg) |
 | `Entry_Ctor` | `0x14020f760` | ✅ ok | ✔ | void(void* base, uint32_t count) |
 | `Format_String` | `0x140202f00` | ✅ ok |  | printf-style format/string builder (e.g. 'Is Hero liked by {}', 'Chance to give {} MO')… |
 | `LevelLoad_Orchestrator` | `0x140289030` | ✅ ok |  | i64(void* levelGs) |
+| `ModifierSettings_CreateDesc` | `0x1406dd600` | ✅ ok | ✔ | void*(void* mgr, uint32_t id, void* name, void* category, void* defaultValue, void* str2) |
+| `ModifierSettings_RegisterDesc` | `0x1406dd830` | ✅ ok | ✔ | uint8_t(void* mgr, void* desc) |
+| `ModifierValueDesc_Ctor` | `0x1406ddae0` | ✅ ok | ✔ | void*(void* self) |
+| `StatusValueDefs_Register` | `0x1401d2b40` | ✅ ok | ✔ | void(void) |
 | `String_Assign` | `0x14052bf10` | ✅ ok | ✔ | void(void* dst_slot, const StringDesc* src) |
 | `Vector_Grow` | `0x14014db60` | ✅ ok | ✔ | void(void* vec, void* /*dead RDX*/, uint32_t new_cap /*R8*/) |
 
@@ -86,6 +91,7 @@ Total: **413** symbols across 29 categories.
 | `Controller_GetFieldByKey` | `0x14039f7b0` | ✅ ok |  | void*(void* controller, uint32_t key) |
 | `CustomFlagFilter_Serialize` | `0x140182160` | ❓ unverified |  | bool(void* flagFilter, void* reader) |
 | `CustomFlagList_Serialize` | `0x1406690a0` | ❓ unverified |  | bool(void* flagList, void* reader) |
+| `EngineString_Empty` | `0x1412f6e40` | 📍 va |  | Engine empty string {"", 0x80000000}. |
 | `Engine_MainThreadId` | `0x141444408` | 📍 va |  | Thread id of the engine main thread. LevelLoad_ProgressTick compares GetCurrentThreadId… |
 | `Engine_Singleton` | `0x14143ddc0` | 📍 va |  | Pointer to the oe::Engine singleton (object at 0x14143daf0; ctor FUN_1404564d0 stores b… |
 | `GameScene_FindContextByTester` | `0x14066b8c0` | ✅ ok |  | void*(void* gameScene, void* kindOfTypeTester) |
@@ -96,6 +102,7 @@ Total: **413** symbols across 29 categories.
 | `MetaClass_DestructInPlace_Slot0` | `0x1401a3860` | ❓ unverified |  | void(void* obj) |
 | `MetaClass_FindMember` | `0x14050c350` | ✅ ok |  | void* (void* metaClass, uint32_t nameOrId, void* kind, bool searchParents) |
 | `MetaClass_GetObjectClass` | `0x1401b2180` | ❓ unverified |  | void*(void* obj) |
+| `ModifierAppSettingsSection_Class` | `0x141477a88` | 📍 va |  | Class-descriptor pointer for oCModifierApplicationSettingsSection; pass to the type's I… |
 | `Profiler_GetThreadScopeStack` | `0x1405226e0` | ❓ unverified |  | void*(void) |
 | `Property_EvaluateByGuid` | `0x1406aa6d0` | ✅ ok |  | bool(void* ctx, void* container, void* guid16, float* out) |
 | `ResourceRef_Serialize` | `0x1401c1970` | ✅ ok |  | bool(void* reader, void* refSlot) |
@@ -109,7 +116,9 @@ Total: **413** symbols across 29 categories.
 | `Serializer_ReadVectorU8` | `0x14035df90` | ✅ ok |  | bool(void* serializer, void* vec) |
 | `Serializer_ResolveObjectId` | `0x1405007b0` | ✅ ok |  | bool(void* loader, void** out, const char* label) |
 | `ServiceRegistry_Global` | `0x14146f740` | 📍 va |  | Global engine service registry: service array @+0x30, u32 count @+0x38; each entry -> s… |
+| `StatusSettings_CategoryKey` | `0x1412ee788` | 📍 va |  | CRC-string 'Status' the prune enumerates by; same CRC as ValueCategory_Status. |
 | `StringVector_Serialize` | `0x14066c190` | ❓ unverified |  | bool(void* reader, void* strVec) |
+| `ValueCategory_Status` | `0x1412edda8` | 📍 va |  | CRC-string 'Status' passed as the category to CreateDesc. |
 | `Vector_InsertRange` | `0x14014e010` | ✅ ok | ✔ | void*(void* vector, unsigned index, unsigned count) |
 
 ## entity
