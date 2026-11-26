@@ -1443,24 +1443,18 @@ impl MapEditor {
         self.status = format!("New empty chapter: flat ground at {h} m. Paint it, place props and spots, then File > Save As");
     }
 
-    /// File > New empty chapter: once the recipe has loaded, keep one start
-    /// and one boss spot (a run needs both) and set every other tile kind to
-    /// none. One undo step, like any other edit.
+    /// File > New chapter: once the recipe has loaded, place only the start
+    /// and the boss. Every spot stays, so the start lands wherever the game
+    /// normally puts it (removing spots left Dark Hills with no start: the
+    /// hero never spawned); the fill pass that puts camps, blockers and props
+    /// on leftover spots is turned off. One undo step, like any other edit.
     fn make_clean(&mut self) {
         if !self.clean_pending {
             return;
         }
-        let (Some(s), Some(r)) = (&self.scenery, &self.recipe) else { return };
+        let (Some(_), Some(r)) = (&self.scenery, &self.recipe) else { return };
         self.clean_pending = false;
         const KEEP: [&str; 2] = ["Start", "Map_Boss"];
-        let spots = self.edits.spots(s);
-        let mut keep_ids = Vec::new();
-        for k in KEEP {
-            if let Some(sp) = spots.iter().find(|sp| !sp.whole_map && sp.allow.get(k).copied().unwrap_or(false) && !keep_ids.contains(&sp.id)) {
-                keep_ids.push(sp.id);
-            }
-        }
-        let drop: Vec<i64> = spots.iter().filter(|sp| !sp.whole_map && !keep_ids.contains(&sp.id)).map(|sp| sp.id).collect();
         let kinds: Vec<(String, KindVals)> = r
             .kinds
             .iter()
@@ -1471,20 +1465,22 @@ impl MapEditor {
             })
             .collect();
         let shipped: HashMap<String, KindVals> = r.kinds.iter().map(|k| (k.name.clone(), k.vals.clone())).collect();
+        let fill: serde_json::Map<String, Value> = r.groups.iter().map(|g| (g.clone(), json!([]))).collect();
         self.change(|e, _| {
-            for id in &drop {
-                e.delete(Sel::Spot(*id));
-            }
             for (name, v) in kinds {
                 if shipped.get(&name) != Some(&v) {
                     e.kinds.insert(name, v);
                 }
             }
         });
+        if let Some(o) = self.keep_edits.as_object_mut() {
+            o.insert("fill".into(), Value::Object(fill));
+        }
         self.history.clear();
         self.layout.clear();
+        self.show_spots = false;
         self.dirty = true;
-        self.status = format!("Empty chapter: {} spots kept (start + boss), {} removed", keep_ids.len(), drop.len());
+        self.status = "Empty chapter: only the start and the boss are placed; no camps, crystals or fill".into();
     }
 
     /// The flat ground height of a blank map (`map.blank`), kept in the map
