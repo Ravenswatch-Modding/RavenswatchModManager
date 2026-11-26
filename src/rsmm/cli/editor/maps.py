@@ -235,7 +235,8 @@ def _as_map(body: dict) -> dict | None:
             "pool": {k: list(pool.get(k) or []) for k in ("add", "remove")},
             "place": place, "terrain": terrain,
             **({"blank": float(blank)} if blank is not None else {}),
-            **({"objects": objects} if objects else {})}
+            **({"objects": objects} if objects else {}),
+            **({"scenery": _as_scenery({"scenery": m.get("scenery")})} if m.get("scenery") else {})}
 
 
 def _as_scenery(body: dict) -> dict:
@@ -300,7 +301,10 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
                 f"invisible walls cleared"] if as_map.get("blank") is not None else [])
             + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else [])
             + ([f"objects: {len(as_map['objects'])} placed on the map"]
-               if as_map.get("objects") else []))
+               if as_map.get("objects") else [])
+            + [f"scenery: {len(e.get('moves') or {})} moved, {len(e.get('removes') or {})} "
+               f"removed in the map's own {lv.rsplit('/', 1)[-1].split('.', 1)[0]}"
+               for lv, e in sorted((as_map.get("scenery") or {}).items())])
 
 
 def _check(req: Request) -> dict:

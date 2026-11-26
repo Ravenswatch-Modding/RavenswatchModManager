@@ -167,15 +167,17 @@ def _yaw_quat(deg: float) -> tuple[float, float, float, float]:
     return (0.0, math.sin(h), 0.0, math.cos(h))
 
 
-def apply(chapter, level: str, edits: dict) -> tuple[bytes, list[str]]:
+def apply(chapter, level: str, edits: dict, raw: bytes | None = None) -> tuple[bytes, list[str]]:
     """``(new level bytes, what changed)`` for one scenery level.
 
     ``edits``: ``moves = {id: {entity, at, pos, quat | yaw, scale}}``,
     ``removes = {id: {entity, at}}``, ``adds = [{entity, pos, yaw, scale}]``.
+    ``raw`` edits those bytes instead of the shipped level (a map clone's own
+    copy of it, whose objects keep the shipped ids and positions).
     """
     if level not in levels(chapter):
         raise SceneryEditError(f"{level} is not one of {chapter.key}'s scenery levels")
-    raw = corpus.read(level)
+    raw = corpus.read(level) if raw is None else raw
     shipped = dict(LP.objects(raw))
     changes: dict[int, tuple] = {}
     notes: list[str] = []

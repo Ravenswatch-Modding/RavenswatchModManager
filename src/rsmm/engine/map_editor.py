@@ -906,6 +906,12 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         for ob in as_map.get("objects") or []:
             lines += ["", "[[content.objects]]"]
             lines += [f"{k} = {_toml_value(v)}" for k, v in ob.items()]
+        # The base's own objects, moved / sunk on the clone's copy of their level.
+        for level, e in sorted((as_map.get("scenery") or {}).items()):
+            for section in ("moves", "removes"):
+                for oid, spec in sorted((e.get(section) or {}).items(), key=lambda kv: int(kv[0])):
+                    lines += ["", f'[content.scenery.{_q(level)}.{section}."{int(oid)}"]']
+                    lines += [f"{k} = {_toml_value(v)}" for k, v in spec.items()]
         lines += _edit_lines("content.tilegen", edits)
     for level, e in sorted(scenery.items()):
         lines += _scenery_lines(chapter, level, e)
@@ -918,7 +924,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         "pool": {k: list((as_map.get("pool") or {}).get(k) or []) for k in ("add", "remove")},
         "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or []),
         **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {}),
-        **({"objects": list(as_map["objects"])} if as_map.get("objects") else {})}
+        **({"objects": list(as_map["objects"])} if as_map.get("objects") else {}),
+        **({"scenery": dict(as_map["scenery"])} if as_map.get("scenery") else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
             or _norm_json(back.get("scenery") or {}) != _norm_json(scenery)):
@@ -1012,7 +1019,8 @@ def _read_first(data: dict) -> dict | None:
                             "place": dict(c.get("place") or {}),
                             "terrain": list(c.get("terrain") or []),
                             **_blank_of(c),
-                            **({"objects": list(c["objects"])} if c.get("objects") else {})}}
+                            **({"objects": list(c["objects"])} if c.get("objects") else {}),
+                            **({"scenery": dict(c["scenery"])} if c.get("scenery") else {})}}
     return None
 
 

@@ -780,12 +780,17 @@ impl MapEditor {
         }
         let kinds = self.shipped_kinds();
         let (Some(doc), Some(s)) = (self.opened_doc.take(), &self.scenery) else { return };
-        let (mut edits, skipped) = Edits::from_doc(&doc["scenery"], s);
+        // A map clone's moves / removes live in `map.scenery`.
+        let own = doc["map"]["scenery"].as_object().filter(|o| !o.is_empty()).map(|o| Value::Object(o.clone()));
+        let (mut edits, skipped) = Edits::from_doc(own.as_ref().unwrap_or(&doc["scenery"]), s);
         let rest = edits.load_recipe(&doc["edits"], s, &kinds);
         self.keep_edits = Value::Object(rest);
         self.keep_map = doc.get("map").filter(|m| !m.is_null()).cloned();
         if let Some(st) = self.keep_map.as_ref().and_then(|m| m.get("terrain")) {
             edits.strokes = serde_json::from_value(st.clone()).unwrap_or_default();
+        }
+        if let Some(m) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()) {
+            m.remove("scenery");
         }
         if let Some(o) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("objects")) {
             let folder = std::path::PathBuf::from(doc["folder"].as_str().unwrap_or_default());
@@ -4800,7 +4805,8 @@ impl MapEditor {
         let mut b = json!({
             "chapter": self.chapter.clone()?,
             "edits": Value::Object(edits),
-            "scenery": self.edits.scenery_doc(s, !self.needs_map()),
+            // A map clone keeps its scenery edits to itself (`map.scenery`).
+            "scenery": if self.needs_map() { json!({}) } else { self.edits.scenery_doc(s, true) },
         });
         if self.needs_map() {
             let mut m = self.keep_map.clone().unwrap_or_else(|| json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": []}));
@@ -4810,6 +4816,7 @@ impl MapEditor {
             m["play"] = json!(self.map_play);
             // Added objects stand in the map's own scenery, never the chapter's.
             m["objects"] = self.edits.objects_doc();
+            m["scenery"] = self.edits.scenery_doc(s, false);
             // The mod's own models: `{model, texture, collision}` instead of an
             // entity, and the art a save copies into the mod.
             let mut art = serde_json::Map::new();

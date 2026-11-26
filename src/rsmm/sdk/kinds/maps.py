@@ -70,6 +70,11 @@ Fields:
                                   through). Each distinct model becomes one
                                   prop entity of the mod's own, cloned from a
                                   plain ruin block. ⚠ Unplaytested.
+    ``scenery``  (table, optional) moves and removes of the base's own
+                                  objects, ``{ "<level decoded path>" = { moves,
+                                  removes } }`` as the ``scenery`` kind takes
+                                  them, applied to the CLONE's copy of that
+                                  level, so the base chapter is untouched.
     ``tilegen``  (table, optional) the clone's generation recipe, same
                                   vocabulary as the ``tilegen`` kind (``kinds``,
                                   ``quotas``, ``slots``, ``fill``) but applied
@@ -108,6 +113,7 @@ from ...engine import map_editor as ME
 from ...engine import map_pool as MP
 from ...engine import prop_cook as PC
 from ...engine import rsc_cache as RC
+from ...engine import scenery_edit as SE
 from ...engine import terrain as TR
 from ...engine import tile_cook as TC
 from ...engine import tilegen as TG
@@ -498,6 +504,14 @@ def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
     return ent_ref
 
 
+def _chapter_of(base: str):
+    """``Dark_Hills`` -> the map editor's chapter (``DarkHills``)."""
+    for key, (b, _i) in ME.MAP_BASES.items():
+        if b == base:
+            return ME.find_chapter(key)
+    raise ContentError(f"map: {base} has no editable scenery")
+
+
 #: A scenery sublevel objects can be added to (it holds plain placements to
 #: copy a block from): ``Map_Dark_Hills_Scenery_NorthEast``, ``..._East``,
 #: Avalon's ``..._Scenery_01_Floor``.
@@ -506,7 +520,8 @@ _OBJECT_LEVEL = re.compile(r"_Scenery_.+$")
 
 def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
            folder: str, swaps: dict[str, str], blank: float | None = None,
-           objects: list[_Object] | None = None) -> dict:
+           objects: list[_Object] | None = None, scenery_edits: dict | None = None,
+           chapter=None) -> dict:
     """Lay `strokes` on the base terrain (flattened first for a `blank` map);
     re-seat the recipe's slots on it.
 
@@ -514,8 +529,9 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     blank map also returns ``extra``: ``{old ref: (bytes, parent)}`` for each
     emptied scenery / collision sublevel and re-seated gameplay level, where
     ``parent`` names the level that lists it (``"scenery"`` or ``"root"``)."""
-    strokes = [] if strokes is None and (blank is not None or objects) else strokes
-    if not isinstance(strokes, list) or not (strokes or blank is not None or objects):
+    other = blank is not None or bool(objects) or bool(scenery_edits)
+    strokes = [] if strokes is None and other else strokes
+    if not isinstance(strokes, list) or not (strokes or other):
         raise ContentError(f"map {map_id}: 'terrain' is a list of brush strokes")
     terrain_refs = [r for r in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]
                     if r.endswith("_Terrain.level.ot")]
@@ -570,6 +586,30 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
                             extra[r] = (moved, parent)
         except LP.LevelPlacementError as e:
             raise ContentError(f"map {map_id}: blank: {e}") from e
+    if scenery_edits:
+        # The base's own objects, moved or sunk on the clone's copy of their level.
+        by_path = {}
+        for parent, level in (("scenery", scenery), ("root", root)):
+            for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                if r.endswith(".level.ot"):
+                    by_path.setdefault(PC.level_cooked_path(r), (r, parent))
+        scenery_dec = PC.level_cooked_path(scenery_ref)
+        for dec, e in sorted(scenery_edits.items()):
+            if not isinstance(e, dict) or set(e) - {"moves", "removes"}:
+                raise ContentError(f"map {map_id}: scenery.{dec}: moves and removes only "
+                                   f"(new objects go in 'objects')")
+            try:
+                if dec == scenery_dec:
+                    scenery = SE.apply(chapter, dec, e, scenery)[0]
+                    continue
+                if dec not in by_path:
+                    raise ContentError(f"map {map_id}: scenery: {dec} is not a level this "
+                                       f"map loads")
+                r, parent = by_path[dec]
+                blob = extra[r][0] if r in extra else _read(dec, f"the base map's {_stem(r)}")
+                extra[r] = (SE.apply(chapter, dec, e, blob)[0], parent)
+            except (SE.SceneryEditError, LP.LevelPlacementError) as err:
+                raise ContentError(f"map {map_id}: scenery {_stem(dec)}: {err}") from err
     if objects:
         target = None
         for parent, level in (("scenery", scenery), ("root", root)):
@@ -589,7 +629,8 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
         extra[r] = (blob, parent)
     tags = [(terrain_ref, "Terrain"), (scenery_ref, "Scenery")]
     tags += [(r, (_EMPTIED.search(_stem(r)) or _GAMEPLAY.search(_stem(r))
-                  or _OBJECT_LEVEL.search(_stem(r))).group(0).lstrip("_")) for r in extra]
+                  or _OBJECT_LEVEL.search(_stem(r))
+                  or re.search(r"_[^_]+$", _stem(r))).group(0).lstrip("_")) for r in extra]
     for old_ref, tag in tags:
         swaps[old_ref] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
         if corpus.exists(PC.level_cooked_path(swaps[old_ref])):
@@ -602,7 +643,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
 def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   written: list[Path], edits: dict | None = None, place=None,
                   biome: str = "", strokes=None, blank: float | None = None,
-                  objects: list[_Object] | None = None,
+                  objects: list[_Object] | None = None, scenery_edits: dict | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -630,7 +671,7 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     _h, doc = PC._refs_doc("oCGameStream", root)
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
-        if edits or place or strokes or blank is not None or objects:
+        if edits or place or strokes or blank is not None or objects or scenery_edits:
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -660,8 +701,9 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
-        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects)
-                   if strokes or blank is not None or objects else {})
+        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects,
+                          scenery_edits, _chapter_of(biome) if scenery_edits else None)
+                   if strokes or blank is not None or objects or scenery_edits else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
     except (ME.MapEditError, TG.TileGenError) as e:
@@ -728,7 +770,8 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     objects, object_lines = _objects(defn.id, defn.fields.get("objects") or [], out_dir, written)
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
-                                           defn.fields.get("terrain"), blank, objects)
+                                           defn.fields.get("terrain"), blank, objects,
+                                           defn.fields.get("scenery"))
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []

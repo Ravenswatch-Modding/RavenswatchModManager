@@ -367,6 +367,18 @@ def test_a_map_manifest_reads_back_as_its_clone(play):
     assert block["terrain"][0]["op"] == "raise"
 
 
+def test_map_scenery_edits_read_back():
+    lv = "Ot/DarkHills/Map_Dark_Hills_Scenery_NorthEast.level.ot.GameStream.gen"
+    sc = {lv: {"moves": {"3": {"entity": "A\\B.entity.ot", "at": [1.0, 2.0, 3.0],
+                                "pos": [4.0, 5.0, 6.0], "quat": [0.0, 0.0, 0.0, 1.0],
+                                "scale": [1.0, 1.0, 1.0]}},
+               "removes": {"7": {"entity": "A\\C.entity.ot", "at": [0.5, 0.0, 0.25]}}}}
+    as_map = {"id": "Hills_X", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "scenery": sc}
+    text = ME.manifest_toml("hills-x", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+
+
 def test_map_objects_read_back():
     import tomllib
 

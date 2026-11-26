@@ -465,3 +465,25 @@ def test_objects_are_validated(tmp_path):
         with pytest.raises(ContentError):
             maps.emit("m", ContentDef(kind="map", id="Bad_Obj", fields={
                 "base": "Dark_Hills", "objects": bad}), tmp_path / "assets")
+
+
+@needs_corpus
+def test_scenery_edits_land_on_the_clones_copy(tmp_path):
+    from rsmm.engine import corpus
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import map_editor as ME
+    from rsmm.engine import prop_cook as PC
+    from rsmm.engine import scenery_edit as SE
+
+    ch = ME.find_chapter("DarkHills")
+    level = next(lv for lv in SE.levels(ch)
+                 if lv.endswith("_Scenery_NorthEast.level.ot.GameStream.gen"))
+    oid, pl = LP.objects(corpus.read(level))[5]
+    edits = {level: {"removes": {str(oid): {"entity": pl.ref, "at": list(pl.pos)}}}}
+    maps.emit("m", ContentDef(kind="map", id="Hills_S", fields={
+        "base": "Dark_Hills", "scenery": edits}), tmp_path)
+    own = tmp_path / PC.level_cooked_path("DarkHills\\Map_Hills_S_Scenery_NorthEast.level.ot")
+    got = dict(LP.objects(own.read_bytes()))
+    assert got[oid].pos[1] < pl.pos[1] - 500          # sunk on the clone's copy
+    assert not (tmp_path / level).exists()            # the shipped level is not emitted
+    assert dict(LP.objects(corpus.read(level)))[oid].pos == pl.pos
