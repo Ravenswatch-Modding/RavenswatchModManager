@@ -229,8 +229,10 @@ def to_json(tg: TG.TileGen) -> dict:
 #: Cells per side sent to the page. The painted height is 1024; 256 keeps the
 #: payload near 300 KB and the mesh at 65k vertices while slopes stay readable.
 TERRAIN_GRID = 256
-#: Grids the page may ask for: 512 for the 3D view, where models must sit on the ground.
-TERRAIN_GRIDS = (256, 512)
+#: Grids the page may ask for. The native editor draws 1024, the painted grid
+#: itself: at 512 the terraces' 4 m cliffs are smoothed and ~100 Dark Hills
+#: objects at cliff edges look up to 3 m in the air.
+TERRAIN_GRIDS = (256, 512, 1024)
 _TERRAIN_SUFFIX = "_Terrain.level.ot.GameStream.gen"
 _TERRAIN_LAYERS = {TR.HEIGHT, "LD Path", "LD Block", "Base Water Height"}
 

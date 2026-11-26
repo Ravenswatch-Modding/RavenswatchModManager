@@ -273,6 +273,9 @@ enum Cmd {
     ToolScale,
 }
 
+/// What a Hierarchy row drag carries: the objects being moved.
+struct RowDrag(Vec<Sel>);
+
 /// Chapters a blank map can start from: the tile-generated ones (the `map`
 /// kind's `blank` needs a terrain and a recipe).
 const BLANK_BASES: &[&str] = &["DarkHills", "Storm_Island", "Avalon"];
@@ -431,6 +434,16 @@ pub struct MapEditor {
     show_bottom: bool,
     /// Inline rename in the Hierarchy: the object and the text being typed.
     renaming: Option<(Sel, String)>,
+    /// Inline rename of a group: its index and the text being typed.
+    renaming_group: Option<(usize, String)>,
+    /// Single-object rows in on-screen order, last frame and this one
+    /// (Shift-click selects a range of them).
+    row_order: Vec<Sel>,
+    row_order_now: Vec<Sel>,
+    /// Where a Shift-click range starts.
+    row_anchor: Option<Sel>,
+    /// A drop on a Hierarchy row this frame: (the row's members, what was dropped).
+    row_dropped: Option<(Vec<Sel>, Vec<Sel>)>,
     /// File > New empty chapter: strip the recipe once it has loaded.
     clean_pending: bool,
     tree_filter: String,
@@ -559,6 +572,11 @@ impl MapEditor {
             bottom_tab: BottomTab::Project,
             show_bottom: true,
             renaming: None,
+            renaming_group: None,
+            row_order: Vec::new(),
+            row_order_now: Vec::new(),
+            row_anchor: None,
+            row_dropped: None,
             clean_pending: false,
             tree_filter: String::new(),
             prop_filter: String::new(),
@@ -676,7 +694,7 @@ impl MapEditor {
         self.status = format!("Loading {key}…");
         let k = key.clone();
         self.spawn(ctx, move |be| {
-            let t = be.get_json(&format!("/map/api/terrain?grid=512&chapter={}", q(&k))).and_then(|v| Terrain::from_json(&v));
+            let t = be.get_json(&format!("/map/api/terrain?grid=1024&chapter={}", q(&k))).and_then(|v| Terrain::from_json(&v));
             Ok(Event::Terrain(k, t))
         });
         let k = key.clone();
@@ -1496,7 +1514,7 @@ impl MapEditor {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, yaw: yaw.to_degrees(), scale: x.scale.x.clamp(0.05, 20.0), name: String::new() }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, yaw: yaw.to_degrees(), scale: x.scale.x.clamp(0.05, 20.0), name: String::new(), col: None }));
             }
         });
         let n = new.len();
@@ -1541,7 +1559,7 @@ impl MapEditor {
         let Some(level) = best else { return };
         self.ensure_template(ctx, &entity);
         let mut sel = None;
-        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, yaw: 0.0, scale: 1.0, name: String::new() })));
+        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, yaw: 0.0, scale: 1.0, name: String::new(), col: None })));
         if let Some(s) = sel {
             self.select_only([s]);
         }
@@ -2937,6 +2955,14 @@ impl MapEditor {
         lines.extend(self.spot_lines());
         lines.extend(self.selection_lines());
         let mut top = Vec::new();
+        for sel in self.sel.iter().copied() {
+            let Sel::Add(u) = sel else { continue };
+            if let Some((_, c, xf)) = self.model_col(u) {
+                if c.solid {
+                    box_lines(&mut top, xf, c.at - c.size * 0.5, c.at + c.size * 0.5, [1.0, 0.55, 0.15, 1.0]);
+                }
+            }
+        }
         match (&self.tool, hover_ground) {
             (Tool::Place(_), Some(g)) => ring(&mut top, g, 1.5, [0.5, 1.0, 0.6, 1.0], |x, z| self.ground_y(x, z)),
             (Tool::Brush, Some(g)) => {
@@ -2992,7 +3018,7 @@ impl MapEditor {
             ctx.request_repaint();
             if self.settled_frames == 3 {
                 // Something to show: the objects nearest the view centre.
-                if let (Some(s), Some([x, z, _])) = (&self.scenery, self.opts.view) {
+                if let (Some(s), Some([x, z, _]), true) = (&self.scenery, self.opts.view, self.sel.is_empty()) {
                     let c = Vec3::new(x, 0.0, z);
                     let mut near: Vec<usize> = (0..s.obj_xf.len()).collect();
                     near.sort_by(|a, b| {
@@ -3621,6 +3647,53 @@ impl MapEditor {
         }
     }
 
+    /// A placed model copy's collision as it will save: its own, else the
+    /// model's default; with the copy's world matrix.
+    fn model_col(&self, u: u64) -> Option<(crate::models::Model, crate::edit::Col, Mat4)> {
+        let a = self.edits.add(u)?;
+        let rel = a.entity.strip_prefix(crate::models::PREFIX)?;
+        let m = self.models.iter().find(|m| m.mesh.rel == rel)?.clone();
+        let c = a.col.unwrap_or(crate::edit::Col { solid: m.solid, size: (m.hi - m.lo).max(Vec3::splat(0.1)), at: (m.hi + m.lo) * 0.5 });
+        Some((m, c, a.xf().mat()))
+    }
+
+    /// Inspector > Collision, for one of the mod's own models.
+    fn ui_collision(&mut self, ui: &mut egui::Ui, u: u64) {
+        let Some((m, mut c, _)) = self.model_col(u) else { return };
+        ui.separator();
+        ui.label(egui::RichText::new("Collision").strong());
+        let before = c;
+        let mut started = false;
+        ui.checkbox(&mut c.solid, "Solid").on_hover_text("A wall box: heroes and enemies cannot walk through it");
+        if c.solid {
+            egui::Grid::new("col").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
+                for (label, v, min) in [("Size", &mut c.size, 0.1f32), ("Centre", &mut c.at, -1000.0)] {
+                    ui.label(label);
+                    for k in 0..3 {
+                        let r = ui.add(egui::DragValue::new(&mut v[k]).speed(0.05).range(min..=1000.0).fixed_decimals(2).suffix(" m"));
+                        started |= r.drag_started() || r.gained_focus();
+                    }
+                    ui.end_row();
+                }
+            });
+            ui.label(egui::RichText::new("In the model's own space; the orange box in the scene.").small().weak());
+        }
+        let mut reset = false;
+        if self.edits.add(u).is_some_and(|a| a.col.is_some()) {
+            reset = ui.small_button(format!("Reset to {}'s default", m.name())).clicked();
+        }
+        if started || reset || (c != before && !ui.ctx().egui_is_using_pointer()) {
+            self.history.push(&self.edits);
+        }
+        if c != before || reset {
+            if let Some(a) = self.edits.adds.iter_mut().find(|a| a.uid == u) {
+                a.col = if reset { None } else { Some(c) };
+            }
+            self.unsaved = true;
+            self.dirty = true;
+        }
+    }
+
     /// Render up to a few Project thumbnails whose item is fully loaded.
     fn make_thumbs(&mut self, rs: &eframe::egui_wgpu::RenderState) {
         const SIZE: u32 = 160;
@@ -3875,7 +3948,23 @@ impl MapEditor {
                     return;
                 }
             }
-            let r = ui.selectable_label(selected, rt);
+            let r = ui.add(egui::Button::selectable(selected, rt).sense(egui::Sense::click_and_drag()));
+            if let [m] = members {
+                self.row_order_now.push(*m);
+            }
+            // Drag rows onto a group (or empty space) to group them.
+            let dragged = if !members.is_empty() && members.iter().all(|m| self.sel.contains(m)) {
+                self.sel.iter().copied().collect()
+            } else {
+                members.to_vec()
+            };
+            r.dnd_set_drag_payload(RowDrag(dragged));
+            if r.dnd_hover_payload::<RowDrag>().is_some() {
+                ui.painter().rect_stroke(r.rect.expand(2.0), 3.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(240, 160, 60)), egui::StrokeKind::Outside);
+            }
+            if let Some(p) = r.dnd_release_payload::<RowDrag>() {
+                self.row_dropped = Some((members.to_vec(), p.0.clone()));
+            }
             if r.secondary_clicked() && !members.iter().all(|m| self.sel.contains(m)) {
                 let pick: Vec<Sel> = members.iter().copied().filter(|m| self.selectable(*m)).collect();
                 self.select_only(pick);
@@ -3886,16 +3975,59 @@ impl MapEditor {
         out
     }
 
+    /// Unity's Hierarchy clicks: plain = select, Ctrl = toggle, Shift = the
+    /// range from the last clicked row.
     fn select_members(&mut self, ui: &egui::Ui, members: &[Sel]) {
-        let add = ui.input(|i| i.modifiers.shift || i.modifiers.command);
+        let (cmd, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
         let pick: Vec<Sel> = members.iter().copied().filter(|m| self.selectable(*m)).collect();
-        if add {
-            self.sel.extend(pick);
+        let range = match (shift, self.row_anchor, pick.as_slice()) {
+            (true, Some(a), [b]) => {
+                let pos = |x: Sel| self.row_order.iter().position(|r| *r == x);
+                pos(a).zip(pos(*b)).map(|(i, j)| self.row_order[i.min(j)..=i.max(j)].to_vec())
+            }
+            _ => None,
+        };
+        if let Some(r) = range {
+            let r: Vec<Sel> = r.into_iter().filter(|m| self.selectable(*m)).collect();
+            self.sel.extend(r);
+            self.active = pick.first().copied();
+            self.dirty = true;
+            return;
+        }
+        if cmd || shift {
+            for m in &pick {
+                if !self.sel.remove(m) {
+                    self.sel.insert(*m);
+                }
+            }
             self.active = self.sel.iter().next_back().copied();
             self.dirty = true;
         } else {
-            self.select_only(pick);
+            self.select_only(pick.clone());
         }
+        if let [m] = pick.as_slice() {
+            self.row_anchor = Some(*m);
+        }
+    }
+
+    /// Put `objs` in group `gi` (out of any other group); empty groups go.
+    fn move_to_group(&mut self, gi: usize, objs: &[Sel]) {
+        for (i, (_, g)) in self.groups.iter_mut().enumerate() {
+            if i != gi {
+                g.retain(|m| !objs.contains(m));
+            }
+        }
+        if let Some((_, g)) = self.groups.get_mut(gi) {
+            for m in objs {
+                if !g.contains(m) {
+                    g.push(*m);
+                }
+            }
+        }
+        let name = self.groups.get(gi).map(|g| g.0.clone()).unwrap_or_default();
+        self.groups.retain(|(_, g)| !g.is_empty());
+        self.status = format!("{} object(s) in {name}", objs.len());
+        self.unsaved = true;
     }
 
     fn ui_outliner(&mut self, ui: &mut egui::Ui) {
@@ -3908,13 +4040,28 @@ impl MapEditor {
         }
         let filter = self.tree_filter.to_lowercase();
         let tree = std::mem::take(&mut self.tree);
+        self.row_order = std::mem::take(&mut self.row_order_now);
+        self.row_dropped = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            // Groups the author made.
+            // Groups the author made: drop rows on one to add them to it.
             if !self.groups.is_empty() {
                 let groups = self.groups.clone();
                 egui::CollapsingHeader::new(egui::RichText::new("Groups").strong()).id_salt("groups").default_open(true).show(ui, |ui| {
                     let mut remove = None;
                     for (gi, (name, members)) in groups.iter().enumerate() {
+                        if let Some((g, buf)) = self.renaming_group.as_mut().filter(|(g, _)| *g == gi) {
+                            let te = ui.add(egui::TextEdit::singleline(buf).desired_width(f32::INFINITY));
+                            te.request_focus();
+                            if te.lost_focus() {
+                                let (g, name) = (*g, buf.trim().to_owned());
+                                if !ui.input(|i| i.key_pressed(egui::Key::Escape)) && !name.is_empty() {
+                                    self.groups[g].0 = name;
+                                    self.unsaved = true;
+                                }
+                                self.renaming_group = None;
+                            }
+                            continue;
+                        }
                         let selected = !members.is_empty() && members.iter().all(|m| self.sel.contains(m));
                         let (clicked, dbl) = self.tree_row(ui, members, name, Some(members.len()), selected);
                         if clicked {
@@ -3923,8 +4070,18 @@ impl MapEditor {
                         if dbl {
                             self.run(&ui.ctx().clone(), Cmd::FrameSelected);
                         }
+                        if let Some((target, objs)) = self.row_dropped.take() {
+                            if &target == members {
+                                self.move_to_group(gi, &objs);
+                            } else {
+                                self.row_dropped = Some((target, objs));
+                            }
+                        }
                         ui.horizontal(|ui| {
                             ui.add_space(46.0);
+                            if ui.small_button("rename").clicked() {
+                                self.renaming_group = Some((gi, name.clone()));
+                            }
                             if ui.small_button("ungroup").clicked() {
                                 remove = Some(gi);
                             }
@@ -4004,6 +4161,15 @@ impl MapEditor {
             let rest = ui.allocate_response(ui.available_size().max(egui::vec2(0.0, 40.0)), egui::Sense::click());
             if rest.clicked() {
                 self.select_only([]);
+            }
+            if rest.dnd_hover_payload::<RowDrag>().is_some() {
+                ui.painter().text(rest.rect.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, "Drop here: new group", egui::FontId::proportional(12.0), egui::Color32::from_rgb(240, 160, 60));
+            }
+            if let Some(p) = rest.dnd_release_payload::<RowDrag>() {
+                let name = format!("Group {}", self.groups.len() + 1);
+                self.groups.push((name, Vec::new()));
+                let gi = self.groups.len() - 1;
+                self.move_to_group(gi, &p.0);
             }
             rest.context_menu(|ui| self.ui_create_menu(ui));
         });
@@ -4640,7 +4806,11 @@ impl MapEditor {
             ),
             Sel::Add(u) => {
                 let a = self.edits.add(u).cloned();
-                (a.as_ref().map(|a| a.entity.clone()).unwrap_or_default(), format!("{} · new", a.map(|a| outliner::level_label(&a.level)).unwrap_or_default()))
+                (a.as_ref().map(|a| a.entity.clone()).unwrap_or_default(), match a {
+                    Some(a) if a.entity.starts_with(crate::models::PREFIX) => "Your model · new".to_owned(),
+                    Some(_) if self.needs_map() => "On this map only · new".to_owned(),
+                    a => format!("{} · new", a.map(|a| outliner::level_label(&a.level)).unwrap_or_default()),
+                })
             }
             Sel::Spot(_) => return,
         };
@@ -4702,6 +4872,9 @@ impl MapEditor {
         if changed {
             new.rot = Quat::from_euler(glam::EulerRot::YXZ, ypr[0].to_radians(), ypr[1].to_radians(), ypr[2].to_radians());
             self.set_live(&[(sel, new)]);
+        }
+        if let Sel::Add(u) = sel {
+            self.ui_collision(ui, u);
         }
         let locked = self.locked.contains(&sel);
         let hidden = self.hidden.contains(&sel);
@@ -4820,12 +4993,19 @@ impl MapEditor {
             // The mod's own models: `{model, texture, collision}` instead of an
             // entity, and the art a save copies into the mod.
             let mut art = serde_json::Map::new();
-            for o in m["objects"].as_array_mut().into_iter().flatten() {
+            for (o, add) in m["objects"].as_array_mut().into_iter().flatten().zip(&self.edits.adds) {
                 let Some(rel) = o["entity"].as_str().and_then(|e| e.strip_prefix(crate::models::PREFIX)).map(str::to_owned) else { continue };
                 let Some(model) = self.models.iter().find(|x| x.mesh.rel == rel) else { continue };
                 o.as_object_mut().unwrap().remove("entity");
                 for (k, v) in model.fields().as_object().unwrap() {
                     o[k] = v.clone();
+                }
+                if let Some(c) = add.col {
+                    let obj = o.as_object_mut().unwrap();
+                    obj.remove("collision");
+                    if c.solid {
+                        obj.insert("collision".into(), json!([{"kind": "wall", "size": [c.size.x, c.size.y, c.size.z], "at": [c.at.x, c.at.y, c.at.z]}]));
+                    }
                 }
                 for a in std::iter::once(&model.mesh).chain(&model.texture) {
                     if let Some(id) = self.staged.get(&a.rel) {

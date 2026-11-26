@@ -26,6 +26,17 @@ pub struct Add {
     pub scale: f32,
     /// The author's own name for it (Rename); empty = the entity's name.
     pub name: String,
+    /// One of the mod's own models: this copy's collision, when it differs
+    /// from the model's default (Inspector > Collision).
+    pub col: Option<Col>,
+}
+
+/// A wall box around a placed model, in the model's own space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Col {
+    pub solid: bool,
+    pub size: Vec3,
+    pub at: Vec3,
 }
 
 impl Add {
@@ -433,6 +444,15 @@ impl Edits {
                 yaw: o["yaw"].as_f64().unwrap_or(0.0) as f32,
                 scale: o["scale"].as_f64().unwrap_or(1.0) as f32,
                 name: o["name"].as_str().unwrap_or_default().to_owned(),
+                col: o["model"].as_str().map(|_| {
+                    let b = &o["collision"][0];
+                    let v = |k: &str, d: f32| {
+                        let a = b[k].as_array();
+                        let f = |i: usize| a.and_then(|a| a.get(i)).and_then(Value::as_f64).map_or(d, |x| x as f32);
+                        Vec3::new(f(0), f(1), f(2))
+                    };
+                    Col { solid: b.is_object(), size: v("size", 1.0), at: v("at", 0.0) }
+                }),
             });
         }
     }
@@ -543,6 +563,7 @@ impl Edits {
                     yaw: a["yaw"].as_f64().unwrap_or(0.0) as f32,
                     scale: a["scale"].as_f64().unwrap_or(1.0) as f32,
                     name: String::new(),
+                    col: None,
                 });
             }
         }
