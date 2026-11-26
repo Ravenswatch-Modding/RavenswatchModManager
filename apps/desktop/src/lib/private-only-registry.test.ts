@@ -18,7 +18,7 @@ describe('fetchPrivateOnlyRegistrySlugs', () => {
   });
 
   it('splits large libraries into bounded requests', async () => {
-    const listMods = vi.fn(async () => ({ items: [] }));
+    const listMods = vi.fn(async (_params: { slugs: string[]; limit: number }) => ({ items: [] }));
     const slugs = Array.from({ length: 51 }, (_, index) => `mod-${index}`);
 
     await fetchPrivateOnlyRegistrySlugs(slugs, listMods);
