@@ -198,6 +198,14 @@ remove_link = "State FX PreOvertime.while_active[1]"
 **Prove it.** Let a chapter run into overtime: the screen stays its normal
 colour while the banner, minimap ping and music still arrive.
 
+**Several files, one block.** `entity` also takes a list of paths. Each file gets the same
+steps and starts from its own shipped copy, so `scale` reads each file's own number.
+An empty list, a non-string item or a repeated path is an error naming the block.
+
+```toml
+entity = ["Enemies/Boss_A/Boss_A", "Enemies/Boss_B/Boss_B"]
+```
+
 **Trap.** `entity` is the path under `EntitySettings` (`.entity.ot` optional).
 Part names and link indices are the ones `rsmm entity-graph` prints for that
 file, and removing a link shifts the later indices of the SAME list, so remove
