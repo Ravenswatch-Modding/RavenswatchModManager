@@ -1700,7 +1700,6 @@ name         = "Frostbite"
 version      = "0.1.0"
 author       = "you"
 description  = "A Frostbite status."
-experimental = true
 
 [[content]]
 kind       = "status"

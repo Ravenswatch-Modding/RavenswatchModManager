@@ -277,10 +277,9 @@ def test_bad_status_fields_are_refused(tmp_path, fields, needle):
         SK.emit("m", ContentDef("status", "X", fields), tmp_path)
 
 
-def test_status_is_experimental_and_needs_the_opt_in():
+def test_status_is_confirmed_without_experimental_opt_in():
     reg = ContentRegistry(mod_id="m")
-    with pytest.raises(ContentError, match="experimental"):
-        reg.register("status", id="X", name="X", look="buff")
+    reg.register("status", id="X", name="X", look="buff")
 
 
 # --- lint and compat ----------------------------------------------------------

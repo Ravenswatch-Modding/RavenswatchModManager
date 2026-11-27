@@ -142,9 +142,10 @@ KIND_CONFIDENCE: dict[str, str] = {
                               # four), and this works on a `SceneryObjects_*` host, so the
                               # "scenery is never interactive" corpus rule describes shipped
                               # content rather than an engine gate.
-    "status": "experimental",  # a status of the mod's own (row in Common_Settings + a value
-                              # definition the loader registers). Built on static RE only;
-                              # nothing is tried in game yet.
+    "status": "confirmed",    # PROVEN IN GAME 2026-11-27 (status-test): custom Frostbite
+                              # debuff registered via StatusSettingsGo_Init, applied on
+                              # Melusine's basic attack, showed its HUD icon, cleared
+                              # after 4 s, and reapplied on a second run.
     "ingredient": "confirmed",  # PROVEN IN GAME 2026-11-15 (fishermans-camp v0.9): a new
                                 # "Fish" ingredient on the HUD, pickups add to it, and the
                                 # hand-in counts and spawns its rewards. Id = hash of the
