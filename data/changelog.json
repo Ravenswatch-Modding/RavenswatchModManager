@@ -1,6 +1,16 @@
 {
-  "generated": "2026-11-25",
+  "generated": "2026-11-27",
   "entries": [
+    {
+      "version": "",
+      "date": "2026-11-27",
+      "summary": "Register custom statuses declared by mods via StatusValueDefs_Register and StatusSettingsGo_Init hooks, and fix EntityValueStore_ApplyModifierEvent symbol metadata.",
+      "highlights": [
+        "Add custom status registration hook (StatusValueDefs_Register + StatusSettingsGo_Init) for mods using kind = status",
+        "Fix EntityValueStore_ApplyModifierEvent symbol metadata"
+      ],
+      "loader_version": 67
+    },
     {
       "version": "6.2.0",
       "date": "2026-11-25",
@@ -501,15 +511,6 @@
         "Custom Mode: R.modifier.max_selected(n) raises the 5-modifier cap (book page + run start); UiLayouterEntityCpntSettings schema for entity mods (#72)"
       ],
       "loader_version": 50
-    },
-    {
-      "version": "5.9.29",
-      "date": "2026-10-30",
-      "summary": "style(desktop): write the design system down, share the text field and screenshot viewer, size dialogs to the window ",
-      "highlights": [
-        "Skigim"
-      ],
-      "loader_version": 49
     }
   ]
 }
