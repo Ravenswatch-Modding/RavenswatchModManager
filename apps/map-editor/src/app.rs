@@ -53,6 +53,8 @@ pub struct Options {
     pub ui_clicks: Vec<[f32; 2]>,
     /// With `ui_snapshot`: select the first object whose name contains this.
     pub select: Option<String>,
+    /// Show every icon in a window (with `ui_snapshot`, to check them).
+    pub icon_sheet: bool,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
     pub tile_check: bool,
     /// Open the first pool tile whose name contains this, once loaded.
@@ -3295,8 +3297,14 @@ impl MapEditor {
         } else {
             None
         };
-        if let (Some(icon), Some(at)) = (badge, pointer) {
-            icons::cursor_badge(&painter, at, icon, ui.visuals().selection.bg_fill);
+        // Moving the camera: the icon takes the pointer's place (hidden), drawn
+        // at its newest position so it does not trail behind.
+        let camera_move = matches!(badge, Some(Icon::Camera | Icon::Hand | Icon::Orbit)) || (badge == Some(Icon::Search) && !zooming);
+        if let (Some(icon), Some(at)) = (badge, ctx.input(|i| i.pointer.latest_pos()).or(pointer)) {
+            if camera_move {
+                ctx.set_cursor_icon(egui::CursorIcon::None);
+            }
+            icons::cursor_badge(&painter, at, icon, ui.visuals().selection.bg_fill, camera_move);
         }
         if let (Some(p), Some(c), None, Tool::Select) = (pivot, pivot_scr, &self.modal, &self.tool) {
             draw_gizmo(&painter, self.gizmo, p, c, handle_len, gizmo_hover, &to_screen);
@@ -6426,6 +6434,9 @@ impl eframe::App for MapEditor {
         }
         if self.show_shortcuts {
             self.ui_shortcuts(&ctx);
+        }
+        if self.opts.icon_sheet {
+            egui::Window::new("Icons").default_pos([300.0, 120.0]).show(&ctx, icons::sheet);
         }
         self.ui_theme(&ctx); // draws only while View > Theme… is open
         if self.unsaved {

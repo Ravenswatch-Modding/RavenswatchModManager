@@ -58,13 +58,63 @@ pub fn text_button(ui: &mut Ui, icon: Icon, text: &str) -> Response {
     resp
 }
 
-/// A small round badge with `icon`, drawn beside the cursor (what the mouse is doing).
-pub fn cursor_badge(p: &egui::Painter, at: Pos2, icon: Icon, fill: Color32) {
-    let c = at + vec2(20.0, 20.0);
-    p.circle_filled(c, 11.0, Color32::from_black_alpha(170));
-    p.circle_stroke(c, 11.0, Stroke::new(1.5, fill));
-    paint(p, Rect::from_center_size(c, vec2(13.0, 13.0)), icon, Color32::WHITE);
+/// A small round badge with `icon`: beside the cursor (a tool hint), or in
+/// its place (`replace`, the pointer hidden: moving the camera).
+pub fn cursor_badge(p: &egui::Painter, at: Pos2, icon: Icon, fill: Color32, replace: bool) {
+    let c = if replace { at } else { at + vec2(20.0, 20.0) };
+    p.circle_filled(c, 12.0, Color32::from_black_alpha(180));
+    p.circle_stroke(c, 12.0, Stroke::new(1.5, fill));
+    paint(p, Rect::from_center_size(c, vec2(14.0, 14.0)), icon, Color32::WHITE);
 }
+
+/// Points along an ellipse (radii `rx`, `ry`, turned by `tilt`) from angle `a0` to `a1`.
+fn arc(c: Pos2, rx: f32, ry: f32, tilt: f32, a0: f32, a1: f32) -> Vec<Pos2> {
+    let (st, ct) = tilt.sin_cos();
+    (0..=28)
+        .map(|k| {
+            let t = a0 + (a1 - a0) * k as f32 / 28.0;
+            let (x, y) = (t.cos() * rx, t.sin() * ry);
+            pos2(c.x + x * ct - y * st, c.y + x * st + y * ct)
+        })
+        .collect()
+}
+
+/// Where an `arc` ends and the way it is heading there (`sign`: the sweep direction).
+fn arc_end(c: Pos2, rx: f32, ry: f32, tilt: f32, a: f32, sign: f32) -> (Pos2, egui::Vec2) {
+    let (st, ct) = tilt.sin_cos();
+    let (x, y) = (a.cos() * rx, a.sin() * ry);
+    let (dx, dy) = (-a.sin() * rx * sign, a.cos() * ry * sign);
+    (pos2(c.x + x * ct - y * st, c.y + x * st + y * ct), vec2(dx * ct - dy * st, dx * st + dy * ct).normalized())
+}
+
+/// A filled arrowhead whose tip sits just past `at`, pointing along `dir`.
+fn arrow_head(p: &egui::Painter, at: Pos2, dir: egui::Vec2, len: f32, col: Color32) {
+    let n = vec2(-dir.y, dir.x);
+    let tip = at + dir * (len * 0.45);
+    let back = at - dir * (len * 0.55);
+    p.add(Shape::convex_polygon(vec![tip, back + n * (len * 0.5), back - n * (len * 0.5)], col, Stroke::NONE));
+}
+
+/// Every icon, large and small (`--icon-sheet`, for checking how they read).
+pub fn sheet(ui: &mut Ui) {
+    for size in [48.0f32, 16.0] {
+        ui.horizontal_wrapped(|ui| {
+            for i in ALL {
+                let (r, _) = ui.allocate_exact_size(vec2(size + 8.0, size + 8.0), Sense::hover());
+                ui.painter().rect_filled(r, 4.0, Color32::from_gray(40));
+                paint(ui.painter(), r.shrink(4.0), i, Color32::WHITE);
+            }
+        });
+    }
+}
+
+/// Every icon (the sheet and the paint test).
+pub const ALL: [Icon; 25] = [
+    Icon::Eye(true), Icon::Eye(false), Icon::Lock(true), Icon::Lock(false), Icon::Move, Icon::Rotate, Icon::Scale,
+    Icon::Magnet, Icon::Grid, Icon::Sun, Icon::Search, Icon::Camera, Icon::Hand, Icon::Orbit, Icon::Brush,
+    Icon::Pin, Icon::Save, Icon::Check, Icon::Import, Icon::Trash, Icon::Copy, Icon::Down, Icon::Undo,
+    Icon::Folder, Icon::Play,
+];
 
 /// A clickable icon. `on` draws it highlighted (a toggled tool).
 pub fn button(ui: &mut Ui, icon: Icon, on: bool, tip: &str) -> Response {
@@ -134,15 +184,12 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
             }
         }
         Icon::Rotate => {
-            let pts: Vec<Pos2> = (0..=20)
-                .map(|k| {
-                    let t = -0.6 + k as f32 / 20.0 * 4.6;
-                    pos2(c.x + t.cos() * w * 0.42, c.y + t.sin() * w * 0.42)
-                })
-                .collect();
-            let end = *pts.last().unwrap();
+            // Three quarters of a ring, its arrowhead on the open end.
+            let (a0, a1) = (-1.2f32, 3.6f32);
+            let pts = arc(c, w * 0.38, w * 0.38, 0.0, a0, a1);
+            let (end, dir) = arc_end(c, w * 0.38, w * 0.38, 0.0, a1, 1.0);
             p.add(Shape::line(pts, s));
-            p.add(Shape::convex_polygon(vec![end + vec2(4.0, 1.0), end + vec2(-3.0, -3.0), end + vec2(-2.0, 4.0)], col, Stroke::NONE));
+            arrow_head(p, end, dir, w * 0.3, col);
         }
         Icon::Scale => {
             let a = pos2(r.left() + 1.0, r.bottom() - 1.0);
@@ -190,32 +237,45 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
             p.circle_stroke(body.center(), w * 0.17, s);
         }
         Icon::Hand => {
-            // Four fingers and a palm.
-            let palm = Rect::from_min_max(pos2(c.x - w * 0.32, c.y), pos2(c.x + w * 0.3, c.y + w * 0.42));
-            p.rect_filled(palm, w * 0.12, col);
-            for (i, h) in [0.34f32, 0.44, 0.42, 0.32].iter().enumerate() {
-                let x = c.x - w * 0.26 + i as f32 * w * 0.17;
-                p.line_segment([pos2(x, c.y + w * 0.05), pos2(x, c.y - h * w)], Stroke::new(w * 0.12, col));
+            // Palm and four fingers with gaps, thumb out to the side.
+            let palm = Rect::from_min_max(pos2(c.x - w * 0.3, c.y - w * 0.02), pos2(c.x + w * 0.26, c.y + w * 0.46));
+            p.rect_filled(palm, w * 0.14, col);
+            for (i, h) in [0.30f32, 0.42, 0.40, 0.30].iter().enumerate() {
+                let x = palm.left() + w * 0.07 + i as f32 * w * 0.14;
+                let f = Rect::from_min_max(pos2(x - w * 0.055, c.y - h * w), pos2(x + w * 0.055, c.y + w * 0.1));
+                p.rect_filled(f, w * 0.055, col);
             }
-            p.line_segment([pos2(c.x + w * 0.28, c.y + w * 0.2), pos2(c.x + w * 0.48, c.y - w * 0.02)], Stroke::new(w * 0.12, col));
+            p.add(Shape::convex_polygon(
+                vec![pos2(palm.right() - w * 0.04, c.y + w * 0.08), pos2(palm.right() + w * 0.2, c.y - w * 0.06), pos2(palm.right() + w * 0.22, c.y + w * 0.04), pos2(palm.right() - w * 0.02, c.y + w * 0.28)],
+                col,
+                Stroke::NONE,
+            ));
         }
         Icon::Orbit => {
-            let pts: Vec<Pos2> = (0..=24)
-                .map(|k| {
-                    let t = 0.3 + k as f32 / 24.0 * 5.2;
-                    pos2(c.x + t.cos() * w * 0.48, c.y + t.sin() * w * 0.22)
-                })
-                .collect();
-            let end = *pts.last().unwrap();
+            // A ball with a tilted ring around it, the ring's arrow showing the turn.
+            p.circle_filled(c, w * 0.17, col);
+            let tilt = -0.45f32;
+            let (a0, a1) = (0.5f32, 5.5f32);
+            let pts = arc(c, w * 0.5, w * 0.2, tilt, a0, a1);
+            let (end, dir) = arc_end(c, w * 0.5, w * 0.2, tilt, a1, 1.0);
             p.add(Shape::line(pts, s));
-            p.add(Shape::convex_polygon(vec![end + vec2(3.5, -1.0), end + vec2(-2.0, -3.5), end + vec2(-1.0, 3.0)], col, Stroke::NONE));
-            p.circle_filled(c, w * 0.14, col);
+            arrow_head(p, end, dir, w * 0.26, col);
         }
         Icon::Brush => {
-            let a = pos2(r.right() - 1.0, r.top() + 1.0);
-            let b = pos2(c.x - w * 0.05, c.y + w * 0.05);
-            p.line_segment([a, b], Stroke::new(2.0, col));
-            p.add(Shape::convex_polygon(vec![b + vec2(-1.5, -2.5), b + vec2(2.5, 1.5), pos2(r.left() + 1.0, r.bottom() - 1.0)], col, Stroke::NONE));
+            // Handle, metal band, then the bristles' tip, bottom left.
+            let d = vec2(-1.0, 1.0).normalized();
+            let n = vec2(-d.y, d.x);
+            let top = pos2(r.right() - w * 0.06, r.top() + w * 0.06);
+            let band = top + d * (w * 0.55);
+            p.line_segment([top, band], Stroke::new(w * 0.13, col));
+            p.line_segment([band, band + d * (w * 0.1)], Stroke::new(w * 0.2, col.gamma_multiply(0.7)));
+            let base = band + d * (w * 0.12);
+            let tip = base + d * (w * 0.42);
+            p.add(Shape::convex_polygon(
+                vec![base + n * (w * 0.13), base - n * (w * 0.13), tip - n * (w * 0.02) + d * (-w * 0.04), tip],
+                col,
+                Stroke::NONE,
+            ));
         }
         Icon::Pin => {
             let head = pos2(c.x, c.y - w * 0.12);
@@ -238,12 +298,17 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
             p.add(Shape::line(vec![pos2(r.left(), c.y + w * 0.15), pos2(r.left(), r.bottom()), pos2(r.right(), r.bottom()), pos2(r.right(), c.y + w * 0.15)], s));
         }
         Icon::Trash => {
-            let b = Rect::from_min_max(pos2(r.left() + w * 0.18, r.top() + w * 0.25), pos2(r.right() - w * 0.18, r.bottom()));
-            p.rect_stroke(b, 2.0, s, egui::StrokeKind::Inside);
-            p.line_segment([pos2(r.left(), r.top() + w * 0.18), pos2(r.right(), r.top() + w * 0.18)], s);
-            p.line_segment([pos2(c.x - w * 0.12, r.top()), pos2(c.x + w * 0.12, r.top())], s);
-            for dx in [-0.12f32, 0.12] {
-                p.line_segment([pos2(c.x + dx * w, b.top() + 3.0), pos2(c.x + dx * w, b.bottom() - 3.0)], Stroke::new(1.0, col));
+            // Bin narrowing to its foot, a lid and its handle.
+            let top = r.top() + w * 0.28;
+            p.add(Shape::convex_polygon(
+                vec![pos2(c.x - w * 0.32, top), pos2(c.x + w * 0.32, top), pos2(c.x + w * 0.25, r.bottom()), pos2(c.x - w * 0.25, r.bottom())],
+                Color32::TRANSPARENT,
+                s,
+            ));
+            p.line_segment([pos2(c.x - w * 0.45, r.top() + w * 0.16), pos2(c.x + w * 0.45, r.top() + w * 0.16)], Stroke::new(s.width * 1.2, col));
+            p.rect_stroke(Rect::from_min_max(pos2(c.x - w * 0.12, r.top() + w * 0.02), pos2(c.x + w * 0.12, r.top() + w * 0.16)), 1.0, Stroke::new(1.2, col), egui::StrokeKind::Inside);
+            for dx in [-0.11f32, 0.11] {
+                p.line_segment([pos2(c.x + dx * w, top + w * 0.12), pos2(c.x + dx * w * 0.85, r.bottom() - w * 0.12)], Stroke::new(1.2, col));
             }
         }
         Icon::Copy => {
@@ -257,15 +322,12 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
             p.line_segment([pos2(r.left(), r.bottom()), pos2(r.right(), r.bottom())], Stroke::new(2.0, col));
         }
         Icon::Undo => {
-            let pts: Vec<Pos2> = (0..=16)
-                .map(|k| {
-                    let t = 3.6 - k as f32 / 16.0 * 4.4;
-                    pos2(c.x + t.cos() * w * 0.4, c.y + t.sin() * w * 0.4)
-                })
-                .collect();
-            let start = pts[0];
+            // A hook over the top, pointing back to the left.
+            let (a0, a1) = (0.9f32, -3.3f32);
+            let pts = arc(c + vec2(0.0, w * 0.08), w * 0.36, w * 0.34, 0.0, a0, a1);
+            let (end, dir) = arc_end(c + vec2(0.0, w * 0.08), w * 0.36, w * 0.34, 0.0, a1, -1.0);
             p.add(Shape::line(pts, s));
-            p.add(Shape::convex_polygon(vec![start + vec2(-3.5, 0.5), start + vec2(2.5, -3.0), start + vec2(2.0, 3.5)], col, Stroke::NONE));
+            arrow_head(p, end, dir, w * 0.3, col);
         }
         Icon::Folder => {
             p.rect_filled(Rect::from_min_size(pos2(r.left(), r.top() + w * 0.12), vec2(w * 0.45, w * 0.2)), 1.5, col.gamma_multiply(0.8));
@@ -318,16 +380,11 @@ mod tests {
     #[test]
     fn every_icon_paints() {
         let ctx = egui::Context::default();
-        let all = [
-            Icon::Eye(true), Icon::Eye(false), Icon::Lock(true), Icon::Lock(false), Icon::Move, Icon::Rotate, Icon::Scale,
-            Icon::Magnet, Icon::Grid, Icon::Sun, Icon::Search, Icon::Camera, Icon::Hand, Icon::Orbit, Icon::Brush,
-            Icon::Pin, Icon::Save, Icon::Check, Icon::Import, Icon::Trash, Icon::Copy, Icon::Down, Icon::Undo,
-            Icon::Folder, Icon::Play,
-        ];
+        let all = ALL;
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             for i in all {
                 paint(ui.painter(), Rect::from_min_size(pos2(10.0, 10.0), vec2(14.0, 14.0)), i, Color32::WHITE);
-                cursor_badge(ui.painter(), pos2(50.0, 50.0), i, Color32::RED);
+                cursor_badge(ui.painter(), pos2(50.0, 50.0), i, Color32::RED, false);
             }
             assert!(text_button(ui, Icon::Save, "Save").rect.width() > 40.0);
         });
