@@ -6426,8 +6426,8 @@ impl eframe::App for MapEditor {
         }
         if self.show_shortcuts {
             self.ui_shortcuts(&ctx);
-            self.ui_theme(&ctx);
         }
+        self.ui_theme(&ctx); // draws only while View > Theme… is open
         if self.unsaved {
             ctx.request_repaint_after(AUTOSAVE_EVERY);
         }
