@@ -9,7 +9,7 @@ corpus (survives game updates); **va** = base-relative absolute (data globals);
 Functions tagged `callable` have a typed C++ accessor in `engine::` and a Lua
 resolver entry. See [CLAUDE.md] for the workflow.
 
-Total: **422** symbols across 29 categories.
+Total: **423** symbols across 29 categories.
 
 ## analytics
 
@@ -76,6 +76,7 @@ Total: **422** symbols across 29 categories.
 | `ModifierSettings_CreateDesc` | `0x1406dd600` | ✅ ok | ✔ | void*(void* mgr, uint32_t id, void* name, void* category, void* defaultValue, void* str2) |
 | `ModifierSettings_RegisterDesc` | `0x1406dd830` | ✅ ok | ✔ | uint8_t(void* mgr, void* desc) |
 | `ModifierValueDesc_Ctor` | `0x1406ddae0` | ✅ ok | ✔ | void*(void* self) |
+| `StatusSettingsGo_Init` | `0x14024f850` | ✅ ok | ✔ | void(void* self) |
 | `StatusValueDefs_Register` | `0x1401d2b40` | ✅ ok | ✔ | void(void) |
 | `String_Assign` | `0x14052bf10` | ✅ ok | ✔ | void(void* dst_slot, const StringDesc* src) |
 | `Vector_Grow` | `0x14014db60` | ✅ ok | ✔ | void(void* vec, void* /*dead RDX*/, uint32_t new_cap /*R8*/) |

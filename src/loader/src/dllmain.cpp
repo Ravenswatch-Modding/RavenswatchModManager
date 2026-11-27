@@ -29,6 +29,7 @@
 #include "hook_io.h"
 #include "hook_engine.h"
 #include "hook_skins.h"
+#include "hook_statuses.h"
 #include "hook_skills.h"
 #include "hook_ui.h"
 #include "hook_ui_state.h"
@@ -172,6 +173,7 @@ static void loader_thread_cxx() {
         // capability, not the whole loader.
         install_guarded("engine",  rsmm::install_engine_hooks);
         install_guarded("skins",   rsmm::install_skin_hooks);
+        install_guarded("statuses", rsmm::install_status_hooks);
         install_guarded("skills",  rsmm::install_skill_hooks);
         install_guarded("ui",      rsmm::install_ui_hooks);
         install_guarded("ui-state", rsmm::install_ui_state_hooks);

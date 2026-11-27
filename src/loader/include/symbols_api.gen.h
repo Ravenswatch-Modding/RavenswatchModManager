@@ -1055,6 +1055,13 @@ inline SkinGrid_Populate_fn SkinGrid_Populate() {
     return reinterpret_cast<SkinGrid_Populate_fn>(rsmm::fn_resolve(Sym::SkinGrid_Populate_Pattern));
 }
 
+// StatusSettingsGo_Init  (StatusSettingsGo_Init)
+//   void(void* self)
+using StatusSettingsGo_Init_fn = void(*)(void*);
+inline StatusSettingsGo_Init_fn StatusSettingsGo_Init() {
+    return reinterpret_cast<StatusSettingsGo_Init_fn>(rsmm::fn_resolve(Sym::StatusSettingsGo_Init_Pattern));
+}
+
 // StatusValueDefs_Register  (StatusValueDefs_Register)
 //   void(void)
 using StatusValueDefs_Register_fn = void(*)(void);

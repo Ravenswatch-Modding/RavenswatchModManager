@@ -217,6 +217,16 @@ def build_report(mod, mods: list, dec2enc: dict[str, str],
                 fc.status = _install_status(enc, src, mod.id, active)
         files.append(fc)
 
+    # The status table is one stream every contributing mod adds rows to: not
+    # a file the mod ships, but one it changes.
+    from rsmm.engine import status_table as ST
+    if (mod.assets_dir / ST.STAGING / ST.ROWS_FILE).is_file():
+        enc = dec2enc.get(ST.STREAM_DECODED)
+        fc = FileChange(ST.STREAM_DECODED, _REPLACE, enc, merged_as="status table")
+        fc.others = [o.id for o in mods if o.root != mod.root and o.enabled
+                     and (o.assets_dir / ST.STAGING / ST.ROWS_FILE).is_file()]
+        files.append(fc)
+
     patches: list[PatchChange] = []
     every = _ranked(collect_patches())
     # collect_patches skips disabled mods; read the inspected one directly so

@@ -1687,6 +1687,54 @@ written for a from-scratch hero too.
 
 ---
 
+## `status` — a status of your own, with a HUD icon
+
+**What the player sees.** A new status, like Ignite or Marked: an icon on the
+HUD while it is active, a buff or debuff look, a value, and an expiry. A mod
+applies it to entities by its id.
+
+```toml
+[mod]
+id           = "frost"
+name         = "Frostbite"
+version      = "0.1.0"
+author       = "you"
+description  = "A Frostbite status."
+experimental = true
+
+[[content]]
+kind       = "status"
+name       = "Frostbite"
+look       = "debuff"
+icon       = 'HUD\Debuff_Chilled.png'
+combine    = "max"
+reapply    = "refresh"
+```
+
+`name` is the block's identity; the status id is the engine's hash of
+`"<mod id>:<name>"`, so two mods can both declare "Frostbite". `look` is
+`buff` or `debuff`; `hidden = true` keeps the status off the HUD; `icon` names a
+texture the game ships (`icon` empty shows none). `value` is `float`, `int` or
+`bool`; `combine` (`add`, `sub`, `mult`, `max`, `min`, `reduce`, `oldest`) says
+how several stacks fold into one value; `hud_combine` (same names, default
+`combine`) is the kind the HUD uses to work out the icon value; `reapply` (`keep`, `extend`, `refresh`,
+`replace`, `replace_shortest`) says what a second hit does; `max_stacks` caps
+the live stacks, 0 for no cap.
+
+`rsmm apply` adds one row per status to the game's status table, merged across
+every enabled mod, and writes `statuses.json` beside the mod for the loader,
+which registers the status at boot.
+
+**Prove it.** The loader log names each registered status. Nothing in the CLI
+puts the status on an entity; that takes a script or an ability step that
+names the id.
+
+**Trap.** Built on static analysis; not yet tried in game. A status the loader
+does not register is deleted from the table when the game starts, so the mod
+needs the loader installed.
+
+---
+
 ## Where to go next
 
 - [Content kinds & confidence](/reference/sdk-api/kinds/) — the generated rating
