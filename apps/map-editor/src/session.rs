@@ -37,11 +37,27 @@ pub struct Autosave {
     pub strokes: Value,
 }
 
+impl Autosave {
+    /// Anything worth offering back: scenery, groups, keep-edits, brush strokes or recipe changes.
+    pub fn has_edits(&self) -> bool {
+        let some = |v: &Value| match v {
+            Value::Object(o) => !o.is_empty(),
+            Value::Array(a) => !a.is_empty(),
+            Value::Null => false,
+            _ => true,
+        };
+        some(&self.scenery) || !self.groups.is_empty() || some(&self.keep_edits) || self.keep_map.is_some() || some(&self.strokes) || some(&self.recipe)
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Prefs {
     pub recent: Vec<String>,
     pub light_theme: bool,
     pub grid_size: Option<f32>,
+    /// Accent colour name (`ACCENTS` in app.rs); orange when unset.
+    #[serde(default)]
+    pub accent: Option<String>,
 }
 
 pub fn dir() -> Option<PathBuf> {

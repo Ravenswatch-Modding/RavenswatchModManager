@@ -90,6 +90,10 @@ enum Event {
     TileProps(anyhow::Result<Vec<Prop>>),
     /// Files picked in Import… (or dropped on the window).
     Imported(Vec<std::path::PathBuf>),
+    /// A picture chosen as the brush shape.
+    StampPicked(Option<std::path::PathBuf>),
+    /// A picture chosen for a terrain layer (`base`, `R` .. `A`).
+    SurfacePicked(String, Option<std::path::PathBuf>),
     /// A file of the mod's own art reached the backend's staging area.
     Staged(String, anyhow::Result<String>),
     Error(String),
@@ -361,6 +365,8 @@ pub struct MapEditor {
     failed_assets: Vec<String>,
     look_pending: bool,
     minimap_tex: Option<egui::TextureHandle>,
+    /// The ground changed since the minimap was drawn.
+    minimap_stale: bool,
 
     // generation recipe, tile pool, run preview
     recipe: Option<Recipe>,
@@ -410,6 +416,33 @@ pub struct MapEditor {
     thumbs: HashMap<String, egui::TextureId>,
     /// Tiles on screen this frame still waiting for a thumbnail.
     thumb_want: Vec<String>,
+    /// The Project item picked with a click (placing is a drag).
+    asset_sel: Option<String>,
+    /// The Hierarchy scrolls this row into view the next time it draws it.
+    scroll_to_sel: Option<Sel>,
+    /// The Scene's last hover pick: cursor position and what is under it.
+    hover_pick: Option<(egui::Pos2, Option<Sel>)>,
+    /// The window title last sent (sent again only when it changes).
+    title: String,
+    /// Open (true) or close (false) every Hierarchy section this frame.
+    tree_open: Option<bool>,
+    /// Right-click on selected text: where its Copy menu stands.
+    copy_menu_at: Option<egui::Pos2>,
+    /// The "Copied" note stays until then.
+    copied_until: Option<Instant>,
+    /// The mod's own files removed in the Project panel: deleted from its folder on save.
+    dropped_art: Vec<String>,
+    /// Project folders under Assets made by the author, kept while empty (`Assets/rocks`).
+    asset_dirs: BTreeSet<String>,
+    /// Terrain layers drawn with the mod's own picture: slot -> (art path, file on disk).
+    surfaces: std::collections::BTreeMap<String, (String, std::path::PathBuf)>,
+    /// Save also draws the in-game minimap from the edited ground (`map.minimap`).
+    export_minimap: bool,
+    /// A Project folder being renamed: its path and the name being typed.
+    folder_rename: Option<(String, String)>,
+    /// Double-clicked Project item shown large: entity, yaw, pitch.
+    preview: Option<(String, f32, f32)>,
+    preview_tex: Option<egui::TextureId>,
     /// Until when the viewport shows the zoom readout.
     zoom_shown: Option<Instant>,
     /// Metres per second while flying (right button + WASD); the wheel sets it.
@@ -420,6 +453,8 @@ pub struct MapEditor {
     unsaved: bool,
     last_autosave: Instant,
     restore_offer: Option<Autosave>,
+    /// `unsaved` when the running save was sent, put back if it fails.
+    save_dirty: bool,
 
     // drawing caches
     dirty: bool,
@@ -466,6 +501,7 @@ pub struct MapEditor {
     show_shortcuts: bool,
     show_save_as: bool,
     light_theme: bool,
+    accent: String,
     recent: Vec<String>,
     status: String,
     frame_ms: f32,
@@ -495,7 +531,7 @@ impl MapEditor {
         let loader = Loader::new(backend.clone(), workers, move || ctx.request_repaint());
         let (tx, rx) = channel();
         let prefs = session::load_prefs();
-        style(&cc.egui_ctx, prefs.light_theme);
+        style(&cc.egui_ctx, prefs.light_theme, prefs.accent.as_deref().unwrap_or(ACCENTS[0].0));
         let me = MapEditor {
             backend,
             loader,
@@ -517,6 +553,7 @@ impl MapEditor {
             failed_assets: Vec::new(),
             look_pending: false,
             minimap_tex: None,
+            minimap_stale: false,
             recipe: None,
             pool: Vec::new(),
             layout: std::collections::BTreeMap::new(),
@@ -558,11 +595,26 @@ impl MapEditor {
             tile_size: 92.0,
             thumbs: HashMap::new(),
             thumb_want: Vec::new(),
+            asset_sel: None,
+            scroll_to_sel: None,
+            hover_pick: None,
+            title: String::new(),
+            tree_open: None,
+            copy_menu_at: None,
+            copied_until: None,
+            dropped_art: Vec::new(),
+            asset_dirs: BTreeSet::new(),
+            surfaces: std::collections::BTreeMap::new(),
+            export_minimap: false,
+            folder_rename: None,
+            preview: None,
+            preview_tex: None,
             zoom_shown: None,
             opened_doc: None,
             unsaved: false,
             last_autosave: Instant::now(),
             restore_offer: None,
+            save_dirty: false,
             dirty: true,
             shipped_draw: Vec::new(),
             add_draw: Vec::new(),
@@ -598,6 +650,7 @@ impl MapEditor {
             show_shortcuts: false,
             show_save_as: false,
             light_theme: prefs.light_theme,
+            accent: prefs.accent.clone().unwrap_or_else(|| ACCENTS[0].0.to_owned()),
             recent: prefs.recent,
             status: "Reading chapters…".into(),
             frame_ms: 0.0,
@@ -623,7 +676,7 @@ impl MapEditor {
         if self.headless() {
             return;
         }
-        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.light_theme, grid_size: Some(self.grid_size) });
+        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.light_theme, grid_size: Some(self.grid_size), accent: Some(self.accent.clone()) });
     }
 
     fn refresh_state(&self, ctx: &egui::Context) {
@@ -655,6 +708,12 @@ impl MapEditor {
     fn open_chapter(&mut self, ctx: &egui::Context, key: String) {
         self.chapter = Some(key.clone());
         self.tabs[0].title = key.replace('_', " ");
+        self.dropped_art.clear();
+        self.asset_dirs.clear();
+        self.surfaces.clear();
+        self.export_minimap = false;
+        self.asset_sel = None;
+        self.preview = None;
         self.terrain = None;
         self.scenery = None;
         self.tree.clear();
@@ -687,7 +746,7 @@ impl MapEditor {
         self.tabs[0].parked = None;
         self.active_tab = 0;
         self.dirty = true;
-        self.restore_offer = if self.headless() { None } else { session::load_autosave(&key) }.filter(|a| a.scenery.as_object().is_some_and(|o| !o.is_empty()) || !a.groups.is_empty());
+        self.restore_offer = if self.headless() { None } else { session::load_autosave(&key) }.filter(Autosave::has_edits);
         if let Some(r) = &mut self.renderer {
             r.clear_scene();
         }
@@ -744,7 +803,7 @@ impl MapEditor {
     }
 
     fn request_part_assets(&mut self, key: &PartKey) {
-        if key.decal {
+        if key.decal || key.vfx {
             if let Some(r) = &mut self.renderer {
                 if !r.has_mesh(&key.mesh) {
                     r.add_mesh(key.mesh.clone(), MeshData::decal_quad());
@@ -813,7 +872,24 @@ impl MapEditor {
         if let Some(o) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("objects")) {
             let folder = std::path::PathBuf::from(doc["folder"].as_str().unwrap_or_default());
             self.register_mod_models(&o, &folder);
+            self.asset_dirs.extend(doc["art_dirs"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|d| crate::project::folder_of_art(&format!("{d}/x"))));
             edits.load_objects(&o);
+        }
+        self.export_minimap = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("minimap")).is_some();
+        if let Some(sf) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("surfaces")) {
+            let folder = std::path::PathBuf::from(doc["folder"].as_str().unwrap_or_default());
+            for (slot, rel) in sf.as_object().into_iter().flatten() {
+                let Some(rel) = rel.as_str() else { continue };
+                let file = folder.join(rel);
+                match std::fs::read(&file) {
+                    Ok(b) => {
+                        self.stage_now(rel.to_owned(), b);
+                        self.surfaces.insert(slot.clone(), (rel.to_owned(), file));
+                    }
+                    Err(e) => self.failed_assets.push(format!("{rel}: {e}")),
+                }
+            }
+            self.refresh_look();
         }
         if let Some(m) = &self.keep_map {
             self.as_map = true;
@@ -898,9 +974,7 @@ impl MapEditor {
                                 self.pending_assets += 1;
                             }
                         }
-                        if let Some(r) = &mut self.renderer {
-                            r.set_look(look);
-                        }
+                        self.refresh_look();
                     }
                     Err(e) => {
                         self.look_pending = false;
@@ -942,7 +1016,9 @@ impl MapEditor {
                 },
                 Event::TileObjects(tile, r) => match r {
                     Ok(v) => {
-                        if let Some(ts) = self.tile.as_mut().filter(|t| t.tile == tile) {
+                        // The active tab, or the parked one the user switched away from.
+                        let parked = self.tabs.iter_mut().filter_map(|t| t.parked.as_mut()).filter_map(|p| p.tile.as_mut()).find(|t| t.tile == tile);
+                        if let Some(ts) = self.tile.as_mut().filter(|t| t.tile == tile).or(parked) {
                             let v3 = |x: &Value| {
                                 let a = x.as_array();
                                 let f = |i: usize| a.and_then(|a| a.get(i)).and_then(Value::as_f64).unwrap_or(0.0) as f32;
@@ -984,6 +1060,15 @@ impl MapEditor {
                     Err(e) => self.failed_assets.push(format!("props: {e:#}")),
                 },
                 Event::Imported(paths) => self.import_files(ctx, paths),
+                Event::StampPicked(Some(f)) => match std::fs::read(&f).map_err(anyhow::Error::from).and_then(|b| crate::brush::Stamp::from_png(&crate::models::clean_stem(&f), &b)) {
+                    Ok(st) => {
+                        self.status = format!("Brush shape: {}", st.name);
+                        self.brush.stamp = Some(st);
+                    }
+                    Err(e) => self.status = format!("{}: {e:#}", f.display()),
+                },
+                Event::StampPicked(None) | Event::SurfacePicked(_, None) => {}
+                Event::SurfacePicked(slot, Some(f)) => self.set_surface(ctx, &slot, f),
                 Event::Staged(rel, r) => match r {
                     Ok(id) => {
                         self.staged.insert(rel, id);
@@ -1080,11 +1165,12 @@ impl MapEditor {
                     if saving {
                         self.status = format!("Saved {}", body["path"].as_str().unwrap_or("the mod"));
                         self.saved_next = body["next"].as_str().map(str::to_owned);
-                        self.unsaved = false;
                         let id = self.mod_id.clone();
                         self.remember_recent(&id);
-                        if let Some(ch) = &self.chapter {
-                            session::clear_autosave(ch);
+                        if !self.unsaved {
+                            if let Some(ch) = &self.chapter {
+                                session::clear_autosave(ch);
+                            }
                         }
                         self.refresh_state(ctx);
                     } else {
@@ -1092,6 +1178,9 @@ impl MapEditor {
                     }
                     self.result = Some(Ok(changes));
                 } else {
+                    if saving {
+                        self.unsaved |= self.save_dirty;
+                    }
                     self.result = Some(Err(r.error_text()));
                     self.status = if saving { "Save refused — see the Save panel".into() } else { "Check failed".into() };
                 }
@@ -1360,6 +1449,7 @@ impl MapEditor {
     fn after_history(&mut self) {
         self.touched();
         self.replay_terrain();
+        self.minimap_stale = true;
         self.modal = None;
         self.prune_selection();
     }
@@ -1392,7 +1482,7 @@ impl MapEditor {
         } else {
             Vec::new()
         };
-        let blank = self.blank().is_some();
+        let blank = self.blank_hides_shipped();
         (0..s.obj_xf.len())
             .filter(|i| !blank && !self.edits.removed.contains(i))
             .map(Sel::Obj)
@@ -1487,6 +1577,11 @@ impl MapEditor {
     /// clone document so it saves, autosaves and reopens with it.
     fn blank(&self) -> Option<f32> {
         self.keep_map.as_ref()?.get("blank")?.as_f64().map(|v| v as f32)
+    }
+
+    /// A blank map sinks the chapter's shipped objects; a tile tab keeps its own.
+    fn blank_hides_shipped(&self) -> bool {
+        self.tile.is_none() && self.blank().is_some()
     }
 
     /// Paste `items` (entity, level, transform relative to their centre) with
@@ -1589,6 +1684,9 @@ impl MapEditor {
     /// Rebuild the preview ground from the vanilla grids plus every stroke
     /// (after undo / redo / open / restore).
     fn replay_terrain(&mut self) {
+        if self.tile.is_some() {
+            return; // a tile tab stands on its own flat ground, not the map's
+        }
         let Some(base) = &self.terrain_base else { return };
         let mut t = base.clone();
         if let Some(h) = self.blank() {
@@ -1658,19 +1756,24 @@ impl MapEditor {
         if smooth {
             b.mode = BrushMode::Smooth;
         }
-        let Some(st) = b.stroke(at, invert, &sources, color_layer.as_deref()) else {
-            self.status = "This brush needs the chapter's terrain material (still loading?)".into();
-            return;
-        };
-        let Some(t) = &mut self.terrain else { return };
-        let rows = Self::apply_stroke_to(t, self.look_base.as_ref(), &mut self.weights_now, self.color_now.as_mut(), &st);
-        if let Some(r) = &mut self.renderer {
-            match rows {
-                Some((r0, r1)) => r.update_terrain_rows(t, r0, r1),
-                None => r.update_look_maps(&self.weights_now, self.color_now.as_deref()),
+        let dabs = b.strokes(at, invert, &sources, color_layer.as_deref());
+        if dabs.is_empty() {
+            if b.stroke(at, invert, &sources, color_layer.as_deref()).is_none() {
+                self.status = "This brush needs the chapter's terrain material (still loading?)".into();
             }
+            return;
         }
-        self.edits.strokes.push(st);
+        let Some(t) = &mut self.terrain else { return };
+        for st in dabs {
+            let rows = Self::apply_stroke_to(t, self.look_base.as_ref(), &mut self.weights_now, self.color_now.as_mut(), &st);
+            if let Some(r) = &mut self.renderer {
+                match rows {
+                    Some((r0, r1)) => r.update_terrain_rows(t, r0, r1),
+                    None => r.update_look_maps(&self.weights_now, self.color_now.as_deref()),
+                }
+            }
+            self.edits.strokes.push(st);
+        }
         self.touched();
     }
 
@@ -1767,10 +1870,6 @@ impl MapEditor {
                     out.push(LineVertex { pos: p(f1), col });
                 }
             }
-            // A post in the middle so a spot reads from far away.
-            let gy = y(sp.pos.x, sp.pos.z);
-            out.push(LineVertex { pos: [sp.pos.x, gy, sp.pos.z], col });
-            out.push(LineVertex { pos: [sp.pos.x, gy + 2.0 + h * 0.15, sp.pos.z], col });
         }
         out
     }
@@ -2118,7 +2217,11 @@ impl MapEditor {
                 let items = self.clipboard.clone();
                 let n = self.paste_items(ctx, items, at);
                 if n > 0 {
-                    self.status = format!("Pasted {n} object(s)");
+                    self.status = format!("Pasted {n} object(s): move the mouse, click to drop");
+                    if !self.headless() {
+                        // The paste follows the mouse until a click, like Duplicate.
+                        self.begin(ctx, Kind::Grab, false);
+                    }
                 }
             }
             Cmd::Duplicate => {
@@ -2172,6 +2275,8 @@ impl MapEditor {
                 if !self.sel.is_empty() {
                     let name = format!("Group {}", self.groups.len() + 1);
                     self.groups.push((name.clone(), self.sel.iter().copied().collect()));
+                    // Type its name, Enter to keep it.
+                    self.renaming_group = Some((self.groups.len() - 1, name.clone()));
                     self.status = format!("{name}: {} object(s)", self.sel.len());
                     self.left_tab = LeftTab::Inspector;
                     self.unsaved = true;
@@ -2271,7 +2376,7 @@ impl MapEditor {
             }
             Cmd::ToggleTheme => {
                 self.light_theme = !self.light_theme;
-                style(ctx, self.light_theme);
+                style(ctx, self.light_theme, &self.accent);
                 self.save_prefs();
             }
             Cmd::Palette => {
@@ -2408,11 +2513,18 @@ impl MapEditor {
                     let st = 15f32.to_radians();
                     a = (a / st).round() * st;
                 }
-                let r = match m.lock {
-                    Lock::Axis(0) => Quat::from_rotation_x(a),
-                    Lock::Axis(2) => Quat::from_rotation_z(a),
-                    _ => Quat::from_rotation_y(a),
+                let axis = match m.lock {
+                    Lock::Axis(k) | Lock::Plane(k) => k.min(2),
+                    Lock::Free => 1,
                 };
+                // The mouse turns the object the way it circles on screen: flip
+                // when the axis points away from the camera.
+                let mut dir = Vec3::ZERO;
+                dir[axis] = 1.0;
+                if typed.is_none() && dir.dot(self.camera.eye() - m.pivot) < 0.0 {
+                    a = -a;
+                }
+                let r = Quat::from_axis_angle(dir, a);
                 m.starts
                     .iter()
                     .map(|(sel, st)| (*sel, Xf { pos: m.pivot + r * (st.pos - m.pivot), rot: r * st.rot, ..*st }))
@@ -2465,7 +2577,7 @@ impl MapEditor {
             self.edits.moves.iter().map(|(&i, xf)| (i, xf.mat() * s.obj_xf[i].mat().inverse())).collect();
         let mut shipped = Vec::with_capacity(s.parts.len());
         // A blank map sinks every shipped object (`map.blank`).
-        let blank = self.blank().is_some();
+        let blank = self.blank_hides_shipped();
         for p in &s.parts {
             let mut v = Vec::with_capacity(p.base.len());
             for (j, base) in p.base.iter().enumerate() {
@@ -2479,7 +2591,7 @@ impl MapEditor {
                     None => (*base, [0.0; 4]),
                 };
                 v.push(Instance { m: m.to_cols_array_2d(), tint: tint_for(sel, tint) });
-                if !p.key.decal && meshes_ready(&p.key.mesh) && !self.locked.contains(&sel) {
+                if !p.key.decal && !p.key.vfx && meshes_ready(&p.key.mesh) && !self.locked.contains(&sel) {
                     self.pickables.push((p.key.mesh.clone(), m, sel));
                 }
             }
@@ -2498,7 +2610,7 @@ impl MapEditor {
                 for local in mats {
                     let m = world * *local;
                     by_key.entry(key.clone()).or_default().push(Instance { m: m.to_cols_array_2d(), tint: tint_for(sel, ADDED_TINT) });
-                    if !key.decal && meshes_ready(&key.mesh) && !self.locked.contains(&sel) {
+                    if !key.decal && !key.vfx && meshes_ready(&key.mesh) && !self.locked.contains(&sel) {
                         self.pickables.push((key.mesh.clone(), m, sel));
                     }
                 }
@@ -2519,7 +2631,7 @@ impl MapEditor {
                     for local in mats {
                         let m = world * *local;
                         by_key.entry(key.clone()).or_default().push(Instance { m: m.to_cols_array_2d(), tint: tint_for(sel, [0.0; 4]) });
-                        if !key.decal && meshes_ready(&key.mesh) && !self.locked.contains(&sel) {
+                        if !key.decal && !key.vfx && meshes_ready(&key.mesh) && !self.locked.contains(&sel) {
                             self.pickables.push((key.mesh.clone(), m, sel));
                         }
                     }
@@ -2647,8 +2759,26 @@ impl MapEditor {
             terrain.and_then(|t| t.raycast(o, d, 9000.0)).or_else(|| (d.y < -1e-4).then(|| o + d * ((cam.target.y - o.y) / d.y)))
         };
         let hover_ground = pointer.filter(|p| rect.contains(*p)).and_then(|p| ground_at(self.terrain.as_ref(), p));
-        if let (Some(entity), Some(g)) = (resp.dnd_release_payload::<String>(), hover_ground) {
+        if let (Some(entity), Some(g)) = (resp.dnd_release_payload::<String>().filter(|e| !e.starts_with("folder:")), hover_ground) {
             self.place(&ctx, (*entity).clone(), g);
+        }
+        // The object under a still cursor, named beside it (re-picked only when the cursor moves).
+        let idle = self.modal.is_none() && self.tool == Tool::Select && self.box_start.is_none() && !ctx.input(|i| i.pointer.any_down());
+        match pointer.filter(|p| idle && resp.hovered() && rect.contains(*p)) {
+            Some(p) => {
+                if self.hover_pick.is_none_or(|(q, _)| (q - p).length() > 1.0) {
+                    let (o, d) = ray_at(p);
+                    self.hover_pick = Some((p, self.pick_any(o, d)));
+                }
+                if let Some((_, Some(h))) = self.hover_pick {
+                    let name = self.name_of(h).replace('_', " ");
+                    let g = ui.painter().layout_no_wrap(name, egui::FontId::proportional(12.5), egui::Color32::WHITE);
+                    let at = p + egui::vec2(16.0, 14.0);
+                    ui.painter().rect_filled(egui::Rect::from_min_size(at - egui::vec2(5.0, 3.0), g.size() + egui::vec2(10.0, 6.0)), 4.0, egui::Color32::from_black_alpha(170));
+                    ui.painter().galley(at, g, egui::Color32::WHITE);
+                }
+            }
+            None => self.hover_pick = None,
         }
         if hover_ground.is_some() {
             self.cursor = hover_ground;
@@ -2732,8 +2862,13 @@ impl MapEditor {
         // ---- gizmo hit test (before clicks) ----
         let pivot = self.pivot();
         let pivot_scr = pivot.and_then(&to_screen);
-        let px_m = 2.0 * self.camera.half_height() / rect.height();
-        let handle_len = 90.0 * px_m; // ~90 px on screen whatever the zoom
+        // ~90 px on screen whatever the zoom: metres per pixel at the pivot's depth.
+        let depth_half = match pivot {
+            Some(p) if !self.camera.ortho => (p - self.camera.eye()).dot(self.camera.forward()).max(NEAR_GIZMO) * (self.camera.fov_y * 0.5).tan(),
+            _ => self.camera.half_height(),
+        };
+        let px_m = 2.0 * depth_half / rect.height();
+        let handle_len = 90.0 * px_m;
         let gizmo_hover = match (pivot, pivot_scr, pointer, self.modal.is_none() && self.tool == Tool::Select) {
             (Some(p), Some(c), Some(ptr), true) => gizmo_hit(self.gizmo, p, c, ptr, handle_len, &to_screen),
             _ => None,
@@ -2790,7 +2925,9 @@ impl MapEditor {
                 }
                 ctx.request_repaint();
             } else {
-                self.last_dab = None;
+                if self.last_dab.take().is_some() {
+                    self.minimap_stale = true; // a stroke ended: redraw the minimap
+                }
             }
             if !typing {
                 if ctx.input(|i| i.key_pressed(egui::Key::OpenBracket)) {
@@ -3113,11 +3250,15 @@ impl MapEditor {
     }
 
     fn draw_minimap(&mut self, ui: &mut egui::Ui, rect: egui::Rect, aspect: f32) {
+        if std::mem::take(&mut self.minimap_stale) && self.tile.is_none() {
+            self.minimap_tex = self.terrain.as_ref().map(|t| minimap_texture(ui.ctx(), t));
+        }
         let (Some(tex), Some(t)) = (&self.minimap_tex, &self.terrain) else { return };
         let side = 190.0;
         let r = egui::Rect::from_min_size(rect.right_bottom() - egui::vec2(side + 12.0, side + 12.0), egui::vec2(side, side));
         let resp = ui.interact(r, ui.scope_id().with("minimap"), egui::Sense::click_and_drag());
-        let p = ui.painter();
+        // Clipped: the camera's footprint runs far past the box near the horizon.
+        let p = ui.painter().with_clip_rect(r.expand(3.0));
         p.rect_filled(r.expand(3.0), 4.0, egui::Color32::from_black_alpha(160));
         p.image(tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
         // World (x, z) -> minimap; rows run along +Z downward in the texture.
@@ -3215,6 +3356,8 @@ impl MapEditor {
             Some(Cmd::Redo)
         } else if cmd && p(egui::Key::Z) {
             Some(Cmd::Undo)
+        } else if cmd && (p(egui::Key::C) || p(egui::Key::X)) && ctx.plugin::<egui::text_selection::LabelSelectionState>().lock().has_selection() {
+            None // text is selected: egui copies it, the objects stay put
         } else if cmd && p(egui::Key::C) {
             Some(Cmd::Copy)
         } else if cmd && p(egui::Key::X) {
@@ -3438,7 +3581,20 @@ impl MapEditor {
                 ui.separator();
                 item(ui, "Environment (light & fog)…", "", Cmd::ToggleEnv);
                 item(ui, "Log", "", Cmd::ToggleLog);
-                item(ui, if self.light_theme { "Dark theme" } else { "Light theme" }, "", Cmd::ToggleTheme);
+                ui.menu_button("Theme", |ui| {
+                    let mut changed = false;
+                    changed |= ui.radio_value(&mut self.light_theme, false, "Dark").changed();
+                    changed |= ui.radio_value(&mut self.light_theme, true, "Light").changed();
+                    ui.separator();
+                    for (name, c) in ACCENTS {
+                        let label = egui::RichText::new(format!("● {name}")).color(egui::Color32::from_rgb(c[0], c[1], c[2]));
+                        changed |= ui.radio_value(&mut self.accent, name.to_owned(), label).changed();
+                    }
+                    if changed {
+                        style(ui.ctx(), self.light_theme, &self.accent);
+                        self.save_prefs();
+                    }
+                });
             });
             ui.menu_button("Help", |ui| {
                 item(ui, "Keyboard shortcuts", "F1", Cmd::Shortcuts);
@@ -3552,14 +3708,27 @@ impl MapEditor {
         ui.horizontal(|ui| {
             ui.menu_button(egui::RichText::new(" + ").strong(), |ui| self.ui_create_menu(ui)).response.on_hover_text("Create");
             ui.label(egui::RichText::new("Hierarchy").strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Collapse").on_hover_text("Close every section").clicked() {
+                    self.tree_open = Some(false);
+                }
+                if ui.small_button("Expand").on_hover_text("Open the top sections").clicked() {
+                    self.tree_open = Some(true);
+                }
+                if !self.sel.is_empty() {
+                    ui.label(egui::RichText::new(format!("{} selected", self.sel.len())).small().color(ui.visuals().selection.bg_fill));
+                }
+            });
         });
         self.ui_outliner(ui);
+        self.tree_open = None;
     }
 
     /// The Inspector side: the selection's properties, and the tool windows
     /// docked beside it as tabs.
     fn ui_inspector_side(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
+        egui::ScrollArea::horizontal().id_salt("inspector_tabs").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
             ui.selectable_value(&mut self.left_tab, LeftTab::Inspector, "Inspector");
             if self.tile.is_none() {
                 ui.selectable_value(&mut self.left_tab, LeftTab::Terrain, "Terrain");
@@ -3568,7 +3737,7 @@ impl MapEditor {
             }
             let n = self.edits.count();
             ui.selectable_value(&mut self.left_tab, LeftTab::Changes, if n > 0 { format!("Changes ({n})") } else { "Changes".into() });
-        });
+        }));
         ui.separator();
         if self.tile.is_some() && matches!(self.left_tab, LeftTab::Spots | LeftTab::Terrain | LeftTab::Pois) {
             self.left_tab = LeftTab::Inspector;
@@ -3599,6 +3768,14 @@ impl MapEditor {
         match self.bottom_tab {
             BottomTab::Project => self.ui_assets(ui),
             BottomTab::Console => {
+                ui.horizontal(|ui| {
+                    if ui.small_button("Copy all").on_hover_text("Or select any text and press Ctrl+C").clicked() {
+                        let mut all: Vec<String> = self.backend.log.lock().unwrap().iter().cloned().collect();
+                        all.extend(self.failed_assets.iter().cloned());
+                        ui.ctx().copy_text(all.join("\n"));
+                        self.status = "Console copied".into();
+                    }
+                });
                 egui::ScrollArea::vertical().id_salt("console").stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
                     for l in self.backend.log.lock().unwrap().iter() {
                         ui.monospace(l);
@@ -3693,57 +3870,71 @@ impl MapEditor {
     /// Render up to a few Project thumbnails whose item is fully loaded.
     fn make_thumbs(&mut self, rs: &eframe::egui_wgpu::RenderState) {
         const SIZE: u32 = 160;
-        let Some(r) = self.renderer.as_mut() else { return };
         let mut made = 0;
         for e in std::mem::take(&mut self.thumb_want) {
             if made >= 3 || self.thumbs.contains_key(&e) {
                 continue;
             }
-            let Some(Some(t)) = self.templates.get(&e) else { continue };
-            // Wait for every mesh and texture, so the preview is the real thing.
-            let ready = t.iter().all(|(k, _)| (k.decal || r.has_mesh(&k.mesh)) && k.texture.as_ref().is_none_or(|tx| r.texture_known(tx, k.swap_rb)));
-            if !ready {
-                continue;
-            }
-            let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            let inst: Vec<Vec<Instance>> = t.iter().map(|(_, ms)| ms.iter().map(|m| Instance { m: m.to_cols_array_2d(), tint: [0.0; 4] }).collect()).collect();
-            for (k, ms) in t {
-                let Some((c, rad)) = r.mesh_bounds(&k.mesh) else { continue };
-                for m in ms {
-                    let wc = m.transform_point3(c);
-                    let wr = rad * m.x_axis.length().max(m.y_axis.length()).max(m.z_axis.length());
-                    lo = lo.min(wc - Vec3::splat(wr));
-                    hi = hi.max(wc + Vec3::splat(wr));
+            match self.render_entity(rs, &e, SIZE, 0.65, 0.45, false) {
+                Some(Some(id)) => {
+                    self.thumbs.insert(e, id);
+                    made += 1;
                 }
+                Some(None) => {
+                    self.thumbs.insert(e, egui::TextureId::default());
+                }
+                None => {}
             }
-            if lo.x > hi.x {
-                self.thumbs.insert(e, egui::TextureId::default());
-                continue;
-            }
-            let cam = Camera { target: (lo + hi) * 0.5, yaw: 0.65, pitch: 0.45, dist: 1.0, ..self.camera };
-            let mut cam = Camera { ortho: false, ..cam };
-            cam.frame((lo + hi) * 0.5, (hi - lo).length() * 0.3);
-            let parts: Vec<DrawPart> = t.iter().zip(&inst).map(|((k, _), i)| DrawPart { key: k, instances: i }).collect();
-            let id = r.render_thumb(
-                rs,
-                (SIZE, SIZE),
-                &Frame {
-                    camera: &cam,
-                    parts,
-                    lines: &[],
-                    top_lines: &[],
-                    min_px: 0.0,
-                    haze: 0.0,
-                    exposure: self.exposure,
-                    shadows: false,
-                    env: &self.env,
-                    draw_water: false,
-                    no_terrain: true,
-                },
-            );
-            self.thumbs.insert(e, id);
-            made += 1;
         }
+        // The preview window, redrawn while it is open (it turns with the mouse).
+        if let Some((e, yaw, pitch)) = self.preview.clone() {
+            if let Some(Some(id)) = self.render_entity(rs, &e, 512, yaw, pitch, true) {
+                self.preview_tex = Some(id);
+            }
+        }
+    }
+
+    /// Render `e` alone, framed: `None` while its meshes / textures load,
+    /// `Some(None)` for nothing drawable.
+    fn render_entity(&mut self, rs: &eframe::egui_wgpu::RenderState, e: &str, size: u32, yaw: f32, pitch: f32, preview: bool) -> Option<Option<egui::TextureId>> {
+        let r = self.renderer.as_mut()?;
+        let Some(Some(t)) = self.templates.get(e) else { return None };
+        // Wait for every mesh and texture, so the preview is the real thing.
+        let ready = t.iter().all(|(k, _)| (k.decal || k.vfx || r.has_mesh(&k.mesh)) && k.texture.as_ref().is_none_or(|tx| r.texture_known(tx, k.swap_rb)));
+        if !ready {
+            return None;
+        }
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        let inst: Vec<Vec<Instance>> = t.iter().map(|(_, ms)| ms.iter().map(|m| Instance { m: m.to_cols_array_2d(), tint: [0.0; 4] }).collect()).collect();
+        for (k, ms) in t {
+            let Some((c, rad)) = r.mesh_bounds(&k.mesh) else { continue };
+            for m in ms {
+                let wc = m.transform_point3(c);
+                let wr = rad * m.x_axis.length().max(m.y_axis.length()).max(m.z_axis.length());
+                lo = lo.min(wc - Vec3::splat(wr));
+                hi = hi.max(wc + Vec3::splat(wr));
+            }
+        }
+        if lo.x > hi.x {
+            return Some(None);
+        }
+        let mut cam = Camera { target: (lo + hi) * 0.5, yaw, pitch, dist: 1.0, ortho: false, ..self.camera };
+        cam.frame((lo + hi) * 0.5, (hi - lo).length() * 0.3);
+        let parts: Vec<DrawPart> = t.iter().zip(&inst).map(|((k, _), i)| DrawPart { key: k, instances: i }).collect();
+        let f = Frame {
+            camera: &cam,
+            parts,
+            lines: &[],
+            top_lines: &[],
+            min_px: 0.0,
+            haze: 0.0,
+            exposure: self.exposure,
+            shadows: false,
+            env: &self.env,
+            draw_water: false,
+            no_terrain: true,
+        };
+        Some(Some(if preview { r.render_preview(rs, (size, size), &f) } else { r.render_thumb(rs, (size, size), &f) }))
     }
 
     /// Import… : the system's file picker, off the UI thread.
@@ -3770,7 +3961,8 @@ impl MapEditor {
                     while self.models.iter().any(|m| m.name() == name && m.mesh.file != file) {
                         name.push('_');
                     }
-                    let rel = format!("art/{name}.glb");
+                    let rel = crate::project::rel_in(&self.project_dir, &format!("{name}.glb"));
+                    self.dropped_art.retain(|r| r != &rel);
                     self.models.retain(|m| m.mesh.rel != rel);
                     self.templates.remove(&format!("{}{rel}", crate::models::PREFIX));
                     self.models.push(Model { mesh: Art { rel: rel.clone(), file: file.clone() }, texture: None, solid: true, lo, hi });
@@ -3786,7 +3978,9 @@ impl MapEditor {
                 self.status = format!("{}: import a model first, then its texture", file.display());
                 continue;
             };
-            let rel = format!("art/{}.png", self.models[i].name());
+            // Beside its model, in the same folder.
+            let rel = format!("{}.png", self.models[i].mesh.rel.trim_end_matches(".glb"));
+            self.dropped_art.retain(|r| r != &rel);
             match std::fs::read(&file) {
                 Ok(bytes) if bytes.starts_with(b"\x89PNG") => {
                     self.models[i].texture = Some(Art { rel: rel.clone(), file: file.clone() });
@@ -3821,10 +4015,14 @@ impl MapEditor {
         use crate::models::{read_glb, Art, Model};
         for o in objects.as_array().into_iter().flatten() {
             let Some(rel) = o["model"].as_str() else { continue };
-            if self.models.iter().any(|m| m.mesh.rel == rel) {
+            let file = folder.join(rel);
+            if self.models.iter().any(|m| m.mesh.rel == rel && m.mesh.file == file) {
                 continue;
             }
-            let file = folder.join(rel);
+            // Another mod's model at the same path: this mod's own file wins.
+            self.models.retain(|m| m.mesh.rel != rel);
+            self.staged.remove(rel);
+            self.templates.remove(&format!("{}{rel}", crate::models::PREFIX));
             match read_glb(&file) {
                 Ok((bytes, lo, hi)) => {
                     let texture = o["texture"].as_str().map(|t| Art { rel: t.to_owned(), file: folder.join(t) });
@@ -3916,20 +4114,27 @@ impl MapEditor {
                 }
                 self.dirty = true;
             }
-            let text = match count {
-                Some(n) => format!("{label}  ({n})"),
-                None => label.to_owned(),
-            };
-            let mut rt = egui::RichText::new(text);
-            if all_hidden {
-                rt = rt.weak();
+            // What the row is, at a glance.
+            let (gr, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+            self.row_glyph(ui.painter(), gr, members);
+            let vis = ui.visuals();
+            let mut job = egui::text::LayoutJob::default();
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let main = if all_hidden { vis.weak_text_color() } else { vis.text_color() };
+            job.append(label, 0.0, egui::TextFormat::simple(font.clone(), main));
+            if let Some(n) = count {
+                job.append(&format!("  {n}"), 0.0, egui::TextFormat::simple(egui::FontId::proportional(font.size - 1.5), vis.weak_text_color()));
             }
+            let rt = job;
             if let (Some((rs, buf)), [m]) = (self.renaming.as_mut(), members) {
                 if rs == m {
                     let te = ui.add(egui::TextEdit::singleline(buf).desired_width(f32::INFINITY));
-                    te.request_focus();
-                    let done = te.lost_focus();
                     let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    // Focus first, then check: a request_focus before lost_focus takes the focus back.
+                    let done = te.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if !(done || cancel) {
+                        te.request_focus();
+                    }
                     if done || cancel {
                         let (sel, name) = self.renaming.take().unwrap();
                         if let (Sel::Add(u), false) = (sel, cancel) {
@@ -3947,6 +4152,10 @@ impl MapEditor {
             let r = ui.add(egui::Button::selectable(selected, rt).sense(egui::Sense::click_and_drag()));
             if let [m] = members {
                 self.row_order_now.push(*m);
+                if self.scroll_to_sel == Some(*m) {
+                    r.scroll_to_me(Some(egui::Align::Center));
+                    self.scroll_to_sel = None;
+                }
             }
             // Drag rows onto a group (or empty space) to group them.
             let dragged = if !members.is_empty() && members.iter().all(|m| self.sel.contains(m)) {
@@ -3965,10 +4174,50 @@ impl MapEditor {
                 let pick: Vec<Sel> = members.iter().copied().filter(|m| self.selectable(*m)).collect();
                 self.select_only(pick);
             }
-            r.context_menu(|ui| self.ui_row_menu(ui));
+            let row_text = label.to_owned();
+            r.context_menu(|ui| {
+                if ui.button("Copy name").clicked() {
+                    ui.ctx().copy_text(row_text.clone());
+                    ui.close();
+                }
+                if let [m] = members {
+                    if let Some((e, _)) = self.entity_of(*m) {
+                        if ui.button("Copy entity path").clicked() {
+                            ui.ctx().copy_text(e);
+                            ui.close();
+                        }
+                    }
+                }
+                ui.separator();
+                self.ui_row_menu(ui);
+            });
             out = (r.clicked(), r.double_clicked());
         });
         out
+    }
+
+    /// A small mark before a Hierarchy row: a folder for a group of rows, a
+    /// cube for a shipped object, a teal cube for the mod's own model, an
+    /// orange-cornered cube for an added prop, a footprint for a tile spot.
+    fn row_glyph(&self, p: &egui::Painter, r: egui::Rect, members: &[Sel]) {
+        let c = |r: u8, g: u8, b: u8| egui::Color32::from_rgb(r, g, b);
+        let cube = |col: egui::Color32| {
+            let q = r.shrink(1.5);
+            p.rect_filled(q, 2.0, col);
+            p.line_segment([q.left_top() + egui::vec2(0.0, 3.0), q.right_top() + egui::vec2(0.0, 3.0)], egui::Stroke::new(1.0, egui::Color32::from_black_alpha(70)));
+        };
+        match members {
+            [Sel::Obj(_)] => cube(c(150, 146, 138)),
+            [Sel::Add(u)] => {
+                let own = self.edits.adds.iter().find(|a| a.uid == *u).is_some_and(|a| a.entity.starts_with(crate::models::PREFIX));
+                cube(if own { c(90, 175, 165) } else { c(170, 165, 155) });
+                p.circle_filled(r.right_top() + egui::vec2(-2.0, 2.0), 2.5, c(240, 150, 50));
+            }
+            [Sel::Spot(_)] => {
+                p.rect_stroke(r.shrink(2.0), 1.0, egui::Stroke::new(1.5, c(110, 170, 230)), egui::StrokeKind::Inside);
+            }
+            _ => folder_glyph(p, r.shrink2(egui::vec2(0.0, 1.5))),
+        }
     }
 
     /// Unity's Hierarchy clicks: plain = select, Ctrl = toggle, Shift = the
@@ -4028,7 +4277,12 @@ impl MapEditor {
 
     fn ui_outliner(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.tree_filter).hint_text("Search objects…").desired_width(f32::INFINITY));
+            let clear = !self.tree_filter.is_empty();
+            let w = ui.available_width() - if clear { 24.0 } else { 0.0 };
+            ui.add(egui::TextEdit::singleline(&mut self.tree_filter).hint_text("Search objects…").desired_width(w));
+            if clear && ui.small_button("×").on_hover_text("Clear the search").clicked() {
+                self.tree_filter.clear();
+            }
         });
         if self.scenery.is_none() {
             ui.label("Loading…");
@@ -4042,46 +4296,73 @@ impl MapEditor {
             // Groups the author made: drop rows on one to add them to it.
             if !self.groups.is_empty() {
                 let groups = self.groups.clone();
-                egui::CollapsingHeader::new(egui::RichText::new("Groups").strong()).id_salt("groups").default_open(true).show(ui, |ui| {
+                egui::CollapsingHeader::new(egui::RichText::new("Groups").strong()).id_salt("groups").default_open(true).open(self.tree_open).show(ui, |ui| {
                     let mut remove = None;
                     for (gi, (name, members)) in groups.iter().enumerate() {
                         if let Some((g, buf)) = self.renaming_group.as_mut().filter(|(g, _)| *g == gi) {
                             let te = ui.add(egui::TextEdit::singleline(buf).desired_width(f32::INFINITY));
-                            te.request_focus();
-                            if te.lost_focus() {
+                            let cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                            if te.lost_focus() || cancel || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                 let (g, name) = (*g, buf.trim().to_owned());
-                                if !ui.input(|i| i.key_pressed(egui::Key::Escape)) && !name.is_empty() {
+                                if !cancel && !name.is_empty() {
                                     self.groups[g].0 = name;
                                     self.unsaved = true;
                                 }
                                 self.renaming_group = None;
+                            } else {
+                                te.request_focus();
                             }
                             continue;
                         }
                         let selected = !members.is_empty() && members.iter().all(|m| self.sel.contains(m));
-                        let (clicked, dbl) = self.tree_row(ui, members, name, Some(members.len()), selected);
-                        if clicked {
-                            self.select_members(ui, members);
+                        // A group is a folder: its objects are listed inside it (and nowhere else).
+                        let id = ui.make_persistent_id(("group", gi));
+                        let mut st = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+                        if let Some(o) = self.tree_open {
+                            st.set_open(o);
                         }
-                        if dbl {
-                            self.run(&ui.ctx().clone(), Cmd::FrameSelected);
-                        }
-                        if let Some((target, objs)) = self.row_dropped.take() {
-                            if &target == members {
-                                self.move_to_group(gi, &objs);
-                            } else {
-                                self.row_dropped = Some((target, objs));
-                            }
-                        }
-                        ui.horizontal(|ui| {
-                            ui.add_space(46.0);
-                            if ui.small_button("rename").clicked() {
-                                self.renaming_group = Some((gi, name.clone()));
-                            }
-                            if ui.small_button("ungroup").clicked() {
-                                remove = Some(gi);
-                            }
-                        });
+                        st.show_header(ui, |ui| {
+                                let (clicked, dbl) = self.tree_row(ui, members, name, Some(members.len()), selected);
+                                if clicked {
+                                    self.select_members(ui, members);
+                                }
+                                if dbl {
+                                    self.run(&ui.ctx().clone(), Cmd::FrameSelected);
+                                }
+                                if let Some((target, objs)) = self.row_dropped.take() {
+                                    if &target == members {
+                                        self.move_to_group(gi, &objs);
+                                    } else {
+                                        self.row_dropped = Some((target, objs));
+                                    }
+                                }
+                            })
+                            .body(|ui| {
+                                for m in members {
+                                    if !self.exists(*m) {
+                                        continue;
+                                    }
+                                    let label = self.name_of(*m);
+                                    if !filter.is_empty() && !label.to_lowercase().contains(&filter) {
+                                        continue;
+                                    }
+                                    let (c, d) = self.tree_row(ui, &[*m], &label, None, self.sel.contains(m));
+                                    if c {
+                                        self.select_members(ui, &[*m]);
+                                    }
+                                    if d {
+                                        self.run(&ui.ctx().clone(), Cmd::FrameSelected);
+                                    }
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.small_button("rename").clicked() {
+                                        self.renaming_group = Some((gi, name.clone()));
+                                    }
+                                    if ui.small_button("ungroup").clicked() {
+                                        remove = Some(gi);
+                                    }
+                                });
+                            });
                     }
                     if let Some(gi) = remove {
                         self.groups.remove(gi);
@@ -4090,9 +4371,10 @@ impl MapEditor {
             }
             // Objects the author added.
             if !self.edits.adds.is_empty() {
-                let adds: Vec<(Sel, String)> = self.edits.adds.iter().map(|a| (Sel::Add(a.uid), a.name())).collect();
+                let grouped = self.grouped();
+                let adds: Vec<(Sel, String)> = self.edits.adds.iter().map(|a| (Sel::Add(a.uid), a.name())).filter(|(s, _)| !grouped.contains(s)).collect();
                 let members: Vec<Sel> = adds.iter().map(|(s, _)| *s).collect();
-                egui::CollapsingHeader::new(egui::RichText::new(format!("Added  ({})", adds.len())).strong())
+                egui::CollapsingHeader::new(egui::RichText::new(format!("Added  ({})", adds.len())).strong()).open(self.tree_open)
                     .id_salt("adds")
                     .default_open(true)
                     .show(ui, |ui| {
@@ -4123,10 +4405,10 @@ impl MapEditor {
                 }
                 if !by_group.is_empty() {
                     let all: Vec<Sel> = by_group.values().flatten().map(|(s, _)| *s).collect();
-                    egui::CollapsingHeader::new(egui::RichText::new(format!("Tile spots  ({})", all.len())).strong()).id_salt("spots").show(ui, |ui| {
+                    egui::CollapsingHeader::new(egui::RichText::new(format!("Tile spots  ({})", all.len())).strong()).id_salt("spots").open(self.tree_open).show(ui, |ui| {
                         for (g, list) in &by_group {
                             let members: Vec<Sel> = list.iter().map(|(s, _)| *s).collect();
-                            egui::CollapsingHeader::new(format!("{g}  ({})", list.len())).id_salt(("spotg", g)).show(ui, |ui| {
+                            egui::CollapsingHeader::new(format!("{g}  ({})", list.len())).id_salt(("spotg", g)).open(self.tree_open.filter(|o| !o)).show(ui, |ui| {
                                 let (c, _) = self.tree_row(ui, &members, "all", None, false);
                                 if c {
                                     self.select_members(ui, &members);
@@ -4146,7 +4428,7 @@ impl MapEditor {
                 }
             }
             // A blank map has sunk every shipped object: list none of them.
-            let blank = self.blank().is_some();
+            let blank = self.blank_hides_shipped();
             for (li, level) in tree.iter().enumerate().filter(|_| !blank) {
                 if !outliner::matches(level, &filter) {
                     continue;
@@ -4172,10 +4454,19 @@ impl MapEditor {
         self.tree = tree;
     }
 
+    /// Every object in a group (listed inside the group in the Hierarchy).
+    fn grouped(&self) -> HashSet<Sel> {
+        self.groups.iter().flat_map(|(_, m)| m.iter().copied()).collect()
+    }
+
+    fn exists(&self, sel: Sel) -> bool {
+        self.scenery.as_ref().is_some_and(|s| self.edits.exists(s, sel))
+    }
+
     fn tree_node(&mut self, ui: &mut egui::Ui, node: &Node, filter: &str, id: &str, depth: usize) {
         let live: Vec<Sel> = node.members.iter().copied().filter(|m| !matches!(m, Sel::Obj(i) if self.edits.removed.contains(i))).collect();
         if let Some(leaf) = node.leaf {
-            if live.is_empty() {
+            if live.is_empty() || self.groups.iter().any(|(_, m)| m.contains(&leaf)) {
                 return;
             }
             let (c, d) = self.tree_row(ui, &[leaf], &node.label, None, self.sel.contains(&leaf));
@@ -4189,7 +4480,12 @@ impl MapEditor {
         }
         let open_default = depth == 0 && !filter.is_empty();
         let state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), ui.make_persistent_id(id), open_default);
-        let state = if !filter.is_empty() {
+        let state = if let Some(o) = self.tree_open.filter(|o| !o || depth == 0) {
+            // Collapse all closes every level; expand opens the top ones only.
+            let mut s = state;
+            s.set_open(o);
+            s
+        } else if !filter.is_empty() {
             let mut s = state;
             s.set_open(true);
             s
@@ -4433,6 +4729,68 @@ impl MapEditor {
                 ui.selectable_value(&mut b.falloff, f, f);
             }
         });
+        let mut pick_stamp = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Shape");
+            ui.selectable_value(&mut b.stamp, None, "Round");
+            for st in crate::brush::Stamp::builtin() {
+                let on = b.stamp.as_ref().is_some_and(|s| s.name == st.name);
+                if ui.selectable_label(on, st.name.as_str()).clicked() {
+                    b.stamp = Some(st);
+                }
+            }
+            if let Some(st) = b.stamp.as_ref().filter(|s| !crate::brush::Stamp::builtin().iter().any(|x| x.name == s.name)) {
+                let _ = ui.selectable_label(true, st.name.as_str());
+            }
+            pick_stamp = ui.button("Picture…").on_hover_text("Any .png: bright, opaque parts paint, dark or clear parts do not").clicked();
+        });
+        if pick_stamp {
+            self.spawn(ui.ctx(), |_| Ok(Event::StampPicked(rfd::FileDialog::new().set_title("Brush shape").add_filter("Picture", &["png"]).pick_file())));
+        }
+        ui.separator();
+        ui.label(egui::RichText::new("Layer textures").strong());
+        ui.label(egui::RichText::new("Draw a layer with your own picture (a tiling .png). It saves into the mod's art/terrain/.").small().weak());
+        let names: Vec<(String, String)> = self
+            .look_base
+            .as_ref()
+            .map(|l| ["base", "R", "G", "B", "A"].iter().enumerate().filter_map(|(k, s)| l.slots.get(k).map(|sl| (s.to_string(), if k == 0 { format!("Ground ({})", sl.label) } else { sl.label.clone() }))).collect())
+            .unwrap_or_default();
+        let mut pick_surface = None;
+        let mut reset = None;
+        for (slot, label) in &names {
+            ui.horizontal(|ui| {
+                ui.label(label);
+                match self.surfaces.get(slot) {
+                    Some((rel, _)) => {
+                        ui.label(egui::RichText::new(rel).small());
+                        if ui.small_button("Shipped").on_hover_text("Back to the game's texture").clicked() {
+                            reset = Some(slot.clone());
+                        }
+                    }
+                    None => {
+                        ui.label(egui::RichText::new("shipped").small().weak());
+                    }
+                }
+                if ui.small_button("Own texture…").clicked() {
+                    pick_surface = Some(slot.clone());
+                }
+            });
+        }
+        if let Some(slot) = pick_surface {
+            self.spawn(ui.ctx(), move |_| {
+                let f = rfd::FileDialog::new().set_title("Layer texture").add_filter("Picture", &["png"]).pick_file();
+                Ok(Event::SurfacePicked(slot, f))
+            });
+        }
+        if let Some(slot) = reset {
+            if let Some((rel, _)) = self.surfaces.remove(&slot) {
+                if !self.surfaces.values().any(|(r, _)| r == &rel) && !self.dropped_art.contains(&rel) {
+                    self.dropped_art.push(rel);
+                }
+            }
+            self.unsaved = true;
+            self.refresh_look();
+        }
         ui.separator();
         let n = self.edits.strokes.len();
         ui.label(format!("{n} brush dabs"));
@@ -4440,6 +4798,9 @@ impl MapEditor {
             ui.colored_label(egui::Color32::LIGHT_RED, "Close to the 20000-dab limit: use a bigger brush");
         }
         ui.label(egui::RichText::new("Terrain edits save as a new map (a copy of this chapter). Height, paths and walkability follow the painted height in game.").small().weak());
+        if ui.checkbox(&mut self.export_minimap, "Redraw the in-game minimap on Save").on_hover_text("Save draws the edited ground as the chapter's minimap (art/minimap.png). Untested in game: check it draws the right way round.").changed() {
+            self.unsaved = true;
+        }
         if n > 0 && ui.button("Remove all terrain edits").clicked() {
             self.change(|e, _| e.strokes.clear());
             self.replay_terrain();
@@ -4453,12 +4814,23 @@ impl MapEditor {
         use crate::project as P;
         let all_props = self.all_props;
         let props: Vec<&Prop> = self.props.iter().filter(|p| all_props || p.scenery).collect();
-        let folders = P::folders(props.iter().map(|p| p.entity.as_str()).map(|e| P::folder_of(e)).collect::<Vec<_>>().iter().map(String::as_str));
+        let item_dirs: Vec<String> = props
+            .iter()
+            .map(|p| P::folder_of(&p.entity))
+            .chain(self.models.iter().map(|m| P::folder_of_art(&m.mesh.rel)))
+            .chain(self.asset_dirs.iter().cloned())
+            .collect();
+        let folders = P::folders(item_dirs.iter().map(String::as_str));
         if !self.props.is_empty() && !folders.contains(&self.project_dir) {
             self.project_dir = P::ASSETS.to_owned();
         }
         let mut open_dir: Option<String> = None;
-        let mut pick: Option<String> = None;
+        // (model entity, folder) dropped onto a folder; folder actions from menus.
+        let mut move_to: Option<(String, String)> = None;
+        let mut new_in: Option<String> = None;
+        let mut rename: Option<String> = None;
+        let mut delete_dir: Option<String> = None;
+        let mut pick: Option<(String, bool)> = None;
         let mut remove: Option<usize> = None;
         let mut import = false;
         let mut want: Vec<String> = Vec::new();
@@ -4467,34 +4839,38 @@ impl MapEditor {
             // ---- folder tree, in its own resizable column
             egui::Panel::left("project_tree").resizable(true).default_size(230.0).size_range(150.0..=420.0).show(ui, |ui| {
               egui::ScrollArea::vertical().id_salt("project_tree").auto_shrink([false, false]).show(ui, |ui| {
-                fn tree(ui: &mut egui::Ui, all: &std::collections::BTreeSet<String>, dir: &str, cur: &str, open: &mut Option<String>) {
+                fn tree(ui: &mut egui::Ui, all: &std::collections::BTreeSet<String>, dir: &str, cur: &str, open: &mut Option<String>, act: &mut FolderActs) {
                     let kids = crate::project::children(all, dir);
                     let label = crate::project::leaf(dir).replace('_', " ");
-                    let row = |ui: &mut egui::Ui, open: &mut Option<String>| {
+                    let row = |ui: &mut egui::Ui, open: &mut Option<String>, act: &mut FolderActs| {
                         ui.horizontal(|ui| {
                             let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 12.0), egui::Sense::hover());
                             folder_glyph(ui.painter(), r);
-                            if ui.selectable_label(cur == dir, label.as_str()).clicked() {
+                            let r = ui.selectable_label(cur == dir, label.as_str());
+                            if r.clicked() {
                                 *open = Some(dir.to_owned());
                             }
+                            folder_actions(&r, dir, act);
                         });
                     };
                     if kids.is_empty() {
-                        row(ui, open);
+                        row(ui, open, act);
                         return;
                     }
                     let id = ui.make_persistent_id(("ptree", dir));
                     let default_open = cur.starts_with(dir) || dir == crate::project::ASSETS || dir == crate::project::GAME;
                     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open)
-                        .show_header(ui, |ui| row(ui, open))
+                        .show_header(ui, |ui| row(ui, open, act))
                         .body(|ui| {
                             for k in kids {
-                                tree(ui, all, k, cur, open);
+                                tree(ui, all, k, cur, open, act);
                             }
                         });
                 }
-                tree(ui, &folders, P::ASSETS, &self.project_dir, &mut open_dir);
-                tree(ui, &folders, P::GAME, &self.project_dir, &mut open_dir);
+                let mut act = FolderActs::default();
+                tree(ui, &folders, P::ASSETS, &self.project_dir, &mut open_dir, &mut act);
+                tree(ui, &folders, P::GAME, &self.project_dir, &mut open_dir, &mut act);
+                act.take_into(&mut move_to, &mut new_in, &mut rename, &mut delete_dir);
               });
             });
             // ---- the open folder
@@ -4537,24 +4913,27 @@ impl MapEditor {
                         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
                         // Sub-folders (not while searching: a search lists every match).
                         if !searching {
+                            let mut act = FolderActs::default();
                             for d in P::children(&folders, &self.project_dir) {
                                 let r = project_tile(ui, P::leaf(d), TileIcon::Folder, false, d, tile, None);
                                 if r.double_clicked() || r.clicked() {
                                     open_dir = Some(d.to_owned());
                                 }
+                                folder_actions(&r, d, &mut act);
                             }
+                            act.take_into(&mut move_to, &mut new_in, &mut rename, &mut delete_dir);
                         }
-                        // The mod's own models.
-                        if searching || self.project_dir == P::ASSETS {
+                        // The mod's own models, each in its folder.
+                        if searching || P::art_dir(&self.project_dir).is_some() {
                             for (i, m) in self.models.iter_mut().enumerate() {
-                                if searching && !m.name().to_lowercase().contains(&f) {
+                                if if searching { !m.name().to_lowercase().contains(&f) } else { P::folder_of_art(&m.mesh.rel) != self.project_dir } {
                                     continue;
                                 }
                                 let entity = m.entity();
-                                let on = self.tool == Tool::Place(entity.clone());
+                                let on = self.asset_sel.as_ref() == Some(&entity);
                                 let size = m.hi - m.lo;
                                 let tip = format!(
-                                    "{}\n{:.1} × {:.1} × {:.1} m · {}{}\nDrag into the scene, or click then click the ground. Right-click for options.",
+                                    "{}\n{:.1} × {:.1} × {:.1} m · {}{}\nDrag into the scene to place it. Double-click to preview. Right-click for options.",
                                     m.mesh.rel,
                                     size.x,
                                     size.y,
@@ -4567,10 +4946,14 @@ impl MapEditor {
                                     want.push(entity.clone());
                                 }
                                 r.dnd_set_drag_payload(entity.clone());
-                                if r.clicked() {
-                                    pick = Some(entity.clone());
+                                if r.clicked() || r.double_clicked() {
+                                    pick = Some((entity.clone(), r.double_clicked()));
                                 }
                                 r.context_menu(|ui| {
+                                    if ui.button("Copy path").clicked() {
+                                        ui.ctx().copy_text(m.mesh.rel.clone());
+                                        ui.close();
+                                    }
                                     ui.checkbox(&mut m.solid, "Solid (heroes cannot walk through)");
                                     if ui.button("Remove from the mod").clicked() {
                                         remove = Some(i);
@@ -4594,25 +4977,45 @@ impl MapEditor {
                             if shown > 600 {
                                 break;
                             }
-                            let on = self.tool == Tool::Place(p.entity.clone());
+                            let on = self.asset_sel.as_ref() == Some(&p.entity);
                             let icon = if p.scenery { TileIcon::Prop } else { TileIcon::Gameplay };
-                            let tip = format!("{}\nDrag into the scene, or click then click the ground (Shift keeps placing).", p.entity);
+                            let tip = format!("{}\nDrag into the scene to place it. Double-click to preview.", p.entity);
                             let r = project_tile(ui, &p.name, icon, on, &tip, tile, self.thumbs.get(&p.entity).copied());
                             if !self.thumbs.contains_key(&p.entity) && ui.is_rect_visible(r.rect) {
                                 want.push(p.entity.clone());
                             }
                             r.dnd_set_drag_payload(p.entity.clone());
-                            if r.clicked() {
-                                pick = Some(p.entity.clone());
+                            if r.clicked() || r.double_clicked() {
+                                pick = Some((p.entity.clone(), r.double_clicked()));
                             }
+                            r.context_menu(|ui| {
+                                if ui.button("Copy path").clicked() {
+                                    ui.ctx().copy_text(p.entity.clone());
+                                    ui.close();
+                                }
+                                if ui.button("Copy name").clicked() {
+                                    ui.ctx().copy_text(p.name.clone());
+                                    ui.close();
+                                }
+                            });
                         }
                         if self.props.is_empty() && self.project_dir.starts_with(P::GAME) {
                             ui.label("Loading the game's props…");
                         }
                         if self.project_dir == P::ASSETS && self.models.is_empty() && !searching {
-                            ui.label(egui::RichText::new("Your models go here: press Import… or drop .glb / .png files on the window. A .png goes on the model with the same name.").weak());
+                            ui.label(egui::RichText::new("Your models go here: press Import… or drop .glb / .png files on the window. A .png goes on the model with the same name. Right-click for a new folder.").weak());
                         }
                     });
+                    // Empty space below the icons: a new folder here.
+                    let rest = ui.allocate_response(ui.available_size().max(egui::vec2(10.0, 40.0)), egui::Sense::click());
+                    if P::art_dir(&self.project_dir).is_some() {
+                        rest.context_menu(|ui| {
+                            if ui.button("New folder").clicked() {
+                                new_in = Some(self.project_dir.clone());
+                                ui.close();
+                            }
+                        });
+                    }
                 });
             });
         }
@@ -4629,18 +5032,313 @@ impl MapEditor {
         if import {
             self.pick_files(ui.ctx());
         }
-        if let Some(i) = remove {
-            let e = self.models[i].entity();
-            if self.edits.adds.iter().any(|a| a.entity == e) {
-                self.status = format!("{} is placed in the scene: delete those copies first", self.models[i].name());
+        if let Some(d) = new_in {
+            self.new_folder(&d);
+        }
+        if let Some(d) = rename {
+            self.folder_rename = Some((d.clone(), P::leaf(&d).to_owned()));
+        }
+        if let Some(d) = delete_dir {
+            let inside = |x: &str| x == d || x.starts_with(&format!("{d}/"));
+            let used = self.models.iter().any(|m| inside(&P::folder_of_art(&m.mesh.rel)));
+            if used {
+                self.status = format!("{d} is not empty: move or remove its models first");
             } else {
-                self.models.remove(i);
+                self.asset_dirs.retain(|x| x != &d && !x.starts_with(&format!("{d}/")));
+                if inside(&self.project_dir) {
+                    self.project_dir = P::parent(&d).unwrap_or(P::ASSETS).to_owned();
+                }
+                self.unsaved = true;
             }
         }
-        if let Some(e) = pick {
+        if let Some((e, d)) = move_to {
+            if let Some(from) = e.strip_prefix("folder:") {
+                // A folder dragged onto another.
+                let to = format!("{d}/{}", P::leaf(from));
+                if let Err(err) = self.rename_folder(from, &to) {
+                    self.status = err;
+                }
+            } else if let Err(err) = self.move_model(&e, &d) {
+                self.status = err;
+            } else {
+                self.status = format!("Moved to {d}");
+            }
+        }
+        self.ui_folder_rename(ui.ctx());
+        if let Some(i) = remove {
+            // Its placed copies go too (one undo step); its files leave the mod on save.
+            let m = self.models.remove(i);
+            let e = m.entity();
+            let placed = self.edits.adds.iter().filter(|a| a.entity == e).count();
+            if placed > 0 {
+                self.change(|ed, _| ed.adds.retain(|a| a.entity != e));
+                self.prune_selection();
+            }
+            for a in std::iter::once(&m.mesh).chain(&m.texture) {
+                self.staged.remove(&a.rel);
+                if !self.dropped_art.contains(&a.rel) {
+                    self.dropped_art.push(a.rel.clone());
+                }
+            }
+            self.templates.remove(&e);
+            self.thumbs.remove(&e);
+            if self.asset_sel.as_ref() == Some(&e) {
+                self.asset_sel = None;
+            }
+            if self.tool == Tool::Place(e.clone()) {
+                self.tool = Tool::Select;
+            }
+            self.unsaved = true;
+            self.status = format!("Removed {} from the mod{}; Save deletes its files", m.name(), if placed > 0 { format!(" and {placed} placed copy(s)") } else { String::new() });
+        }
+        if let Some((e, dbl)) = pick {
             let ctx = ui.ctx().clone();
             self.ensure_template(&ctx, &e);
-            self.tool = Tool::Place(e);
+            if dbl {
+                self.preview = Some((e.clone(), 0.65, 0.35));
+                self.preview_tex = None;
+            }
+            self.asset_sel = Some(e);
+        }
+        self.ui_preview(ui.ctx());
+    }
+
+    /// The ground's look with the mod's own layer pictures in place of the shipped ones.
+    fn refresh_look(&mut self) {
+        let Some(mut look) = self.look_base.clone() else { return };
+        for (k, slot) in ["base", "R", "G", "B", "A"].iter().enumerate() {
+            if let (Some((_, file)), Some(s)) = (self.surfaces.get(*slot), look.slots.get_mut(k)) {
+                let t = format!("file:{}", file.display());
+                if self.requested.insert(format!("{t}|false")) {
+                    self.loader.request(Job::Texture(t.clone(), false));
+                    self.pending_assets += 1;
+                }
+                s.albedo = Some(t);
+                s.color = [1.0, 1.0, 1.0, 1.0]; // the picture as drawn, not tinted by the shipped colour
+            }
+        }
+        if let Some(r) = &mut self.renderer {
+            r.set_look(look);
+        }
+        self.look_pending = true;
+    }
+
+    /// Draw terrain layer `slot` with the picture `file` (saved into the mod's art/terrain/).
+    fn set_surface(&mut self, ctx: &egui::Context, slot: &str, file: std::path::PathBuf) {
+        let bytes = match std::fs::read(&file) {
+            Ok(b) if b.starts_with(b"\x89PNG") => b,
+            _ => {
+                self.status = format!("{}: pick a .png", file.display());
+                return;
+            }
+        };
+        let rel = format!("art/terrain/{}.png", crate::models::clean_stem(&file));
+        self.dropped_art.retain(|r| r != &rel);
+        self.stage(ctx, rel.clone(), bytes);
+        self.surfaces.insert(slot.to_owned(), (rel.clone(), file));
+        self.unsaved = true;
+        self.refresh_look();
+        self.status = format!("Layer {slot} drawn with {rel}");
+    }
+
+    /// Move one of the mod's own models (and its texture) into the Project folder `dir`.
+    fn move_model(&mut self, entity: &str, dir: &str) -> Result<(), String> {
+        let Some(i) = self.models.iter().position(|m| m.entity() == entity) else { return Err("not one of the mod's models".into()) };
+        let Some(_) = crate::project::art_dir(dir) else { return Err("models go in Assets".into()) };
+        let file = |rel: &str| rel.rsplit('/').next().unwrap_or(rel).to_owned();
+        let old_mesh = self.models[i].mesh.rel.clone();
+        let new_mesh = crate::project::rel_in(dir, &file(&old_mesh));
+        if new_mesh == old_mesh {
+            return Ok(());
+        }
+        if self.models.iter().any(|m| m.mesh.rel == new_mesh) {
+            return Err(format!("{dir} already has a {}", file(&old_mesh)));
+        }
+        let arts: Vec<String> = std::iter::once(old_mesh.clone()).chain(self.models[i].texture.as_ref().map(|t| t.rel.clone())).collect();
+        if let Some(w) = arts.iter().find(|r| !self.staged.contains_key(*r)) {
+            return Err(format!("still importing {w}: try again in a moment"));
+        }
+        for old in arts {
+            let new = crate::project::rel_in(dir, &file(&old));
+            let id = self.staged.remove(&old).unwrap_or_default();
+            self.staged.insert(new.clone(), id);
+            self.dropped_art.retain(|r| r != &new);
+            if !self.dropped_art.contains(&old) {
+                self.dropped_art.push(old.clone());
+            }
+            let m = &mut self.models[i];
+            if m.mesh.rel == old {
+                m.mesh.rel = new;
+            } else if let Some(t) = m.texture.as_mut() {
+                t.rel = new;
+            }
+        }
+        // Placed copies name the model by its path: follow it, in every undo step too.
+        let new_ent = self.models[i].entity();
+        let old_ent = entity.to_owned();
+        let fix = |e: &mut Edits| e.adds.iter_mut().filter(|a| a.entity == old_ent).for_each(|a| a.entity = new_ent.clone());
+        fix(&mut self.edits);
+        self.history.for_each_mut(fix);
+        if let Some(t) = self.templates.remove(&old_ent) {
+            self.templates.insert(new_ent.clone(), t);
+        }
+        if let Some(t) = self.thumbs.remove(&old_ent) {
+            self.thumbs.insert(new_ent.clone(), t);
+        }
+        if self.asset_sel.as_deref() == Some(&old_ent) {
+            self.asset_sel = Some(new_ent.clone());
+        }
+        if self.tool == Tool::Place(old_ent) {
+            self.tool = Tool::Place(new_ent);
+        }
+        self.unsaved = true;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Rename (or move) the Project folder `from` to `to`, with everything in it.
+    fn rename_folder(&mut self, from: &str, to: &str) -> Result<(), String> {
+        use crate::project as P;
+        if from == P::ASSETS || P::art_dir(from).is_none() || P::art_dir(to).is_none() {
+            return Err("only folders inside Assets can be renamed".into());
+        }
+        if to == from {
+            return Ok(());
+        }
+        if to.starts_with(&format!("{from}/")) {
+            return Err("a folder cannot go inside itself".into());
+        }
+        let under = |d: &str| d == from || d.starts_with(&format!("{from}/"));
+        let moving: Vec<(String, String)> = self
+            .models
+            .iter()
+            .filter(|m| under(&P::folder_of_art(&m.mesh.rel)))
+            .map(|m| (m.entity(), format!("{to}{}", &P::folder_of_art(&m.mesh.rel)[from.len()..])))
+            .collect();
+        for (e, d) in moving {
+            self.move_model(&e, &d)?;
+        }
+        let dirs: Vec<String> = self.asset_dirs.iter().filter(|d| under(d)).cloned().collect();
+        for d in dirs {
+            self.asset_dirs.remove(&d);
+            self.asset_dirs.insert(format!("{to}{}", &d[from.len()..]));
+        }
+        self.asset_dirs.insert(to.to_owned());
+        if under(&self.project_dir) {
+            self.project_dir = format!("{to}{}", &self.project_dir[from.len()..]);
+        }
+        self.unsaved = true;
+        Ok(())
+    }
+
+    /// A new empty folder inside `dir` (Assets if `dir` is a game folder), renamed at once.
+    fn new_folder(&mut self, dir: &str) {
+        let base = if crate::project::art_dir(dir).is_some() { dir.to_owned() } else { crate::project::ASSETS.to_owned() };
+        let mut name = "New_folder".to_owned();
+        let mut k = 1;
+        while self.asset_dirs.contains(&format!("{base}/{name}")) || self.models.iter().any(|m| crate::project::folder_of_art(&m.mesh.rel) == format!("{base}/{name}")) {
+            k += 1;
+            name = format!("New_folder_{k}");
+        }
+        let path = format!("{base}/{name}");
+        self.asset_dirs.insert(path.clone());
+        self.project_dir = base;
+        self.folder_rename = Some((path, name));
+        self.unsaved = true;
+    }
+
+    /// The rename box for `folder_rename`.
+    fn ui_folder_rename(&mut self, ctx: &egui::Context) {
+        let Some((path, mut buf)) = self.folder_rename.clone() else { return };
+        let mut close = false;
+        let mut ok = false;
+        egui::Window::new("Rename folder").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO).show(ctx, |ui| {
+            ui.label(egui::RichText::new(&path).weak());
+            let te = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(260.0));
+            if !te.has_focus() && !te.lost_focus() {
+                te.request_focus();
+            }
+            ui.label(egui::RichText::new("Letters, digits, _ . - (spaces become _)").weak().small());
+            ui.horizontal(|ui| {
+                ok = ui.button("Rename").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                close = ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            });
+        });
+        if ok {
+            let name = crate::project::clean_folder(&buf);
+            let parent = crate::project::parent(&path).unwrap_or(crate::project::ASSETS).to_owned();
+            if name.is_empty() {
+                self.status = "A folder needs a name".into();
+                return;
+            }
+            match self.rename_folder(&path, &format!("{parent}/{name}")) {
+                Ok(()) => self.folder_rename = None,
+                Err(e) => self.status = e,
+            }
+        } else if close {
+            self.folder_rename = None;
+        } else {
+            self.folder_rename = Some((path, buf));
+        }
+    }
+
+    /// Selected text anywhere: Ctrl+C or a right-click copies it. The
+    /// right-click replays egui's own copy event in the same frame, before
+    /// the labels draw; a menu would not do, since a press off the label
+    /// ends egui's selection before its button could copy.
+    fn text_copy_menu(&mut self, ctx: &egui::Context) {
+        let selected = ctx.plugin::<egui::text_selection::LabelSelectionState>().lock().has_selection();
+        if selected && ctx.input(|i| i.pointer.secondary_clicked()) {
+            ctx.input_mut(|i| i.events.push(egui::Event::Copy));
+            self.copy_menu_at = ctx.pointer_latest_pos();
+            self.copied_until = Some(Instant::now() + std::time::Duration::from_millis(900));
+            self.status = "Copied the selected text".into();
+        }
+        match (self.copy_menu_at, self.copied_until) {
+            (Some(at), Some(t)) if Instant::now() < t => {
+                egui::Area::new(egui::Id::unique("text_copied")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(12.0, -24.0)).interactable(false).show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| ui.label("Copied"));
+                });
+                ctx.request_repaint();
+            }
+            _ => {
+                self.copy_menu_at = None;
+                self.copied_until = None;
+            }
+        }
+    }
+
+    /// The double-clicked Project item, large; drag to turn it.
+    fn ui_preview(&mut self, ctx: &egui::Context) {
+        let Some((e, yaw, pitch)) = self.preview.clone() else { return };
+        let mut open = true;
+        let title = e.rsplit(['\\', '/']).next().unwrap_or(&e).trim_end_matches(".entity.ot").replace('_', " ");
+        egui::Window::new("Preview").open(&mut open).resizable(false).default_width(420.0).show(ctx, |ui| {
+            ui.strong(&title);
+            let side = 400.0;
+            let (rect, r) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::drag());
+            ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(28));
+            match self.preview_tex {
+                Some(t) if t != egui::TextureId::default() => {
+                    ui.painter().image(t, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                }
+                _ => {
+                    let msg = if self.thumbs.get(&e) == Some(&egui::TextureId::default()) { "Nothing to draw (a gameplay object)" } else { "Loading…" };
+                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, msg, egui::FontId::proportional(14.0), egui::Color32::GRAY);
+                }
+            }
+            if r.dragged() {
+                let d = r.drag_delta();
+                self.preview = Some((e.clone(), yaw - d.x * 0.01, (pitch + d.y * 0.01).clamp(-1.4, 1.4)));
+            }
+            ui.label(egui::RichText::new(&e).weak().small());
+            ui.label(egui::RichText::new("Drag to turn · drag the item from Project into the scene to place it").weak().small());
+        });
+        if !open {
+            self.preview = None;
+            self.preview_tex = None;
+        } else {
+            ctx.request_repaint();
         }
     }
 
@@ -4903,7 +5601,7 @@ impl MapEditor {
 
     /// Terrain brushes can only ship on a copy of the chapter's map.
     fn needs_map(&self) -> bool {
-        self.as_map || self.keep_map.is_some() || !self.edits.strokes.is_empty()
+        self.as_map || self.keep_map.is_some() || !self.edits.strokes.is_empty() || !self.surfaces.is_empty() || self.export_minimap
     }
 
     fn ui_spot_inspector(&mut self, ui: &mut egui::Ui, id: i64) {
@@ -5009,7 +5707,27 @@ impl MapEditor {
                     }
                 }
             }
+            if self.export_minimap {
+                m["minimap"] = json!(MINIMAP_ART);
+                if let Some(id) = self.staged.get(MINIMAP_ART) {
+                    art.insert(MINIMAP_ART.to_owned(), json!(id));
+                }
+            } else {
+                m.as_object_mut().map(|o| o.remove("minimap"));
+            }
+            if self.surfaces.is_empty() {
+                m.as_object_mut().map(|o| o.remove("surfaces"));
+            } else {
+                m["surfaces"] = Value::Object(self.surfaces.iter().map(|(k, (rel, _))| (k.clone(), json!(rel))).collect());
+                for (rel, _) in self.surfaces.values() {
+                    if let Some(id) = self.staged.get(rel) {
+                        art.insert(rel.clone(), json!(id));
+                    }
+                }
+            }
             b["art"] = Value::Object(art);
+            b["drop_art"] = json!(self.dropped_art);
+            b["art_dirs"] = json!(self.asset_dirs.iter().filter_map(|d| crate::project::art_dir(d)).filter(|d| d != "art").collect::<Vec<_>>());
             b["map"] = m;
         }
         if with_id {
@@ -5034,6 +5752,28 @@ impl MapEditor {
             return;
         }
         let saving = kind == Pending::Save;
+        if self.export_minimap && self.tile.is_none() {
+            let rect = self.look_base.as_ref().and_then(|l| l.minimap_rect);
+            match (rect, &self.terrain) {
+                (Some(rect), Some(t)) => {
+                    let png = minimap_png(t, rect, 512);
+                    // ponytail: a blocking upload (local backend, ~100 KB); async if it ever stalls.
+                    match crate::models::upload(&self.backend, MINIMAP_ART, &png) {
+                        Ok(id) => {
+                            self.staged.insert(MINIMAP_ART.to_owned(), id);
+                        }
+                        Err(e) => {
+                            self.status = format!("Minimap: {e:#}");
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    self.status = "This chapter has no minimap rectangle to draw (still loading?)".into();
+                    return;
+                }
+            }
+        }
         let (b, target) = if self.tile.is_some() {
             let Some((b, notes)) = self.tile_body(saving) else { return };
             if !notes.is_empty() {
@@ -5051,6 +5791,10 @@ impl MapEditor {
         match self.backend.send("POST", target, Some(&b)) {
             Ok(rx) => {
                 self.pending = Some((kind, rx));
+                if saving {
+                    // Edits made while the save runs set `unsaved` again; see the response.
+                    self.save_dirty = std::mem::replace(&mut self.unsaved, false);
+                }
                 self.status = if saving { "Saving…".into() } else { "Checking…".into() };
             }
             Err(e) => self.status = format!("{e:#}"),
@@ -5094,6 +5838,9 @@ impl MapEditor {
                 }
                 Some(Err(e)) => {
                     ui.colored_label(egui::Color32::LIGHT_RED, e.to_string());
+                    if ui.small_button("Copy error").clicked() {
+                        ui.ctx().copy_text(e.to_string());
+                    }
                 }
                 None => {}
             }
@@ -5337,6 +6084,17 @@ impl MapEditor {
 impl eframe::App for MapEditor {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.text_copy_menu(&ctx);
+        // Window title: what is open, and a dot while there is unsaved work.
+        let title = {
+            let what = self.chapter.as_deref().map(|c| c.replace('_', " ")).unwrap_or_default();
+            let m = if self.mod_id.is_empty() { String::new() } else { format!(" · mods/{}", self.mod_id) };
+            format!("{}{what}{m} — RSMM Map Editor", if self.unsaved { "● " } else { "" })
+        };
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
         self.handle_events(&ctx);
         let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         if !dropped.is_empty() {
@@ -5365,7 +6123,12 @@ impl eframe::App for MapEditor {
         if self.show_bottom {
             egui::Panel::bottom("project").resizable(true).default_size(210.0).size_range(90.0..=600.0).show(ui, |ui| self.ui_bottom(ui));
         }
+        let active_before = self.active;
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.ui_viewport(ui, frame));
+        if self.active != active_before && self.active.is_some() {
+            // Picked in the Scene: the Hierarchy shows that row.
+            self.scroll_to_sel = self.active;
+        }
 
         if self.show_env {
             let mut open = true;
@@ -5415,13 +6178,27 @@ impl eframe::App for MapEditor {
 
 // ---- helpers ------------------------------------------------------------------------
 
-fn style(ctx: &egui::Context, light: bool) {
+/// Theme accents (View > Theme); the first is the default.
+const ACCENTS: [(&str, [u8; 3]); 5] = [
+    ("Orange", [196, 120, 40]),
+    ("Blue", [52, 120, 210]),
+    ("Green", [60, 150, 80]),
+    ("Purple", [140, 90, 200]),
+    ("Red", [190, 60, 60]),
+];
+
+fn style(ctx: &egui::Context, light: bool, accent: &str) {
+    let [r, g, b] = ACCENTS.iter().find(|(n, _)| *n == accent).unwrap_or(&ACCENTS[0]).1;
+    let ac = egui::Color32::from_rgb(r, g, b);
     ctx.set_visuals(if light { egui::Visuals::light() } else { egui::Visuals::dark() });
     ctx.global_style_mut(|s| {
         s.spacing.item_spacing = egui::vec2(8.0, 5.0);
         s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        s.visuals.selection.bg_fill = egui::Color32::from_rgb(196, 120, 40);
+        s.visuals.selection.bg_fill = ac;
         s.visuals.selection.stroke.color = egui::Color32::WHITE;
+        s.visuals.hyperlink_color = ac;
+        s.visuals.widgets.hovered.bg_stroke.color = ac;
+        s.visuals.widgets.active.bg_fill = ac.gamma_multiply(0.8);
     });
 }
 
@@ -5437,6 +6214,37 @@ fn view_name(c: &Camera) -> &'static str {
     }
 }
 
+/// The ground as the in-game minimap picture: `size` pixels across `rect`
+/// (x0, z0, width, depth), row 0 at z0 like the editor's own minimap.
+/// ponytail: height colours and water only (no props); in-game orientation unproven.
+/// Where Save puts the drawn minimap in the mod.
+const MINIMAP_ART: &str = "art/minimap.png";
+
+fn minimap_png(t: &Terrain, rect: [f32; 4], size: u32) -> Vec<u8> {
+    let [x0, z0, w, d] = rect;
+    let (sx, sz) = ((t.max.x - t.min.x) / t.n as f32, (t.max.z - t.min.z) / t.n as f32);
+    let mut img = image::RgbaImage::new(size, size);
+    for (px, py, p) in img.enumerate_pixels_mut() {
+        let x = x0 + (px as f32 + 0.5) / size as f32 * w;
+        let z = z0 + (py as f32 + 0.5) / size as f32 * d;
+        let (c, r) = (((x - t.min.x) / sx) as isize, ((z - t.min.z) / sz) as isize);
+        if c < 0 || r < 0 || c >= t.n as isize || r >= t.n as isize {
+            *p = image::Rgba([0, 0, 0, 0]);
+            continue;
+        }
+        let i = r as usize * t.n + c as usize;
+        let mut col = t.color(i);
+        if t.water.as_ref().is_some_and(|wa| wa[i] > t.h[i] + 0.05) {
+            col = [0.10, 0.18, 0.22];
+        }
+        let g = |v: f32| (v.max(0.0).powf(1.0 / 2.2) * 255.0).round().min(255.0) as u8;
+        *p = image::Rgba([g(col[0]), g(col[1]), g(col[2]), 255]);
+    }
+    let mut out = Vec::new();
+    let _ = img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png);
+    out
+}
+
 fn minimap_texture(ctx: &egui::Context, t: &Terrain) -> egui::TextureHandle {
     let n = t.n;
     let mut px = Vec::with_capacity(n * n);
@@ -5447,6 +6255,9 @@ fn minimap_texture(ctx: &egui::Context, t: &Terrain) -> egui::TextureHandle {
     }
     ctx.load_texture("minimap", egui::ColorImage::new([n, n], px), egui::TextureOptions::LINEAR)
 }
+
+/// Nearest depth the gizmo is sized for (a pivot behind the eye keeps a sane size).
+const NEAR_GIZMO: f32 = 1.0;
 
 /// Which gizmo handle is under the pointer.
 fn gizmo_hit(
@@ -5633,6 +6444,7 @@ fn parse_template(v: &Value) -> anyhow::Result<Template> {
             swap_rb: p["swap_rb"].as_bool().unwrap_or(false),
             color: p["color"].as_str().map(str::to_owned),
             decal: p["decal"].as_bool().unwrap_or(false),
+            vfx: p["vfx"].as_bool().unwrap_or(false),
         };
         let f = crate::scene::f32s_pub(m)?;
         out.push((key, f.chunks_exact(16).map(Mat4::from_cols_slice).collect()));
@@ -5656,6 +6468,61 @@ fn folder_glyph(p: &egui::Painter, r: egui::Rect) {
 }
 
 /// One Project tile: an icon over the name, Unity's grid view.
+/// What the Project panel's folder rows / tiles asked for this frame.
+#[derive(Default)]
+struct FolderActs {
+    move_to: Option<(String, String)>,
+    new_in: Option<String>,
+    rename: Option<String>,
+    delete: Option<String>,
+}
+
+impl FolderActs {
+    fn take_into(self, m: &mut Option<(String, String)>, n: &mut Option<String>, r: &mut Option<String>, d: &mut Option<String>) {
+        *m = self.move_to.or(m.take());
+        *n = self.new_in.or(n.take());
+        *r = self.rename.or(r.take());
+        *d = self.delete.or(d.take());
+    }
+}
+
+/// A folder row or tile: drop a model (or a folder) on it to move it there;
+/// right-click for New folder / Rename / Delete (folders in Assets only).
+fn folder_actions(r: &egui::Response, dir: &str, act: &mut FolderActs) {
+    use crate::project as P;
+    if P::art_dir(dir).is_none() {
+        return;
+    }
+    // A folder of Assets can be dragged onto another.
+    if dir != P::ASSETS {
+        r.dnd_set_drag_payload(format!("folder:{dir}"));
+    }
+    if let Some(e) = r.dnd_release_payload::<String>() {
+        if e.starts_with(crate::models::PREFIX) || e.starts_with("folder:") {
+            act.move_to = Some(((*e).clone(), dir.to_owned()));
+        }
+    }
+    if r.dnd_hover_payload::<String>().is_some_and(|e| e.starts_with(crate::models::PREFIX) || e.starts_with("folder:")) {
+        r.ctx.debug_painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(240, 160, 60)), egui::StrokeKind::Outside);
+    }
+    r.context_menu(|ui| {
+        if ui.button("New folder").clicked() {
+            act.new_in = Some(dir.to_owned());
+            ui.close();
+        }
+        if dir != P::ASSETS {
+            if ui.button("Rename").clicked() {
+                act.rename = Some(dir.to_owned());
+                ui.close();
+            }
+            if ui.button("Delete (empty folder)").clicked() {
+                act.delete = Some(dir.to_owned());
+                ui.close();
+            }
+        }
+    });
+}
+
 fn project_tile(ui: &mut egui::Ui, name: &str, icon: TileIcon, on: bool, tip: &str, size: f32, thumb: Option<egui::TextureId>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size - 6.0 + 18.0), egui::Sense::click_and_drag());
     let vis = ui.style().interact_selectable(&resp, on);
@@ -5666,7 +6533,8 @@ fn project_tile(ui: &mut egui::Ui, name: &str, icon: TileIcon, on: bool, tip: &s
     let s = (size / 92.0).max(0.5);
     let ir = egui::Rect::from_center_size(rect.center_top() + egui::vec2(0.0, 30.0 * s), egui::vec2(46.0, 40.0) * s);
     let c = |r: u8, g: u8, b: u8| egui::Color32::from_rgb(r, g, b);
-    if let Some(t) = thumb {
+    // `TextureId::default()` marks "nothing to draw" (it is egui's font atlas): show the icon.
+    if let Some(t) = thumb.filter(|t| *t != egui::TextureId::default()) {
         // A real preview of the model.
         let sq = egui::Rect::from_center_size(rect.center_top() + egui::vec2(0.0, (size - 24.0) * 0.5 + 3.0), egui::Vec2::splat(size - 24.0));
         p.image(t, sq, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);

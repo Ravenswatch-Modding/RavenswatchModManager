@@ -117,7 +117,7 @@ def test_scene_and_tile_endpoints(server):
     code, _h, body = server("/api/tile?chapter=DarkHills&path=" + urllib.parse.quote(camp["path"]))
     assert code == 200 and json.loads(body)["instances"] > 0
     assert server("/api/tile?chapter=DarkHills&path=Tiles%5CNope.tiledef.ot")[0] == 404
-    mesh = scene["parts"][0]["mesh"]
+    mesh = next(p["mesh"] for p in scene["parts"] if not p.get("vfx"))
     code, _headers, body = server("/api/file?path=" + urllib.parse.quote(mesh))
     assert code == 200 and body[:4] == b"glTF"
 

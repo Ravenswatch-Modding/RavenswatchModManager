@@ -537,7 +537,7 @@ _OBJECT_LEVEL = re.compile(r"_Scenery_.+$")
 def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
            folder: str, swaps: dict[str, str], blank: float | None = None,
            objects: list[_Object] | None = None, scenery_edits: dict | None = None,
-           chapter=None) -> dict:
+           chapter=None, own_material: bool = False, own_gameplay: bool = False) -> dict:
     """Lay `strokes` on the base terrain (flattened first for a `blank` map);
     re-seat the recipe's slots on it.
 
@@ -547,7 +547,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     ``parent`` names the level that lists it (``"scenery"`` or ``"root"``)."""
     other = blank is not None or bool(objects) or bool(scenery_edits)
     strokes = [] if strokes is None and other else strokes
-    if not isinstance(strokes, list) or not (strokes or other):
+    if not isinstance(strokes, list) or not (strokes or other or own_material):
         raise ContentError(f"map {map_id}: 'terrain' is a list of brush strokes")
     terrain_refs = [r for r in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]
                     if r.endswith("_Terrain.level.ot")]
@@ -564,18 +564,21 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     raw = _read(PC.level_cooked_path(terrain_ref), "the base map's terrain level")
     names = {st.get("layer", TR.HEIGHT) for st in strokes if isinstance(st, dict)} | {TR.HEIGHT}
     try:
-        t = TR.read(raw, names)
+        src = raw
         if blank is not None:
+            # Blank the ground first so the strokes paint on top of it.
+            t = TR.read(raw, {TR.HEIGHT})
             _blank_ground(map_id, t, blank)
-        if strokes:
-            TR.apply_strokes(t, strokes)
-        painted = TR.write(raw, t)
-        if blank is not None:
+            src = TR.write(raw, t)
             have = set(TR.read(raw, set(_BLANK_ZERO)).layers)
             for name in _BLANK_ZERO:
                 if name in have:
-                    painted = TR.fill(painted, name, 0.0)
-            painted = _unpaint(painted)
+                    src = TR.fill(src, name, 0.0)
+            src = _unpaint(src)
+        t = TR.read(src, names)
+        if strokes:
+            TR.apply_strokes(t, strokes)
+        painted = TR.write(src, t)
     except TR.TerrainError as e:
         raise ContentError(f"map {map_id}: {e}") from e
     for s in recipe.slots.values():
@@ -602,6 +605,15 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
                             extra[r] = (moved, parent)
         except LP.LevelPlacementError as e:
             raise ContentError(f"map {map_id}: blank: {e}") from e
+    if own_gameplay:
+        # The minimap's pictures are named by the chapter's gameplay level.
+        gp = [r for r in PC._refs_doc("oCGameStream", root)[1]["asset_refs"]
+              if r.endswith(".level.ot") and _GAMEPLAY.search(_stem(r))]
+        if len(gp) != 1:
+            raise ContentError(f"map {map_id}: minimap: expected one gameplay level, found {gp}")
+        if gp[0] not in extra:
+            extra[gp[0]] = (_read(PC.level_cooked_path(gp[0]), "the base map's gameplay level"),
+                            "root")
     if scenery_edits:
         # The base's own objects, moved or sunk on the clone's copy of their level.
         by_path = {}
@@ -656,10 +668,99 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
             "extra": extra}
 
 
+def _minimap(map_id: str, gameplay: bytes, src_rel: str, out_dir: Path,
+             written: list[Path]) -> dict[str, str]:
+    """``minimap = "art/minimap.png"``: the mod's picture as the chapter's
+    minimap, both the corner map and the full-screen one (their masks stay).
+    The picture covers `level_placements.minimap_rect` of the gameplay level."""
+    from . import poi as P
+
+    refs = PC._refs_doc("oCGameStream", gameplay)[1]["asset_refs"]
+    pics = [r for r in refs if r.startswith("MiniMap\\")
+            and r.endswith(("_Mini_Map.png", "_Map_High.png"))]
+    if not pics:
+        raise ContentError(f"map {map_id}: minimap: the gameplay level names no minimap picture")
+    src = P._mod_source(out_dir, src_rel, map_id, "minimap")
+    if not src.name.lower().endswith(".png"):
+        raise ContentError(f"map {map_id}: minimap: give a .png")
+    cooked = PC.cook_texture(src.read_bytes())
+    swaps = {}
+    for old in pics:
+        kind = "Mini_Map" if old.endswith("_Mini_Map.png") else "Map_High"
+        new = f"MiniMap\\{map_id}_{kind}.png"
+        dest = out_dir / "Ui" / "MiniMap" / f"{map_id}_{kind}.png.Texture.dxt"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(cooked)
+        written.append(dest)
+        swaps[old] = new
+    return swaps
+
+
+_SURFACE_SLOTS = ("base", "R", "G", "B", "A")
+
+
+def _minimap_field(map_id: str, v) -> str | None:
+    if v is None:
+        return None
+    if not isinstance(v, str) or not v.lower().endswith(".png"):
+        raise ContentError(f"map {map_id}: 'minimap' is a .png in the mod, "
+                           f"e.g. \"art/minimap.png\"")
+    return v
+
+
+def _surfaces_field(map_id: str, v) -> dict[str, str] | None:
+    if v is None:
+        return None
+    if not isinstance(v, dict) or not v or not all(
+            k in _SURFACE_SLOTS and isinstance(p, str) and p for k, p in v.items()):
+        raise ContentError(f"map {map_id}: 'surfaces' maps a layer ({', '.join(_SURFACE_SLOTS)}) "
+                           f"to a .png in the mod, e.g. {{ R = \"art/moss.png\" }}")
+    return dict(v)
+
+
+def _surfaces(map_id: str, terrain: bytes, surfaces: dict[str, str], out_dir: Path,
+              written: list[Path]) -> dict[str, str]:
+    """``surfaces = { R = "art/moss.png" }``: the mod's own picture as the
+    albedo of a terrain paint layer (``base`` = the unpainted ground, ``R`` ..
+    ``A`` = the four painted surfaces). The clone's terrain gets its own copy
+    of the chapter's terrain material with those textures repointed; returns
+    ``{old material: new}`` for the terrain level."""
+    from ...engine import terrain_look as TL
+    from . import poi as P
+
+    mat_ref = TL.terrain_material_ref(terrain)
+    if mat_ref is None:
+        raise ContentError(f"map {map_id}: surfaces: the terrain names no M_Terrain_ material")
+    mat = _read(PC.art_cooked_path(mat_ref), "the base map's terrain material")
+    have = TL.slot_albedos(mat)
+    art = P._asset_dir(mat_ref)
+    repoint: dict[str, str] = {}
+    for slot, src_rel in sorted(surfaces.items()):
+        if slot not in have:
+            raise ContentError(f"map {map_id}: surfaces.{slot}: the terrain has layers "
+                               f"{sorted(have)}")
+        tex_ref = f"{art}/T_{map_id}_{slot}_ALB.tga".replace("/", "\\")
+        src = P._mod_source(out_dir, src_rel, map_id, f"surfaces.{slot}")
+        if not src.name.lower().endswith(".png"):
+            raise ContentError(f"map {map_id}: surfaces.{slot}: give a .png")
+        dest = out_dir / Path(*PC.art_cooked_path(tex_ref).split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PC.cook_texture(src.read_bytes()))
+        written.append(dest)
+        repoint[have[slot]] = tex_ref
+    new_mat = f"{art}/M_Terrain_{map_id}.mat.ot".replace("/", "\\")
+    dest = out_dir / Path(*PC.art_cooked_path(new_mat).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(PC.clone_material(mat, repoint))
+    written.append(dest)
+    return {mat_ref: new_mat}
+
+
 def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   written: list[Path], edits: dict | None = None, place=None,
                   biome: str = "", strokes=None, blank: float | None = None,
                   objects: list[_Object] | None = None, scenery_edits: dict | None = None,
+                  surfaces: dict[str, str] | None = None, minimap: str | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -687,7 +788,8 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     _h, doc = PC._refs_doc("oCGameStream", root)
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
-        if edits or place or strokes or blank is not None or objects or scenery_edits:
+        if (edits or place or strokes or blank is not None or objects or scenery_edits
+                or surfaces or minimap):
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -717,9 +819,14 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
+        if (surfaces or minimap) and strokes is None:
+            strokes = []                 # the terrain is cloned for its own material
         painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects,
-                          scenery_edits, _chapter_of(biome) if scenery_edits else None)
-                   if strokes or blank is not None or objects or scenery_edits else {})
+                          scenery_edits, _chapter_of(biome) if scenery_edits else None,
+                          own_material=bool(surfaces or minimap), own_gameplay=bool(minimap))
+                   if strokes or blank is not None or objects or scenery_edits or surfaces
+                   or minimap
+                   else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
     except (ME.MapEditError, TG.TileGenError) as e:
@@ -738,9 +845,13 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
         scenery_swaps = {terrain_ref: swaps[terrain_ref]}
         for old, (blob, parent) in painted["extra"].items():
             (scenery_swaps if parent == "scenery" else root_swaps)[old] = swaps[old]
-            out[old] = PC.clone_tile_level(blob, old, swaps[old], {})
+            pics = (_minimap(map_id, blob, minimap, out_dir, written)
+                    if minimap and _GAMEPLAY.search(_stem(old)) else {})
+            out[old] = PC.clone_tile_level(blob, old, swaps[old], pics)
+        mat_swaps = (_surfaces(map_id, painted["terrain"], surfaces, out_dir, written)
+                     if surfaces else {})
         out[terrain_ref] = PC.clone_tile_level(painted["terrain"], terrain_ref,
-                                               swaps[terrain_ref], {})
+                                               swaps[terrain_ref], mat_swaps)
         out[scenery_ref] = PC.clone_tile_level(painted["scenery"], scenery_ref,
                                                swaps[scenery_ref], scenery_swaps)
     out[tg_ref] = PC.clone_tile_level(tg, tg_ref, swaps[tg_ref], tg_swaps)
@@ -787,7 +898,9 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
                                            defn.fields.get("terrain"), blank, objects,
-                                           defn.fields.get("scenery"))
+                                           defn.fields.get("scenery"),
+                                           _surfaces_field(defn.id, defn.fields.get("surfaces")),
+                                           _minimap_field(defn.id, defn.fields.get("minimap")))
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []
@@ -846,6 +959,12 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     # no line is never loaded, so never placed. An added tile's own cache
     # carries that line plus everything the tile reaches.
     lines |= object_lines
+    # The mod's own terrain material and textures: preloaded with the map.
+    lines |= {RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith("3D/")
+              and (f"M_Terrain_{defn.id}." in p.name or f"T_{defn.id}_" in p.name)}
+    lines |= {RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith(f"Ui/MiniMap/{defn.id}_")}
     for p in removed:
         lines.discard(RC.entry_for(_tile_rel(p)))
     for p in placed:

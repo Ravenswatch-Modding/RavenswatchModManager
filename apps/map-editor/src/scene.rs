@@ -246,6 +246,8 @@ pub struct PartKey {
     pub swap_rb: bool,
     pub color: Option<String>,
     pub decal: bool,
+    /// An effect's sprite: a camera-facing glowing quad (`map_scene.vfx_parts`).
+    pub vfx: bool,
 }
 
 pub struct ScPart {
@@ -317,6 +319,7 @@ impl Scenery {
                 swap_rb: p["swap_rb"].as_bool().unwrap_or(false),
                 color: p["color"].as_str().map(str::to_owned),
                 decal: p["decal"].as_bool().unwrap_or(false),
+                vfx: p["vfx"].as_bool().unwrap_or(false),
             };
             let m = f32s(&mats_v[pi])?;
             let owners = u32s(&owners_v[pi])?;
@@ -401,6 +404,8 @@ pub struct TerrainLook {
     pub weights: Vec<u8>,
     /// RGBA8 vertex colour per cell.
     pub color: Option<Vec<u8>>,
+    /// World rectangle the in-game minimap picture covers: x0, z0, width, depth.
+    pub minimap_rect: Option<[f32; 4]>,
 }
 
 impl TerrainLook {
@@ -449,7 +454,8 @@ impl TerrainLook {
             shallow: c4(&w["shallow"]).unwrap_or([0.13, 0.19, 0.15, 1.0]),
             banks: c4(&w["banks"]).unwrap_or([0.57, 0.59, 0.23, 1.0]),
         });
-        Ok(TerrainLook { water, channel_sources, color_layer, n, slots, weights, color })
+        let minimap_rect = v["minimap_rect"].as_array().filter(|a| a.len() == 4).map(|a| std::array::from_fn(|i| a[i].as_f64().unwrap_or(0.0) as f32));
+        Ok(TerrainLook { water, channel_sources, color_layer, n, slots, weights, color, minimap_rect })
     }
 
     pub fn textures(&self) -> Vec<String> {

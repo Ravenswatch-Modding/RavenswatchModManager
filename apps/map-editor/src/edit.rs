@@ -614,6 +614,12 @@ impl History {
         self.redo.clear();
     }
 
+    /// Every snapshot, so a rename outside the history (a model moved to
+    /// another folder) holds after undo / redo too.
+    pub fn for_each_mut(&mut self, mut f: impl FnMut(&mut Edits)) {
+        self.undo.iter_mut().chain(self.redo.iter_mut()).for_each(&mut f);
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

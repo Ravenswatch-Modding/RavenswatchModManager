@@ -36,8 +36,8 @@ MOUNT = "map"
 
 #: three.js, vendored for the Hero tab's 3D preview (here and in the web editor).
 STATIC_FILES = {"three.module.min.js": "text/javascript; charset=utf-8"}
-#: What /api/file serves: meshes and textures under 3D/, nothing else.
-FILE_ROOT = "3D"
+#: What /api/file serves: meshes and textures under 3D/, effect sprites under FX/.
+FILE_ROOTS = ("3D", "FX")
 FILE_TYPES = {".glb": "model/gltf-binary", ".png": "image/png"}
 NEXT_STEP = "rsmm restore --all && rsmm apply"
 #: Brush dabs one save may carry; a long painting session is a few thousand.
@@ -95,7 +95,7 @@ def _file(req: Request) -> Raw:
     rel = req.arg("path")
     parts = rel.split("/")
     ctype = FILE_TYPES.get(Path(rel).suffix.lower())
-    if (not ctype or parts[0] != FILE_ROOT or len(parts) < 2 or "\\" in rel
+    if (not ctype or parts[0] not in FILE_ROOTS or len(parts) < 2 or "\\" in rel
             or any(s in ("", ".", "..") for s in parts)):
         raise Fail(404, "not found")
     data = MS.asset_bytes(rel)
@@ -127,7 +127,8 @@ def _terrain(req: Request, ch: ME.Chapter) -> dict:
 def _look(req: Request, ch: ME.Chapter) -> dict:
     """The ground's material and blend weights (the native editor draws it)."""
     try:
-        return TL.look_json(ch)
+        # The rectangle the in-game minimap picture covers, for File > Export minimap.
+        return {**TL.look_json(ch), "minimap_rect": ME.minimap_rect(ch)}
     except TL.LookError as e:
         raise Fail(404, str(e)) from e
 
@@ -151,7 +152,11 @@ def _mod(req: Request) -> dict:
         raise Fail(404, f"{mod_id} is not a map-editor mod")
     name = tomllib.loads(text).get("mod", {}).get("name", "")
     # The folder, so the editor can preview the mod's own models from disk.
-    return {**got, "name": name, "folder": str((req.ctx.mods_dir / mod_id).resolve())}
+    root = req.ctx.mods_dir / mod_id
+    # Every folder under art/, empty ones included: the Project panel's Assets tree.
+    dirs = sorted(d.relative_to(root).as_posix() for d in (root / "art").rglob("*")
+                  if d.is_dir() and ART_DIR.match(d.relative_to(root).as_posix()))
+    return {**got, "name": name, "folder": str(root.resolve()), "art_dirs": dirs}
 
 
 # --------------------------------------------------------------------------
@@ -162,8 +167,12 @@ def _mod(req: Request) -> dict:
 STAGING = Path(tempfile.gettempdir()) / "rsmm-map-editor-staging"
 #: A staged file's id: content hash + extension.
 _STAGED_ID = re.compile(r"^[0-9a-f]{32}\.(glb|png)$")
-#: Where a model or texture lives in a mod: ``art/<name>.glb|png``.
-ART_PATH = re.compile(r"^art/[A-Za-z0-9][A-Za-z0-9_.-]{0,80}\.(glb|png)$")
+#: Where a model or texture lives in a mod: ``art/[<folder>/...]<name>.glb|png``
+#: (the Project panel's folders, up to 6 deep; every part starts alphanumeric,
+#: so none is ``..``).
+_ART_SEG = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}"
+ART_PATH = re.compile(rf"^art/(?:{_ART_SEG}/){{0,6}}{_ART_SEG}\.(glb|png)$")
+ART_DIR = re.compile(rf"^art(?:/{_ART_SEG}){{1,7}}$")
 _MAGIC = {"glb": b"glTF", "png": b"\x89PNG"}
 
 
@@ -192,11 +201,28 @@ def _as_art(body: dict) -> dict[str, Path]:
     out = {}
     for rel, sid in art.items():
         if not isinstance(rel, str) or not ART_PATH.match(rel):
-            raise Fail(400, f"art: {rel!r} is not art/<name>.glb or .png")
+            raise Fail(400, f"art: {rel!r} is not art/[folder/]<name>.glb or .png")
         if not isinstance(sid, str) or not _STAGED_ID.match(sid) or not (STAGING / sid).is_file():
             raise Fail(400, f"art: {rel} was not imported in this session; import it again")
         out[rel] = STAGING / sid
     return out
+
+
+def _dropped_art(body: dict, art: dict[str, Path]) -> list[str]:
+    """``drop_art``: the mod's own files the author removed in the Project panel."""
+    drop = body.get("drop_art") or []
+    ok = isinstance(drop, list) and all(isinstance(r, str) and ART_PATH.match(r) for r in drop)
+    if not ok:
+        raise Fail(400, "drop_art: expected a list of art/[folder/]<name>.glb or .png")
+    return [r for r in drop if r not in art]
+
+
+def _art_dirs(body: dict) -> list[str]:
+    """``art_dirs``: the Project panel's folders, kept even while empty."""
+    dirs = body.get("art_dirs") or []
+    if not isinstance(dirs, list) or not all(isinstance(d, str) and ART_DIR.match(d) for d in dirs):
+        raise Fail(400, "art_dirs: expected a list of art/<folder>[/<folder>...]")
+    return dirs
 
 
 def _put_art(art: dict[str, Path], root: Path) -> None:
@@ -228,6 +254,15 @@ def _as_map(body: dict) -> dict | None:
     objects = m.get("objects") or []
     if not isinstance(objects, list) or not all(isinstance(o, dict) for o in objects):
         raise Fail(400, "map.objects: expected a list of objects")
+    surfaces = m.get("surfaces") or {}
+    if not isinstance(surfaces, dict) or not all(
+            k in ("base", "R", "G", "B", "A") and isinstance(v, str) and ART_PATH.match(v)
+            and v.endswith(".png") for k, v in surfaces.items()):
+        raise Fail(400, "map.surfaces: expected {layer: \"art/<name>.png\"}")
+    minimap = m.get("minimap")
+    if minimap is not None and not (isinstance(minimap, str) and ART_PATH.match(minimap)
+                                    and minimap.endswith(".png")):
+        raise Fail(400, "map.minimap: expected \"art/<name>.png\"")
     blank = m.get("blank")
     if blank is not None and (isinstance(blank, bool) or not isinstance(blank, (int, float))):
         raise Fail(400, "map.blank: expected the flat ground's height in metres")
@@ -236,6 +271,8 @@ def _as_map(body: dict) -> dict | None:
             "place": place, "terrain": terrain,
             **({"blank": float(blank)} if blank is not None else {}),
             **({"objects": objects} if objects else {}),
+            **({"surfaces": dict(surfaces)} if surfaces else {}),
+            **({"minimap": minimap} if minimap else {}),
             **({"scenery": _as_scenery({"scenery": m.get("scenery")})} if m.get("scenery") else {})}
 
 
@@ -302,6 +339,9 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
             + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else [])
             + ([f"objects: {len(as_map['objects'])} placed on the map"]
                if as_map.get("objects") else [])
+            + ([f"minimap: {as_map['minimap']}"] if as_map.get("minimap") else [])
+            + [f"surfaces: layer {k} drawn with {v}"
+               for k, v in sorted((as_map.get("surfaces") or {}).items())]
             + [f"scenery: {len(e.get('moves') or {})} moved, {len(e.get('removes') or {})} "
                f"removed in the map's own {lv.rsplit('/', 1)[-1].split('.', 1)[0]}"
                for lv, e in sorted((as_map.get("scenery") or {}).items())])
@@ -325,6 +365,8 @@ def _save(req: Request) -> dict:
     as_map = _as_map(body)
     scenery = _as_scenery(body)
     art = _as_art(body)
+    drop = _dropped_art(body, art)
+    dirs = _art_dirs(body)
     folder = req.ctx.mods_dir / mod_id
     changes = _changes(ch, edits, as_map, scenery, art, folder)  # prove it cooks before writing
     if not changes:
@@ -338,6 +380,17 @@ def _save(req: Request) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     tmp = man.with_name(f"manifest.toml.{secrets.token_hex(4)}.tmp")
     _put_art(art, folder)
+    for rel in drop:
+        gone = folder / Path(*rel.split("/"))
+        gone.unlink(missing_ok=True)
+        # A folder the move or removal left empty goes too, unless the author keeps it.
+        d = gone.parent
+        while d != folder / "art" and d.is_dir() and not any(d.iterdir()) \
+                and d.relative_to(folder).as_posix() not in dirs:
+            d.rmdir()
+            d = d.parent
+    for d in dirs:
+        (folder / Path(*d.split("/"))).mkdir(parents=True, exist_ok=True)
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(man)
     return {"path": f"mods/{mod_id}/manifest.toml", "changes": changes, "next": NEXT_STEP}

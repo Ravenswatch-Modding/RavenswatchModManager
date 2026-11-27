@@ -11,7 +11,7 @@ name = "rsmm-map-editor"
 path = "src/main.rs"
 
 [dependencies]
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "clipboard"] }
 glam = { version = "0.34", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +26,10 @@ rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal"] 
 opt-level = 3
 lto = "thin"
 codegen-units = 4
+
+[dev-dependencies]
+# Already in the tree through wgpu: lets a test validate shader.wgsl without a GPU.
+naga = { version = "30", features = ["wgsl-in"] }
 
 # Asset decoding (glb, png, mip chains) is the load-time hot path: keep it
 # fast even in a debug build of the editor itself.

@@ -147,6 +147,7 @@ pub struct Renderer {
     terrain_pipe: wgpu::RenderPipeline,
     mesh_pipe: wgpu::RenderPipeline,
     decal_pipe: wgpu::RenderPipeline,
+    vfx_pipe: wgpu::RenderPipeline,
     line_pipe: wgpu::RenderPipeline,
     line_top_pipe: wgpu::RenderPipeline,
     terrain: Option<(wgpu::Buffer, wgpu::Buffer, u32)>,
@@ -178,6 +179,8 @@ pub struct Renderer {
     target: Option<Target>,
     /// Project thumbnails: each its own target, kept while the editor runs.
     thumbs: Vec<Target>,
+    /// The Project preview window's target, redrawn in place.
+    preview: Option<Target>,
     pub stats: Stats,
 }
 
@@ -502,13 +505,13 @@ impl Renderer {
                 attributes: &iattrs,
             }),
         ];
-        let mesh_pipeline = |label: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| {
+        let mesh_pipeline_vs = |label: &str, vs: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| {
             d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&mesh_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vs_mesh"),
+                    entry_point: Some(vs),
                     compilation_options: Default::default(),
                     buffers: &mesh_buffers,
                 },
@@ -533,7 +536,14 @@ impl Renderer {
                 cache: None,
             })
         };
+        let mesh_pipeline = |label: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| mesh_pipeline_vs(label, "vs_mesh", fs, blend, write);
         let mesh_pipe = mesh_pipeline("mesh", "fs_mesh", None, true);
+        // Effects glow: added onto what is behind them, never hiding it.
+        let additive = wgpu::BlendState {
+            color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+            alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+        };
+        let vfx_pipe = mesh_pipeline_vs("vfx", "vs_billboard", "fs_vfx", Some(additive), false);
         let decal_pipe = mesh_pipeline("decal", "fs_decal", Some(wgpu::BlendState::ALPHA_BLENDING), false);
 
         let lattrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
@@ -635,6 +645,7 @@ impl Renderer {
             terrain_pipe,
             mesh_pipe,
             decal_pipe,
+            vfx_pipe,
             line_pipe,
             line_top_pipe,
             terrain: None,
@@ -647,6 +658,7 @@ impl Renderer {
             line_cap: 0,
             target: None,
             thumbs: Vec::new(),
+            preview: None,
             stats: Stats::default(),
         }
     }
@@ -867,6 +879,14 @@ impl Renderer {
         id
     }
 
+    /// Like `render_thumb`, but one target reused frame after frame.
+    pub fn render_preview(&mut self, rs: &egui_wgpu::RenderState, size: (u32, u32), f: &Frame) -> egui::TextureId {
+        let main = std::mem::replace(&mut self.target, self.preview.take());
+        let id = self.render(rs, size, f);
+        self.preview = std::mem::replace(&mut self.target, main);
+        id
+    }
+
     pub fn add_mesh(&mut self, path: String, m: MeshData) {
         let vb = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh vb"),
@@ -939,7 +959,7 @@ impl Renderer {
             .unwrap_or(if tex.is_some() { [1.0; 4] } else { [0.55, 0.55, 0.52, 1.0] });
         let u = MaterialU {
             color,
-            flags: [tex.is_some() as u8 as f32, tex.map(|t| t.has_alpha && !key.decal).unwrap_or(false) as u8 as f32, 0.0, 0.0],
+            flags: [tex.is_some() as u8 as f32, tex.map(|t| t.has_alpha && !key.decal && !key.vfx).unwrap_or(false) as u8 as f32, 0.0, 0.0],
         };
         let ub = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("material"),
@@ -1061,7 +1081,7 @@ impl Renderer {
         let (sv, cv) = av.sin_cos();
         let px_per_unit = h as f32 * 0.5 / th;
         let mut visible: Vec<Instance> = Vec::new();
-        let mut draws: Vec<(usize, u32, u32, bool)> = Vec::new(); // part, first, count, decal
+        let mut draws: Vec<(usize, u32, u32, u8)> = Vec::new(); // part, first, count, pass (0 mesh, 1 decal, 2 vfx)
         let mut stats = Stats::default();
         for (pi, p) in f.parts.iter().enumerate() {
             let Some(mesh) = self.meshes.get(&p.key.mesh) else { continue };
@@ -1100,7 +1120,7 @@ impl Renderer {
             }
             let count = visible.len() as u32 - first;
             if count > 0 {
-                draws.push((pi, first, count, p.key.decal));
+                draws.push((pi, first, count, if p.key.vfx { 2 } else { p.key.decal as u8 }));
                 stats.drawn_instances += count as usize;
                 stats.drawn_triangles += count as u64 * (mesh.count / 3) as u64;
             }
@@ -1110,7 +1130,7 @@ impl Renderer {
         let mut casters: Vec<(usize, u32, u32)> = Vec::new();
         if f.shadows {
             for (pi, p) in f.parts.iter().enumerate() {
-                if p.key.decal {
+                if p.key.decal || p.key.vfx {
                     continue;
                 }
                 let Some(mesh) = self.meshes.get(&p.key.mesh) else { continue };
@@ -1235,11 +1255,15 @@ impl Renderer {
                 rp.draw_indexed(0..*n, 0, 0..1);
             }
             if let Some(ibuf) = &self.instance_buf {
-                for decal_pass in [false, true] {
-                    rp.set_pipeline(if decal_pass { &self.decal_pipe } else { &self.mesh_pipe });
+                for pass in [0u8, 1, 2] {
+                    rp.set_pipeline(match pass {
+                        0 => &self.mesh_pipe,
+                        1 => &self.decal_pipe,
+                        _ => &self.vfx_pipe,
+                    });
                     rp.set_vertex_buffer(1, ibuf.slice(..));
-                    for &(pi, first, count, decal) in &draws {
-                        if decal != decal_pass {
+                    for &(pi, first, count, kind) in &draws {
+                        if kind != pass {
                             continue;
                         }
                         let key = f.parts[pi].key;
@@ -1318,4 +1342,13 @@ fn grid_uv(i: usize, n: usize) -> [f32; 2] {
 fn is_linear(path: &str) -> bool {
     let p = path.to_ascii_uppercase();
     p.contains("_NRM") || p.contains("_MRA") || p.contains("_MSK")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn shader_validates() {
+        let m = naga::front::wgsl::parse_str(include_str!("shader.wgsl")).expect("shader.wgsl parses");
+        naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all()).validate(&m).expect("shader.wgsl validates");
+    }
 }

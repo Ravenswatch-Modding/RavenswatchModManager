@@ -237,6 +237,24 @@ _TERRAIN_SUFFIX = "_Terrain.level.ot.GameStream.gen"
 _TERRAIN_LAYERS = {TR.HEIGHT, "LD Path", "LD Block", "Base Water Height"}
 
 
+def minimap_rect(chapter: Chapter) -> tuple[float, float, float, float] | None:
+    """The world rectangle the chapter's minimap picture covers (its gameplay
+    level's ``Minimap`` object), or None."""
+    from . import corpus
+    from . import level_placements as LP
+    from . import prop_cook as PC
+
+    root = corpus.read(chapter.decoded.replace("_TileGeneration", ""))
+    if not root:
+        return None
+    for r in PC._refs_doc("oCGameStream", root)[1]["asset_refs"]:
+        if r.endswith(".level.ot") and "_Gameplay" in r:
+            got = LP.minimap_rect(corpus.read(PC.level_cooked_path(r)) or b"")
+            if got:
+                return got
+    return None
+
+
 def terrain_decoded(chapter: Chapter) -> str | None:
     """Decoded path of the chapter's painted terrain level, when exactly one exists."""
     from .asset_map import decoded_to_encoded
@@ -872,7 +890,7 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
     # Ground, objects and scenery a clone carries are loaded by every player
     # from their own copy, like scenery edits; only the recipe is the host's.
     own_levels = as_map is not None and any(
-        as_map.get(k) for k in ("terrain", "objects", "scenery")) or (
+        as_map.get(k) for k in ("terrain", "objects", "scenery", "surfaces", "minimap")) or (
         as_map is not None and as_map.get("blank") is not None)
     if scenery or own_levels:
         lines += ["# Every player loads the chapter's scenery from their own copy, so",
@@ -907,6 +925,11 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
             lines.append(f"place   = {{ {inner} }}")
         if as_map.get("blank") is not None:
             lines.append(f"blank   = {{ height = {_val(float(as_map['blank']))} }}")
+        if as_map.get("minimap"):
+            lines.append(f"minimap = {_q(as_map['minimap'])}")
+        if as_map.get("surfaces"):
+            inner = ", ".join(f"{k} = {_q(v)}" for k, v in sorted(as_map["surfaces"].items()))
+            lines.append(f"surfaces = {{ {inner} }}")
         for st in as_map.get("terrain") or []:
             lines += ["", "[[content.terrain]]"]
             lines += [f"{k} = {_q(v) if isinstance(v, str) else _val(v)}" for k, v in st.items()]
@@ -932,7 +955,9 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or []),
         **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {}),
         **({"objects": list(as_map["objects"])} if as_map.get("objects") else {}),
-        **({"scenery": dict(as_map["scenery"])} if as_map.get("scenery") else {})}
+        **({"scenery": dict(as_map["scenery"])} if as_map.get("scenery") else {}),
+        **({"surfaces": dict(as_map["surfaces"])} if as_map.get("surfaces") else {}),
+        **({"minimap": as_map["minimap"]} if as_map.get("minimap") else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
             or _norm_json(back.get("scenery") or {}) != _norm_json(scenery)):
@@ -1027,7 +1052,9 @@ def _read_first(data: dict) -> dict | None:
                             "terrain": list(c.get("terrain") or []),
                             **_blank_of(c),
                             **({"objects": list(c["objects"])} if c.get("objects") else {}),
-                            **({"scenery": dict(c["scenery"])} if c.get("scenery") else {})}}
+                            **({"scenery": dict(c["scenery"])} if c.get("scenery") else {}),
+                            **({"surfaces": dict(c["surfaces"])} if c.get("surfaces") else {}),
+                            **({"minimap": c["minimap"]} if c.get("minimap") else {})}}
     return None
 
 

@@ -48,9 +48,51 @@ pub fn parent(dir: &str) -> Option<&str> {
     dir.rsplit_once('/').map(|(p, _)| p)
 }
 
+/// `Assets/rocks` -> `art/rocks`: where a Project folder lives in the mod.
+pub fn art_dir(dir: &str) -> Option<String> {
+    let rest = dir.strip_prefix(ASSETS)?;
+    (rest.is_empty() || rest.starts_with('/')).then(|| format!("art{rest}"))
+}
+
+/// `art/rocks/hut.glb` -> `Assets/rocks`: the Project folder a mod file shows in.
+pub fn folder_of_art(rel: &str) -> String {
+    let dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
+    format!("{ASSETS}{}", dir.strip_prefix("art").unwrap_or(""))
+}
+
+/// `file` (a bare name) inside the Project folder `dir` (`Assets` if `dir` is not one).
+pub fn rel_in(dir: &str, file: &str) -> String {
+    format!("{}/{file}", art_dir(dir).unwrap_or_else(|| "art".to_owned()))
+}
+
+/// A folder name the backend accepts (`[A-Za-z0-9][A-Za-z0-9_.-]*`, at most 80).
+pub fn clean_folder(name: &str) -> String {
+    let s: String = name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || "_.-".contains(c) { c } else { '_' }).take(80).collect();
+    match s.chars().next() {
+        Some(c) if c.is_ascii_alphanumeric() => s,
+        Some(_) => format!("F{s}").chars().take(80).collect(),
+        None => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asset_folders_map_to_the_mods_art() {
+        assert_eq!(art_dir("Assets"), Some("art".into()));
+        assert_eq!(art_dir("Assets/rocks/big"), Some("art/rocks/big".into()));
+        assert_eq!(art_dir("Assetsy"), None);
+        assert_eq!(art_dir("Game/DarkHills"), None);
+        assert_eq!(folder_of_art("art/hut.glb"), "Assets");
+        assert_eq!(folder_of_art("art/rocks/hut.glb"), "Assets/rocks");
+        assert_eq!(rel_in("Assets/rocks", "hut.glb"), "art/rocks/hut.glb");
+        assert_eq!(rel_in("Game/x", "hut.glb"), "art/hut.glb");
+        assert_eq!(clean_folder(" My rocks! "), "My_rocks_");
+        assert_eq!(clean_folder(".."), "F..");
+        assert_eq!(clean_folder("   "), "");
+    }
 
     #[test]
     fn props_are_filed_by_their_entity_path() {

@@ -664,3 +664,53 @@ def test_an_imported_model_saves_into_the_mod(editor, tmp_path):
     got = json.loads(call("/api/mod?id=my-map")[1])
     assert got["map"]["objects"][0]["model"] == "art/hut.glb"
     assert got["folder"] == str(mod.resolve())
+    # Removed in the Project panel: the next save deletes its file; bad paths are refused.
+    (mod / "art" / "old.png").write_bytes(b"x")
+    code, out = call("/api/save", {**body, "drop_art": ["art/old.png"]}, token=srv.token)
+    assert code == 200, out
+    assert not (mod / "art" / "old.png").exists()
+    assert (mod / "art" / "hut.glb").is_file()
+    code, _ = call("/api/save", {**body, "drop_art": ["../manifest.toml"]}, token=srv.token)
+    assert code == 400
+    # Folders: a model in a sub-folder, an empty folder kept, both listed on reopen.
+    nested = {**body, "art": {"art/rocks/hut.glb": sid}, "drop_art": ["art/hut.glb"],
+              "art_dirs": ["art/empty"]}
+    nested["map"] = {**body["map"], "objects": [{**body["map"]["objects"][0],
+                                                 "model": "art/rocks/hut.glb"}]}
+    code, out = call("/api/save", nested, token=srv.token)
+    assert code == 200, out
+    assert (mod / "art" / "rocks" / "hut.glb").is_file()
+    assert not (mod / "art" / "hut.glb").exists()
+    assert (mod / "art" / "empty").is_dir()
+    got = json.loads(call("/api/mod?id=my-map")[1])
+    assert got["art_dirs"] == ["art/empty", "art/rocks"]
+    for bad in ({"art_dirs": ["art/../x"]}, {"art_dirs": ["x"]},
+                {"art": {"art/../hut.glb": sid}}):
+        assert call("/api/save", {**nested, **bad}, token=srv.token)[0] == 400, bad
+
+
+def test_a_terrain_layer_takes_the_mods_own_texture(editor, tmp_path):
+    import base64
+
+    from rsmm.engine import image as IMG
+    call, _port, srv = editor
+    png = IMG.encode_png(8, 8, bytes([40, 160, 60, 255] * 64))
+    code, out = call("/api/upload", {"name": "moss.png", "data": base64.b64encode(png).decode()},
+                     token=srv.token)
+    assert code == 200, out
+    sid = json.loads(out)["id"]
+    body = {"chapter": "DarkHills", "mod_id": "mossy", "edits": {},
+            "art": {"art/terrain/moss.png": sid, "art/minimap.png": sid},
+            "map": {"id": "Mossy", "play": True, "pool": {"add": [], "remove": []}, "place": {},
+                    "terrain": [], "surfaces": {"R": "art/terrain/moss.png"},
+                    "minimap": "art/minimap.png"}}
+    code, out = call("/api/save", body, token=srv.token)
+    assert code == 200, out
+    assert "surfaces: layer R drawn with art/terrain/moss.png" in json.loads(out)["changes"]
+    assert (tmp_path / "mods" / "mossy" / "art" / "terrain" / "moss.png").is_file()
+    got = json.loads(call("/api/mod?id=mossy")[1])
+    assert got["map"]["surfaces"] == {"R": "art/terrain/moss.png"}
+    assert got["map"]["minimap"] == "art/minimap.png"
+    assert "minimap: art/minimap.png" in json.loads(out)["changes"]
+    bad = {**body, "map": {**body["map"], "surfaces": {"R": "../x.png"}}}
+    assert call("/api/save", bad, token=srv.token)[0] == 400

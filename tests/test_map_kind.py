@@ -396,6 +396,87 @@ def test_blank_map_is_flat_empty_and_owns_its_levels(tmp_path, base, folder):
 
 
 @needs_corpus
+def test_blank_map_keeps_its_paint_strokes(tmp_path):
+    from rsmm.engine import prop_cook as PC
+    from rsmm.engine import terrain as TR
+
+    maps.emit("m", ContentDef(kind="map", id="Blank_Paint", fields={
+        "base": "Dark_Hills", "blank": {"height": 4}, "terrain": []}), tmp_path)
+    ref = "DarkHills\\Map_Blank_Paint_Terrain.level.ot"
+    t = TR.read((tmp_path / PC.level_cooked_path(ref)).read_bytes())
+    surf = next(n for n, ly in t.layers.items()
+                if ly.kind == "float" and n not in TR.METRE_LAYERS and n != "LD Block")
+    rgba = next(n for n, ly in t.layers.items() if ly.kind == "rgba")
+    maps.emit("m", ContentDef(kind="map", id="Blank_Paint", fields={
+        "base": "Dark_Hills", "blank": {"height": 4}, "terrain": [
+            {"op": "set", "layer": surf, "x": 0, "z": 0, "radius": 20, "amount": 1},
+            {"op": "tint", "layer": rgba, "x": 0, "z": 0, "radius": 20,
+             "amount": 1, "color": "#ff0000"}]}), tmp_path)
+    t = TR.read((tmp_path / PC.level_cooked_path(ref)).read_bytes())
+    assert max(t.layers[surf].cells) > 0, surf
+    assert set(t.layers[rgba].cells) != {255}, rgba
+
+
+@needs_corpus
+def test_surfaces_give_the_terrain_the_mods_own_textures(tmp_path):
+    from rsmm.engine import image as IMG
+    from rsmm.engine import map_scene as MS
+    from rsmm.engine import prop_cook as PC
+    from rsmm.engine import terrain_look as TL
+
+    mod = tmp_path / "mod"
+    (mod / "art" / "ground").mkdir(parents=True)
+    (mod / "art" / "ground" / "moss.png").write_bytes(
+        IMG.encode_png(8, 8, bytes([40, 160, 60, 255] * 64)))
+    out = mod / "assets"
+    maps.emit("m", ContentDef(kind="map", id="Mossy", fields={
+        "base": "Dark_Hills", "surfaces": {"R": "art/ground/moss.png"}}), out)
+    terrain = (out / PC.level_cooked_path("DarkHills\\Map_Mossy_Terrain.level.ot")).read_bytes()
+    mat_ref = TL.terrain_material_ref(terrain)
+    assert mat_ref.endswith("M_Terrain_Mossy.mat.ot")
+    albs = TL.slot_albedos((out / PC.art_cooked_path(mat_ref)).read_bytes())
+    assert albs["R"].endswith("T_Mossy_R_ALB.tga")
+    assert albs["G"] == TL.slot_albedos(MS._bytes(
+        "3D", "Scenery\\DarkHills\\M_Terrain_DarkHills.mat.ot"))["G"]   # the rest stay shipped
+    assert (out / PC.art_cooked_path(albs["R"])).is_file()
+    cache = RC.parse((out / "Definitions/Maps/Mossy.mapdef.UsedRscCache.ot").read_bytes())
+    assert any("M_Terrain_Mossy" in ln for ln in cache)
+    assert any("T_Mossy_R_ALB" in ln for ln in cache)
+    for bad in ({"Q": "art/ground/moss.png"}, {"R": ""}, "moss"):
+        with pytest.raises(ContentError):
+            maps.emit("m", ContentDef(kind="map", id="Mossy2", fields={
+                "base": "Dark_Hills", "surfaces": bad}), out)
+
+
+@needs_corpus
+def test_minimap_is_the_mods_own_picture(tmp_path):
+    from rsmm.engine import image as IMG
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+
+    mod = tmp_path / "mod"
+    (mod / "art").mkdir(parents=True)
+    (mod / "art" / "minimap.png").write_bytes(IMG.encode_png(8, 8, bytes([90, 120, 60, 255] * 64)))
+    out = mod / "assets"
+    maps.emit("m", ContentDef(kind="map", id="Drawn", fields={
+        "base": "Dark_Hills", "minimap": "art/minimap.png"}), out)
+    gameplay = sorted((out / "Ot" / "DarkHills").glob("Map_Drawn_Gameplay*.GameStream.gen"))
+    assert len(gameplay) == 1
+    blob = gameplay[0].read_bytes()
+    refs = PC._refs_doc("oCGameStream", blob)[1]["asset_refs"]
+    assert "MiniMap\\Drawn_Mini_Map.png" in refs and "MiniMap\\Drawn_Map_High.png" in refs
+    assert "MiniMap\\Dark_Hills_Map_High_Mask.png" in refs           # the masks stay shipped
+    assert LP.minimap_rect(blob) == (-225.0, -220.0, 450.0, 450.0)
+    for kind in ("Mini_Map", "Map_High"):
+        assert (out / "Ui" / "MiniMap" / f"Drawn_{kind}.png.Texture.dxt").is_file()
+    root = (out / PC.level_cooked_path("DarkHills\\Map_Drawn.level.ot")).read_bytes()
+    assert any(r.endswith(gameplay[0].name.split(".")[0] + ".level.ot")
+               for r in PC._refs_doc("oCGameStream", root)[1]["asset_refs"])
+    cache = RC.parse((out / "Definitions/Maps/Drawn.mapdef.UsedRscCache.ot").read_bytes())
+    assert "Ui|MiniMap\\Drawn_Map_High.png|oCTexture" in cache
+
+
+@needs_corpus
 def test_blank_is_validated(tmp_path):
     for bad in ({"height": 80}, {"height": "x"}, {"level": 1}, "yes"):
         with pytest.raises(ContentError):

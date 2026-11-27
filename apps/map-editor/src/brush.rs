@@ -197,11 +197,64 @@ pub struct Brush {
     pub step: f32,
     pub falloff: &'static str,
     pub color: [f32; 3],
+    /// A brush shape (built in, or a picture); `None` is the round brush.
+    pub stamp: Option<Stamp>,
+}
+
+/// Cells across a stamp: each dab becomes up to STAMP_N² small dabs.
+/// ponytail: a stamp is rasterised into ordinary strokes so the map kind and
+/// the game need nothing new; a finer grid costs dabs (20000 per save).
+pub const STAMP_N: usize = 5;
+
+/// A brush shape: STAMP_N x STAMP_N weights 0..1, row-major, +z down the rows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stamp {
+    pub name: String,
+    pub mask: Vec<f32>,
+}
+
+impl Stamp {
+    /// The shapes offered without a picture.
+    pub fn builtin() -> Vec<Stamp> {
+        let n = STAMP_N as f32;
+        let at = |f: &dyn Fn(f32, f32) -> f32| -> Vec<f32> {
+            (0..STAMP_N * STAMP_N)
+                .map(|i| {
+                    // -1..1 at cell centres
+                    let x = ((i % STAMP_N) as f32 + 0.5) / n * 2.0 - 1.0;
+                    let z = ((i / STAMP_N) as f32 + 0.5) / n * 2.0 - 1.0;
+                    f(x, z).clamp(0.0, 1.0)
+                })
+                .collect()
+        };
+        vec![
+            Stamp { name: "Square".into(), mask: at(&|_, _| 1.0) },
+            Stamp { name: "Ring".into(), mask: at(&|x, z| if ((x * x + z * z).sqrt() - 0.7).abs() < 0.3 { 1.0 } else { 0.0 }) },
+            Stamp { name: "Cross".into(), mask: at(&|x, z| if x.abs() < 0.25 || z.abs() < 0.25 { 1.0 } else { 0.0 }) },
+            Stamp {
+                name: "Speckle".into(),
+                mask: at(&|x, z| {
+                    let h = ((x * 12.9898 + z * 78.233).sin() * 43758.547).fract().abs();
+                    if h > 0.55 { 1.0 } else { 0.0 }
+                }),
+            },
+        ]
+    }
+
+    /// A picture as a brush: brightness times opacity, sampled per cell.
+    pub fn from_png(name: &str, bytes: &[u8]) -> anyhow::Result<Stamp> {
+        let img = image::load_from_memory(bytes)?.to_rgba8();
+        let (w, h) = img.dimensions();
+        let small = image::imageops::resize(&img, STAMP_N as u32, STAMP_N as u32, image::imageops::FilterType::Triangle);
+        anyhow::ensure!(w > 0 && h > 0, "empty picture");
+        let mask = small.pixels().map(|p| (p.0[0] as f32 + p.0[1] as f32 + p.0[2] as f32) / (3.0 * 255.0) * p.0[3] as f32 / 255.0).collect();
+        Ok(Stamp { name: name.to_owned(), mask })
+    }
 }
 
 impl Default for Brush {
     fn default() -> Self {
-        Brush { mode: Mode::Raise, radius: 8.0, strength: 0.25, level: 0.0, step: 4.0, falloff: "smooth", color: [0.55, 0.45, 0.35] }
+        Brush { mode: Mode::Raise, radius: 8.0, strength: 0.25, level: 0.0, step: 4.0, falloff: "smooth", color: [0.55, 0.45, 0.35], stamp: None }
     }
 }
 
@@ -246,9 +299,52 @@ impl Brush {
     }
 }
 
+impl Brush {
+    /// One dab as strokes: the round brush is one; a stamp is one small dab
+    /// per cell it covers, its weight scaling the amount (a target height or
+    /// a smooth is all or nothing per cell).
+    pub fn strokes(&self, at: Vec3, invert: bool, sources: &[Option<String>], color_layer: Option<&str>) -> Vec<Stroke> {
+        let Some(one) = self.stroke(at, invert, sources, color_layer) else { return Vec::new() };
+        let Some(st) = &self.stamp else { return vec![one] };
+        let cell = 2.0 * self.radius / STAMP_N as f32;
+        let scaled = matches!(one.op.as_str(), "raise" | "lower" | "tint");
+        let mut out = Vec::new();
+        for (i, w) in st.mask.iter().enumerate() {
+            if *w < if scaled { 0.05 } else { 0.5 } {
+                continue;
+            }
+            let dx = ((i % STAMP_N) as f32 + 0.5) * cell - self.radius;
+            let dz = ((i / STAMP_N) as f32 + 0.5) * cell - self.radius;
+            let mut s = one.clone();
+            s.x = ((at.x + dx) * 100.0).round() / 100.0;
+            s.z = ((at.z + dz) * 100.0).round() / 100.0;
+            s.radius = (cell * 0.75).max(0.5);
+            if scaled {
+                s.amount = s.amount.map(|a| (a * w * 1000.0).round() / 1000.0);
+            }
+            out.push(s);
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stamp_becomes_one_dab_per_covered_cell() {
+        let mut b = Brush::default();
+        assert_eq!(b.strokes(Vec3::ZERO, false, &[], None).len(), 1);
+        b.stamp = Stamp::builtin().into_iter().find(|s| s.name == "Square");
+        let dabs = b.strokes(Vec3::ZERO, false, &[], None);
+        assert_eq!(dabs.len(), STAMP_N * STAMP_N);
+        assert!(dabs.iter().all(|d| d.x.abs() < b.radius && d.z.abs() < b.radius));
+        let mut half = b.stamp.clone().unwrap();
+        half.mask.iter_mut().for_each(|w| *w = 0.5);
+        b.stamp = Some(half);
+        assert!(b.strokes(Vec3::ZERO, false, &[], None).iter().all(|d| (d.amount.unwrap() - b.strength * 0.5).abs() < 1e-3));
+    }
 
     #[test]
     fn layer_target_steps_one_terrace() {

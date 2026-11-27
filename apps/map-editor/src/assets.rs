@@ -12,7 +12,7 @@ use std::thread;
 
 use anyhow::{bail, Context as _, Result};
 use bytemuck::{Pod, Zeroable};
-use glam::Vec3;
+use glam::{Mat3, Mat4, Vec3};
 
 use crate::backend::{q, Backend};
 
@@ -145,9 +145,30 @@ pub fn decode_glb_part(bytes: &[u8], only: Option<usize>) -> Result<MeshData> {
     let want = only.map(|k| format!("submesh_{k}"));
     let g = gltf::Gltf::from_slice(bytes).context("not a glb")?;
     let blob = g.blob.as_deref();
+    // Each node's world matrix, walked down from the scene roots (as `geometry_cook._glb_parse`).
+    let mut world = vec![None; g.nodes().len()];
+    let roots: Vec<gltf::Node> = match g.default_scene().or_else(|| g.scenes().next()) {
+        Some(sc) => sc.nodes().collect(),
+        None => {
+            let kids: std::collections::HashSet<usize> = g.nodes().flat_map(|n| n.children().map(|c| c.index())).collect();
+            g.nodes().filter(|n| !kids.contains(&n.index())).collect()
+        }
+    };
+    let mut stack: Vec<(gltf::Node, Mat4)> = roots.into_iter().map(|n| (n, Mat4::IDENTITY)).collect();
+    while let Some((n, parent)) = stack.pop() {
+        if world[n.index()].is_some() {
+            continue;
+        }
+        let m = parent * Mat4::from_cols_array_2d(&n.transform().matrix());
+        world[n.index()] = Some(m);
+        stack.extend(n.children().map(|c| (c, m)));
+    }
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     for node in g.nodes() {
+        // glTF ignores a skinned mesh's node transform.
+        let m = if node.skin().is_some() { Mat4::IDENTITY } else { world[node.index()].unwrap_or(Mat4::IDENTITY) };
+        let nm = Mat3::from_mat4(m).inverse().transpose();
         let Some(mesh) = node.mesh() else { continue };
         if node.name() == Some("AABB") || want.as_deref().is_some_and(|w| node.name() != Some(w)) {
             continue;
@@ -163,9 +184,10 @@ pub fn decode_glb_part(bytes: &[u8], only: Option<usize>) -> Result<MeshData> {
             let nrm: Vec<[f32; 3]> = reader.read_normals().map(|n| n.collect()).unwrap_or_default();
             let uv: Vec<[f32; 2]> = reader.read_tex_coords(0).map(|t| t.into_f32().collect()).unwrap_or_default();
             for (i, p) in pos.iter().enumerate() {
+                let n = nrm.get(i).copied().unwrap_or([0.0, 1.0, 0.0]);
                 vertices.push(Vertex {
-                    pos: *p,
-                    nrm: nrm.get(i).copied().unwrap_or([0.0, 1.0, 0.0]),
+                    pos: m.transform_point3(Vec3::from(*p)).into(),
+                    nrm: (nm * Vec3::from(n)).normalize_or(Vec3::Y).into(),
                     uv: uv.get(i).copied().unwrap_or([0.0, 0.0]),
                 });
             }

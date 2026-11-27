@@ -799,3 +799,20 @@ def sink_all(level_bytes: bytes, depth: float = 1000.0) -> tuple[bytes, int]:
     cf.sections[-1] = cooked.Section(payload=new_sec)
     sunk_bytes, walls_sunk = sink_walls(cooked.emit(cf), None, depth)
     return sunk_bytes, n + len(walls_sunk)
+
+
+def minimap_rect(level: bytes) -> tuple[float, float, float, float] | None:
+    """The world rectangle a gameplay level's minimap picture covers:
+    ``(x0, z0, width, depth)`` in metres, or None when the level has no
+    ``Minimap`` object. Read from the four floats 22 bytes after the object's
+    name (Dark Hills -225, -220, 450, 450; Storm Island -205, -215, 420, 440)."""
+    import struct as _st
+
+    i = level.find(b"_Mini_Map.png")
+    j = level.rfind(b"Minimap", 0, i) if i > 0 else -1
+    if j < 0 or j + 22 + 16 > len(level):
+        return None
+    x0, z0, w, h = _st.unpack_from("<4f", level, j + 22)
+    if not (all(abs(v) < 5000 for v in (x0, z0)) and 10 < w < 5000 and 10 < h < 5000):
+        return None
+    return x0, z0, w, h

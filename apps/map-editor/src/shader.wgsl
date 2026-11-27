@@ -310,6 +310,38 @@ fn fs_mesh(i: MOut) -> @location(0) vec4<f32> {
     return vec4<f32>(rgb, 1.0);
 }
 
+// An effect's sprite: the quad (x, z in -0.5..0.5) turned to face the camera,
+// centred on the instance's origin, as wide as its x axis.
+@vertex
+fn vs_billboard(v: MIn) -> MOut {
+    let m = mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
+    let c = (m * vec4<f32>(0.0, 0.0, 0.0, 1.0)).xyz;
+    let size = length(m[0].xyz);
+    let fwd = normalize(c - g.eye.xyz);
+    var right = cross(vec3<f32>(0.0, 1.0, 0.0), fwd);
+    if (length(right) < 1e-3) { right = vec3<f32>(1.0, 0.0, 0.0); }
+    right = normalize(right);
+    let up = cross(fwd, right);
+    let wp = c + (right * v.pos.x - up * v.pos.z) * size;
+    var o: MOut;
+    o.clip = g.view_proj * vec4<f32>(wp, 1.0);
+    o.wp = wp;
+    o.nrm = -fwd;
+    o.uv = v.uv;
+    o.tint = v.tint;
+    return o;
+}
+
+@fragment
+fn fs_vfx(i: MOut) -> @location(0) vec4<f32> {
+    let a = albedo(i);
+    // Mask textures carry their shape in the colour; take the dimmer of the two
+    // as coverage so an opaque square never shows as a block.
+    let cover = min(a.a, max(a.r, max(a.g, a.b)));
+    let rgb = mix(a.rgb, i.tint.rgb, i.tint.a);
+    return vec4<f32>(rgb * g.params.y, cover * 0.8);
+}
+
 @fragment
 fn fs_decal(i: MOut) -> @location(0) vec4<f32> {
     let a = albedo(i);

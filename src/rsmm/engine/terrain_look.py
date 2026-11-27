@@ -45,8 +45,9 @@ def _texture_rel(path: str) -> str:
     return "3D/" + path.replace("\\", "/").rsplit(".", 1)[0] + ".png"
 
 
-def material_params(data: bytes) -> dict[str, object]:
-    """``{name: [floats] | {"texture": rel}}`` for every shader parameter."""
+def material_params(data: bytes, raw: bool = False) -> dict[str, object]:
+    """``{name: [floats] | {"texture": rel}}`` for every shader parameter
+    (``raw``: the texture as the material names it, ``Terrain\\T_x.tga``)."""
     found: list[tuple[int, int, str]] = []
     for m in _PARAM_RE.finditer(data):
         s = m.start()
@@ -64,7 +65,7 @@ def material_params(data: bytes) -> dict[str, object]:
         refs = MS.resource_refs(seg)
         tex = next((p for _r, p in refs if p.lower().endswith((".tga", ".png"))), None)
         if tex:
-            out[name] = {"texture": _texture_rel(tex)}
+            out[name] = {"texture": tex if raw else _texture_rel(tex)}
             continue
         vals = []
         for k in range(0, min(len(seg) - 3, 16), 4):
@@ -73,6 +74,23 @@ def material_params(data: bytes) -> dict[str, object]:
                 break
             vals.append(round(v, 6))
         out[name] = vals
+    return out
+
+
+def terrain_material_ref(level: bytes) -> str | None:
+    """The ``M_Terrain_`` material a terrain level draws with."""
+    return next((p for r, p in MS.resource_refs(level)
+                 if r == "3D" and "\\M_Terrain_" in p and "_Fog" not in p), None)
+
+
+def slot_albedos(mat: bytes) -> dict[str, str]:
+    """``{slot: albedo texture ref}`` of a terrain material (``base``, ``R`` .. ``A``)."""
+    params = material_params(mat, raw=True)
+    out = {}
+    for s in SLOTS:
+        v = params.get(f"u_ALB_{s}")
+        if isinstance(v, dict):
+            out[s] = v["texture"]
     return out
 
 

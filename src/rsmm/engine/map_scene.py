@@ -89,6 +89,7 @@ class Part:
     swap_rb: bool             # the png came from an uncompressed (R/B-swapped) texture
     color: str | None = None  # flat colour when the material has no texture
     decal: bool = False       # draw the texture on a flat quad, not the mesh
+    vfx: bool = False         # an effect's sprites: camera-facing glowing quads
 
 
 # --------------------------------------------------------------------------
@@ -180,7 +181,9 @@ TEXTURE_EDGE = 256
 def _cooked_key(rel: str) -> str | None:
     """Decoded key of the cooked file a page path (``3D/...fbx.glb`` or
     ``3D/....png``) is converted from, when the game ships one."""
-    if not rel.startswith("3D/"):
+    if rel.startswith("FX/") and rel.endswith(".png"):
+        pass                             # an effect's sprite (see `vfx_parts`)
+    elif not rel.startswith("3D/"):
         return None
     path = rel[3:].replace("/", "\\")
     if path.endswith(".fbx.glb"):
@@ -326,13 +329,13 @@ def submesh_count(rel: str) -> int:
 
 
 @functools.lru_cache(maxsize=4096)
-def material_albedo(mat_path: str) -> tuple[str | None, bool]:
+def material_albedo(mat_path: str, root: str = "3D") -> tuple[str | None, bool]:
     """``(png path, swap_rb)`` of a material's albedo texture, when one can be drawn."""
-    data = _bytes("3D", mat_path)
+    data = _bytes(root, mat_path)
     if not data:
         return None, False
     texs = [p for r, p in resource_refs(data)
-            if r == "3D" and p.lower().endswith((".tga", ".png"))]
+            if r == root and p.lower().endswith((".tga", ".png"))]
 
     def score(p: str) -> int:
         stem = p.rsplit("\\", 1)[-1].rsplit(".", 1)[0].lower()
@@ -346,7 +349,7 @@ def material_albedo(mat_path: str) -> tuple[str | None, bool]:
     for p in sorted(texs, key=score):
         if score(p) == 99:
             break
-        rel = "3D/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
+        rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
         if _uncooked(rel):
             return rel, _texture_uncompressed(p)
         if _cooked_key(rel):
@@ -384,14 +387,62 @@ def mul(a: Matrix, b: Matrix) -> Matrix:
 # entities
 # --------------------------------------------------------------------------
 
+#: Sprites one effect previews with, at most (each emitter is one sprite cloud).
+MAX_VFX_SPRITES = 6
+
+
+@functools.lru_cache(maxsize=2048)
+def vfx_parts(path: str) -> tuple[tuple[Part, Matrix], ...]:
+    """An effect (``FX`` root, ``*.vfx.ot``) as a few sprites: each billboard
+    emitter's texture, placed over its emission box and sized by its spawn
+    radius. A preview, not the game's simulation (no motion, ramps or timing)."""
+    from . import vfx_codec as V
+
+    data = _bytes("FX", path)
+    if not data:
+        return ()
+    try:
+        objs = V.decode(data).objects
+    except Exception:  # noqa: BLE001 — an effect the codec cannot read only draws nothing
+        return ()
+    out: list[tuple[Part, Matrix]] = []
+    emitter = None
+    for o in objs:
+        f = o.fields or {}
+        if o.cls == "oC3dParticleEmitterSettings":
+            emitter = f
+        elif o.cls == "oI3dBillboardParticleRendererSettings" and emitter is not None:
+            tex, swap = material_albedo(f.get("material", ""), f.get("material_root") or "FX")
+            if tex:
+                box = emitter.get("vec_d8") or [0.0, 0.0, 0.0]
+                life = emitter.get("range_80") or [1.0, 1.0]
+                # A sprite as big as the emission box, never smaller than 0.3 m.
+                size = max(0.3, min(4.0, 2 * max(abs(b) for b in box) or 0.5 * max(life)))
+                lift = 0.5 + max(0.0, box[1])
+                m = (size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0,
+                     0.0, 0.0, size, 0.0, 0.0, lift, 0.0, 1.0)
+                out.append((Part(f"vfx:{tex}", tex, swap, None, False, True), m))
+            emitter = None
+        if len(out) >= MAX_VFX_SPRITES:
+            break
+    return tuple(out)
+
+
 @functools.lru_cache(maxsize=8192)
 def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
-    """What entity `ref` (an ``EntitySettings`` path) draws, in its own space."""
+    """What entity `ref` (an ``EntitySettings`` path) draws, in its own space:
+    its meshes (or its children's) plus its effects' sprites."""
     if depth > MAX_DEPTH or ref.lower().startswith(_HELPER_ENTITIES):
         return ()
     data = _bytes("EntitySettings", ref)
     if not data:
         return ()
+    fx = tuple(p for r, path in resource_refs(data)
+               if r == "FX" and path.lower().endswith(".vfx.ot") for p in vfx_parts(path))
+    return _entity_meshes(ref, data, depth) + fx[:MAX_VFX_SPRITES]
+
+
+def _entity_meshes(ref: str, data: bytes, depth: int) -> tuple[tuple[Part, Matrix], ...]:
     refs = resource_refs(data)
 
     own: list[tuple[Part, Matrix]] = []
@@ -505,7 +556,7 @@ def to_json(parts: list[tuple[Part, Matrix]]) -> dict:
             a.byteswap()
     return {
         "parts": [{"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
-                   "color": p.color, "decal": p.decal} for p in order],
+                   "color": p.color, "decal": p.decal, "vfx": p.vfx} for p in order],
         "matrices": [base64.b64encode(a.tobytes()).decode("ascii") for a in mats],
         "instances": len(parts),
     }
