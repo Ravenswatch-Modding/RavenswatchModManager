@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from . import entity_graph as EG
 from . import entity_graph_edit as GE
 from . import entity_parts as P
+from . import named_id
 from . import talent_add_stat as TA
 from . import talent_writer as TW
 
@@ -154,26 +155,50 @@ def reader(raw: bytes, *, flag_guid: bytes, flag_label: str, owner_resource: str
         raise StatusError(str(e)) from e
 
 
+def custom_key(status: str) -> tuple[str, str] | None:
+    """``(mod id, name)`` of a custom status key ``"<mod id>:<Name>"``, or None
+    for a vanilla status name. An empty mod id or name is refused."""
+    if ":" not in status:
+        return None
+    mod_id, _, name = status.partition(":")
+    if not mod_id or not name:
+        raise StatusError(f"custom status {status!r} must be '<mod id>:<Name>'")
+    return mod_id, name
+
+
+def _donor_key(status: str) -> str:
+    """The ``DONORS`` entry ``status`` copies: itself, or Marked for a custom one."""
+    return "Marked" if custom_key(status) else status
+
+
 def add_status(ef: GE.EntityFile, donor: GE.EntityFile, donor_raw: bytes, *, damage: str,
                status: str, switch: str, talent: str, seed: str = "",
-               duration: float | str | None = None) -> None:
+               duration: float | str | None = None,
+               amount: float | str | None = None) -> None:
     """``ef``'s damage record ``damage`` also puts ``status`` on whoever it hits
     while ``switch`` (a state or true/false value of this file) is on (step 3),
     in place. ``duration`` (seconds, or a value part of ``ef``) is required for
     an ``own_duration`` donor (Marked) and refused for the others, whose
-    duration is the donor's own."""
-    if status not in DONORS:
+    duration is the donor's own. A custom status (``"<mod id>:<Name>"``) copies
+    the Marked donor with its ``modifier_id`` set to the key's id; it needs a
+    ``duration`` and takes an optional ``amount``, set the same way."""
+    custom = custom_key(status)
+    key = _donor_key(status)
+    if key not in DONORS:
         raise StatusError(f"unknown status {status!r}; one of {', '.join(DONORS)}")
-    d = DONORS[status]
+    d = DONORS[key]
+    label = custom[1] if custom else status
     if d.own_duration and duration in (None, ""):
         raise StatusError(f"{status} needs a duration (seconds, or a value part)")
     if not d.own_duration and duration not in (None, ""):
         raise StatusError(f"{status} keeps its donor's duration; it takes none")
+    if not custom and amount not in (None, ""):
+        raise StatusError(f"{status} keeps its donor's amount; only a custom status takes one")
     c = ef.component(damage)
     if not c.cls.endswith("CpntDamageSettings"):
         raise StatusError(f"{damage!r} is not a damage record")
     obj = debuff_of(donor_raw, d.modifier)
-    mod = f"Skill {talent} {status} On {damage}"
+    mod = f"Skill {talent} {label} On {damage}"
     if any(x.name == mod for x in ef.graph().components):
         raise StatusError(f"{damage!r} already applies {status} for {talent!r}")
     rename = {d.modifier: mod, **{n: f"{mod} {n}" for n in d.numbers}}
@@ -183,11 +208,16 @@ def add_status(ef: GE.EntityFile, donor: GE.EntityFile, donor_raw: bytes, *, dam
                  seed=f"{seed}:{talent}:{status}:{damage}")
         ef.add_subobject(damage, _DEBUFFS, donor, obj,
                          refs={donor.component(d.modifier).guid: mod}, switch=switch)
-        if d.own_duration:
-            if isinstance(duration, str):
-                ef.set_ref(mod, "duration", duration)
+        for field, v in (("duration", duration if d.own_duration else None),
+                         ("amount", amount if custom else None)):
+            if v in (None, ""):
+                continue
+            if isinstance(v, str):
+                ef.set_ref(mod, field, v)
             else:
-                ef.set_value(mod, "duration", float(duration))
+                ef.set_value(mod, field, float(v))
+        if custom:
+            ef.set_value(mod, "modifier_id", named_id.of(status))
     except GE.EntityEditError as e:
         raise StatusError(f"{damage!r}: {e}") from e
 
@@ -195,25 +225,27 @@ def add_status(ef: GE.EntityFile, donor: GE.EntityFile, donor_raw: bytes, *, dam
 def donor_of(status: str) -> tuple[GE.EntityFile, bytes]:
     """The shipped entity holding ``status``'s donor debuff (game install or mirror)."""
     from . import corpus
-    if status not in DONORS:
+    key = _donor_key(status)
+    if key not in DONORS:
         raise StatusError(f"unknown status {status!r}; one of {', '.join(DONORS)}")
-    raw = corpus.read(DONORS[status].rel)
+    raw = corpus.read(DONORS[key].rel)
     if raw is None:
-        raise StatusError(f"{status}'s donor {DONORS[status].rel} is not in the game files")
+        raise StatusError(f"{status}'s donor {DONORS[key].rel} is not in the game files")
     return GE.EntityFile(raw), raw
 
 
 def apply_status(raw: bytes, donor_raw: bytes, *, damage: str, status: str, switch: str,
                  talent: str, seed: str = "", scope: str = "",
-                 duration: float | str | None = None) -> bytes:
+                 duration: float | str | None = None,
+                 amount: float | str | None = None) -> bytes:
     """Return ``raw`` with damage record ``damage`` also putting ``status`` on
     whoever it hits while ``switch`` (a state or true/false value of this file)
-    is on (step 3)."""
-    if status not in DONORS:
+    is on (step 3). ``status`` is a vanilla name or a custom ``"<mod id>:<Name>"``."""
+    if _donor_key(status) not in DONORS:
         raise StatusError(f"unknown status {status!r}; one of {', '.join(STATUSES)}")
     ef = GE.EntityFile(raw, scope)
     add_status(ef, GE.EntityFile(donor_raw), donor_raw, damage=damage, status=status,
-               switch=switch, talent=talent, seed=seed, duration=duration)
+               switch=switch, talent=talent, seed=seed, duration=duration, amount=amount)
     return ef.to_bytes()
 
 

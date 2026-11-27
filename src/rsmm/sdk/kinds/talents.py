@@ -102,11 +102,14 @@ Fields:
                                entity's look grows with it (its root node's
                                ground scale); ``visual = false`` keeps it. See
                                ``rsmm.engine.talent_range``.
-    ``on_hit``                 list of ``{talent, damage, status, file?}``: while
-                               ``talent`` is owned, the damage record ``damage``
-                               (one of an ability's hits) also puts ``status``
-                               (Chilled, Ignite, Bleed, Vulnerable, Weak,
-                               Rooted) on whoever it hits. See
+    ``on_hit``                 list of ``{talent, damage, status, file?,
+                               duration?, amount?}``: while ``talent`` is
+                               owned, the damage record ``damage`` (one of an
+                               ability's hits) also puts ``status`` (Chilled,
+                               Ignite, Bleed, Vulnerable, Weak, Rooted; Marked
+                               with a ``duration``; or a custom
+                               ``"<mod id>:<Name>"`` with a ``duration`` and an
+                               optional ``amount``) on whoever it hits. See
                                ``rsmm.engine.talent_status``.
     ``rebuild``                list of talent names whose own effect is turned
                                OFF, keeping the card: the talent builder's blank
@@ -582,7 +585,8 @@ def _coerce_on_hit(raw) -> list[dict]:
         if f is not None and not isinstance(f, str):
             raise ContentError(f"on_hit: file must be an entity file name, got {f!r}")
         out.append({"talent": str(e["talent"]), "damage": str(e["damage"]),
-                    "status": str(e["status"]), "file": f})
+                    "status": str(e["status"]), "file": f,
+                    "duration": e.get("duration"), "amount": e.get("amount")})
     return out
 
 
@@ -600,13 +604,10 @@ def _apply_on_hit(defn, mod_id, hero_dir, entries, files, edited, home) -> None:
     main = f"{hero_dir.name}{_GEN_SUFFIX}"
     owner = f"Heroes\\{hero_dir.name}\\{hero_dir.name}.entity.ot"
     for e in entries:
-        if e["status"] not in TS.DONORS:
-            raise ContentError(f"talent {defn.id}: unknown status {e['status']!r}; one of "
-                               + ", ".join(TS.STATUSES))
-        donor = corpus.read(TS.DONORS[e["status"]].rel)
-        if donor is None:
-            raise ContentError(f"talent {defn.id}: on_hit needs the game's files to copy "
-                               f"{e['status']} from")
+        try:
+            _, donor = TS.donor_of(e["status"])
+        except TS.StatusError as err:
+            raise ContentError(f"talent {defn.id}: on_hit: {err}") from err
         p = home(e["talent"])
         hosts = [q for q in _files_named(files, e["file"])
                  if any(c.name == e["damage"] and c.cls.endswith("CpntDamageSettings")
@@ -639,7 +640,8 @@ def _apply_on_hit(defn, mod_id, hero_dir, entries, files, edited, home) -> None:
                                       scope=_stem(q))
             edited[q] = TS.apply_status(edited.get(q) or q.read_bytes(), donor,
                                         damage=e["damage"], status=e["status"], switch=switch,
-                                        talent=e["talent"], seed=seed, scope=_stem(q))
+                                        talent=e["talent"], seed=seed, scope=_stem(q),
+                                        duration=e["duration"], amount=e["amount"])
         except (TS.StatusError, TA.AddStatError) as err:
             raise ContentError(f"talent {mod_id}/{defn.id}: {err}") from err
         _log.info("talent %s/%s: %s makes %s apply %s (%s)", mod_id, defn.id, e["talent"],

@@ -335,6 +335,64 @@ def test_add_status_step_goes_through_the_donors():
         _mel_apply([{"add_status": dmg, "switch": state, "talent": "Attack Speed"}])
 
 
+def _status_step(status, **extra):
+    from rsmm.engine import corpus
+    from rsmm.engine import talent_add_stat as TA
+    mel = corpus.read(_MEL)
+    if mel is None:
+        pytest.skip("no Melusine entity")
+    ctl = next(c for c in EG.parse(mel).components if c.name == "Skill Controller Attack Speed")
+    state = TA.owned_state(EG.parse(mel), ctl, "Attack Speed").name
+    dmg = "Skill Defense Block Attack Damage"
+    return dmg, {"add_status": [dmg], "status": status, "switch": state,
+                 "talent": "Attack Speed", **extra}
+
+
+def _mel_file(steps):
+    from rsmm.engine import corpus
+    from rsmm.engine.entity_graph_edit import EntityFile
+    raw = corpus.read(_MEL)
+    out = AE.apply({"Hero_Melusine": raw}, steps, main="Hero_Melusine",
+                   seed="t").files["Hero_Melusine"]
+    return EntityFile(out, "Hero_Melusine")
+
+
+@needs_corpus
+def test_add_status_custom_key_copies_marked_with_the_keys_id():
+    dmg, step = _status_step("blood-wolf:Frostbite", duration=4, amount=2.5)
+    ef = _mel_file([step])
+    mod = f"Skill Attack Speed Frostbite On {dmg}"
+    assert ef.get_value(mod, "modifier_id") == 0xAF14EC8D
+    assert ef.get_value(mod, "duration") == pytest.approx(4)
+    assert ef.get_value(mod, "amount") == pytest.approx(2.5)
+    with pytest.raises(AE.AbilityEditError, match="needs a duration"):
+        _mel_apply([{**step, "duration": None}])
+    with pytest.raises(AE.AbilityEditError, match="already applies"):
+        _mel_apply([step, step])
+
+
+@needs_corpus
+def test_add_status_amount_is_refused_for_a_vanilla_status():
+    _dmg, step = _status_step("Marked", duration=4, amount=2)
+    with pytest.raises(AE.AbilityEditError, match="only a custom status takes one"):
+        _mel_apply([step])
+
+
+@needs_corpus
+@pytest.mark.parametrize("key", [":X", "m:"])
+def test_add_status_malformed_custom_key_fails(key):
+    _dmg, step = _status_step(key, duration=4)
+    with pytest.raises(AE.AbilityEditError, match="must be"):
+        _mel_apply([step])
+
+
+@needs_corpus
+def test_add_status_vanilla_bleed_is_unchanged():
+    dmg, step = _status_step("Bleed")
+    g = _mel_apply([step])
+    assert f"Skill Attack Speed Bleed On {dmg}" in g
+
+
 @needs_corpus
 def test_owner_read_activates_in_event_init_on_melody_zone():
     """Entities whose start-up state is ``Event Init`` (e.g. melody zone
