@@ -522,6 +522,7 @@
                 "surfaces": {},
                 "terrain": {},
                 "tilegen": {},
+                "tiling": {},
                 "tribe": {},
                 "when": {}
               },

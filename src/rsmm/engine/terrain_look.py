@@ -77,6 +77,26 @@ def material_params(data: bytes, raw: bool = False) -> dict[str, object]:
     return out
 
 
+def set_float_params(data: bytes, values: dict[str, float]) -> bytes:
+    """``data`` (a material) with the first float of each named parameter set
+    to ``values[name]``; same size, so nothing else moves. A name the material
+    does not carry raises."""
+    out = bytearray(data)
+    for name, v in values.items():
+        key = name.encode("ascii")
+        # The name is length-prefixed (as `material_params` reads it).
+        at, s = -1, data.find(key)
+        while s >= 0:
+            if s >= 4 and struct.unpack_from("<I", data, s - 4)[0] == len(key):
+                at = s + len(key) + 4               # past the name hash
+                break
+            s = data.find(key, s + 1)
+        if at < 0:
+            raise LookError(f"the material has no {name}")
+        struct.pack_into("<f", out, at, float(v))
+    return bytes(out)
+
+
 def terrain_material_ref(level: bytes) -> str | None:
     """The ``M_Terrain_`` material a terrain level draws with."""
     return next((p for r, p in MS.resource_refs(level)

@@ -143,6 +143,13 @@ struct TileSession {
     built: bool,
 }
 
+/// Tool::Place prefix for a saved prefab.
+const PREFAB: &str = "prefab:";
+
+/// What a tile's `clear = true` keeps (`poi.CLEAR_KEEP`): its enemies, camp
+/// reward, terrain shapes and reward pedestal.
+const TILE_CLEAR_KEEP: [&str; 4] = ["Enemy_Spawner", "Enemy_Camp_Reward", "LD_Terrain_Shapes", "LD_Reward_Pedestal"];
+
 /// A document tab: the map, or one tile.
 struct Tab {
     title: String,
@@ -276,6 +283,7 @@ enum Cmd {
     UnlockAll,
     Group,
     Array,
+    SavePrefab,
     Grab,
     Rotate,
     Scale,
@@ -335,6 +343,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Unlock all", "Alt+L", Cmd::UnlockAll),
     ("Group selected", "Ctrl+G", Cmd::Group),
     ("Array: repeat the selection…", "", Cmd::Array),
+    ("Save selection as prefab…", "", Cmd::SavePrefab),
     ("Move (grab)", "G  then X/Y/Z, a number, Enter", Cmd::Grab),
     ("Rotate", "R  then X/Y/Z, a number, Enter", Cmd::Rotate),
     ("Scale", "S  then X/Y/Z, a number, Enter", Cmd::Scale),
@@ -508,6 +517,8 @@ pub struct MapEditor {
     guides: std::cell::RefCell<Vec<(Vec3, Vec3)>>,
     /// The ruler: first point, then the second (None while picking it).
     measure: Option<(Vec3, Option<Vec3>)>,
+    /// Save selection as prefab: the name being typed.
+    prefab_name: Option<String>,
     /// Object > Array…
     show_array: bool,
     array_count: u32,
@@ -681,6 +692,7 @@ impl MapEditor {
             guides: std::cell::RefCell::new(Vec::new()),
             measure: None,
             show_array: false,
+            prefab_name: None,
             array_count: 5,
             array_step: Vec3::new(4.0, 0.0, 0.0),
             array_yaw: 0.0,
@@ -1388,7 +1400,8 @@ impl MapEditor {
                 println!("tile-check: {} objects in {}", n, ts.tile);
                 let xf0 = self.scenery.as_ref().map(|s| s.obj_xf[0]);
                 if let Some(x) = xf0 {
-                    self.set_many(vec![(Sel::Obj(0), Xf { pos: x.pos + Vec3::new(1.0, 0.0, 0.0), ..x })]);
+                    // Moved, turned and resized: the move carries all three.
+                    self.set_many(vec![(Sel::Obj(0), Xf { pos: x.pos + Vec3::new(1.0, 0.0, 0.0), rot: Quat::from_rotation_x(0.3) * x.rot, scale: x.scale * 1.5 })]);
                 }
                 if n > 1 {
                     self.select_only([Sel::Obj(1)]);
@@ -1397,6 +1410,11 @@ impl MapEditor {
                 let prop = self.props.first().map(|p| p.entity.clone());
                 if let (Some(p), Some(x)) = (prop, xf0) {
                     self.place(ctx, p, x.pos + Vec3::new(3.0, 0.0, 3.0));
+                    // A tilted, stretched place.
+                    if let Some(a) = self.edits.adds.last_mut() {
+                        a.rot = Quat::from_rotation_z(0.4);
+                        a.scale = Vec3::new(1.0, 2.0, 1.5);
+                    }
                 }
                 println!("tile-check body: {}", self.tile_body(false).map(|b| b.0.to_string()).unwrap_or_default().chars().take(600).collect::<String>());
                 self.submit(Pending::Check);
@@ -1435,6 +1453,17 @@ impl MapEditor {
             self.make_array(ctx);
             assert_eq!(self.edits.adds.len(), before + 2, "array adds its copies");
         }
+        // Prefab: the arrayed props as a document, stood again elsewhere (no disk).
+        if self.edits.adds.len() >= 3 {
+            let keep = self.sel.clone();
+            let picked: Vec<Sel> = self.edits.adds.iter().take(3).map(|a| Sel::Add(a.uid)).collect();
+            self.select_only(picked);
+            let doc = self.prefab_doc();
+            let level = self.edits.adds[0].level.clone();
+            let n = self.place_prefab_doc(ctx, "check", &doc, &level, a.pos + Vec3::new(-20.0, 0.0, -20.0));
+            assert_eq!(n, 3, "a prefab stands every object it holds");
+            self.sel = keep;
+        }
         // Painted blocked ground and edge walls.
         self.edits.blocked.extend((0..6).flat_map(|x| (0..3).map(move |z| (x + 20, z + 20))));
         self.add_edge_walls();
@@ -1464,6 +1493,8 @@ impl MapEditor {
         self.brush.mode = BrushMode::Paint(1);
         self.dab(a.pos + Vec3::new(5.0, 0.0, 0.0), false, false);
         self.map_id = "Map_Check".into();
+        // Ground tiling: the clone's own terrain material.
+        self.keep_map.get_or_insert_with(|| json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": []}))["tiling"] = json!({"base": 0.05});
         // Copy / paste / undo / redo must keep the document consistent.
         self.select_only([Sel::Obj(2)]);
         self.run(ctx, Cmd::Copy);
@@ -1769,14 +1800,14 @@ impl MapEditor {
         let ground: Vec<Option<f32>> = ok.iter().map(|(_, _, x, _)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
         self.change(|e, _| {
             for ((entity, level, x, src), gy) in ok.into_iter().zip(ground) {
-                let (col, camp) = src.map(|a| (a.col, a.camp)).unwrap_or_default();
+                let (col, camp, name) = src.map(|a| (a.col, a.camp, a.name)).unwrap_or_default();
                 let mut pos = at + x.pos;
                 if snap_ground {
                     if let Some(g) = gy {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name: String::new(), col, camp }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name, col, camp }));
             }
         });
         let n = new.len();
@@ -1823,6 +1854,10 @@ impl MapEditor {
             })
             .map(|i| s.levels[s.obj_level[i] as usize].clone());
         let Some(level) = best else { return };
+        if let Some(name) = entity.strip_prefix(PREFAB) {
+            self.place_prefab(ctx, name, &level, at);
+            return;
+        }
         self.ensure_template(ctx, &entity);
         let mut sel = None;
         let col = crate::edit::default_cols(&entity);
@@ -2341,29 +2376,42 @@ impl MapEditor {
     fn tile_body(&self, with_id: bool) -> Option<(Value, Vec<String>)> {
         let ts = self.tile.as_ref()?;
         let s = self.scenery.as_ref()?;
-        let mut notes = Vec::new();
+        let notes = Vec::new();
         let r3 = |v: Vec3| json!([v.x, v.y, v.z]);
         let places: Vec<Value> = self
             .edits
             .adds
             .iter()
-            .map(|a| json!({"entity": a.entity, "pos": r3(a.pos - ts.origin), "yaw": a.yaw(), "scale": a.scale.x}))
+            .map(|a| {
+                // `places` as the poi kind reads them: yaw or quat, one scale or three.
+                let mut o = a.xf_json(a.pos - ts.origin);
+                o.as_object_mut().map(|m| m.remove("collision"));
+                o
+            })
             .collect();
         let mut moves = Vec::new();
         for (&i, xf) in &self.edits.moves {
             let (e, p0, r0, s0) = &ts.objects[i];
-            if (xf.rot.dot(*r0)).abs() < 0.9999 || (xf.scale - *s0).length() > 1e-3 {
-                notes.push(format!("{}: a tile object can be moved, not rotated or scaled — only the move is saved", self.name_of(Sel::Obj(i))));
+            let mut m = json!({"entity": e, "at": r3(*p0), "pos": r3(xf.pos - ts.origin)});
+            // A turned or resized object carries its new rotation / scale too.
+            if xf.rot.dot(*r0).abs() < 0.9999 {
+                let q = xf.rot.normalize();
+                m["quat"] = json!([q.x, q.y, q.z, q.w]);
             }
-            moves.push(json!({"entity": e, "at": r3(*p0), "pos": r3(xf.pos - ts.origin)}));
+            if (xf.scale - *s0).length() > 1e-3 {
+                m["scale"] = r3(xf.scale);
+            }
+            moves.push(m);
         }
         let removes: Vec<Value> = self.edits.removed.iter().map(|&i| json!({"entity": ts.objects[i].0, "at": r3(ts.objects[i].1)})).collect();
+        // Everything but what `clear` keeps is gone: an empty tile, saved as `clear`.
+        let cleared = ts.objects.len() > 1 && (0..ts.objects.len()).all(|i| self.edits.removed.contains(&i) || TILE_CLEAR_KEEP.iter().any(|k| ts.objects[i].0.contains(k)));
         let own = !moves.is_empty() || !removes.is_empty();
         let mut b = json!({"tile": ts.tile, "places": places, "own": own});
         if own {
             b["copies"] = json!(1);
-            b["clear"] = json!(false);
-            b["remove"] = Value::Array(removes);
+            b["clear"] = json!(cleared);
+            b["remove"] = if cleared { json!([]) } else { Value::Array(removes) };
             b["move"] = Value::Array(moves);
         }
         if with_id {
@@ -2465,6 +2513,13 @@ impl MapEditor {
                 self.select_only([]);
             }
             Cmd::UnlockAll => self.locked.clear(),
+            Cmd::SavePrefab => {
+                if self.sel.iter().any(|s| !matches!(s, Sel::Spot(_))) {
+                    self.prefab_name = Some(String::new());
+                } else {
+                    self.status = "Prefab: select the objects to save first".into();
+                }
+            }
             Cmd::Array => {
                 if self.sel.iter().any(|s| !matches!(s, Sel::Spot(_))) {
                     self.show_array = true;
@@ -2640,21 +2695,13 @@ impl MapEditor {
 
     /// The gizmo's handles for the current selection (see `GizmoSpec`).
     fn gizmo_spec(&self, mode: GizmoMode) -> GizmoSpec {
-        // A tile's `places` save a yaw and one scale only; the map's own objects take any.
-        let adds_only = self.tile.is_some() && !self.sel.is_empty() && self.sel.iter().all(|s| matches!(s, Sel::Add(_)));
         let lead = self.active.filter(|a| self.sel.contains(a)).or_else(|| self.sel.iter().next().copied());
         // Scale is always along the object's own axes; move and rotate when Local is on.
         let basis = match (mode == GizmoMode::Scale || self.gizmo_local, &self.scenery, lead) {
             (true, Some(s), Some(l)) => self.edits.xf(s, l).map_or(Quat::IDENTITY, |x| x.rot.normalize()),
             _ => Quat::IDENTITY,
         };
-        let axes = match mode {
-            GizmoMode::Move => [true; 3],
-            GizmoMode::Rotate if adds_only => [false, true, false],
-            GizmoMode::Rotate => [true; 3],
-            GizmoMode::Scale => [!adds_only; 3],
-        };
-        GizmoSpec { mode, basis, axes, planes: mode == GizmoMode::Move || (mode == GizmoMode::Scale && !adds_only) }
+        GizmoSpec { mode, basis, axes: [true; 3], planes: mode != GizmoMode::Rotate }
     }
 
     /// The live scale factor: typed, else along the handle grabbed (a gizmo
@@ -4217,6 +4264,7 @@ impl MapEditor {
                 item(ui, "Reset transform", "Alt+G", Cmd::ResetTransform);
                 item(ui, "Drop to ground", "End", Cmd::DropToGround);
                 item(ui, "Array…", "", Cmd::Array);
+                item(ui, "Save as prefab…", "", Cmd::SavePrefab);
                 ui.menu_button("Align", |ui| {
                     for (label, _, c) in COMMANDS.iter().filter(|(_, _, c)| matches!(c, Cmd::Align(..))) {
                         if ui.button(label.trim_start_matches("Align ")).clicked() {
@@ -4529,6 +4577,34 @@ impl MapEditor {
             }
         }
         let ok = self.needs_map() && self.tile.is_none() && self.terrain.is_some();
+        let prefabs = session::list_prefabs();
+        ui.add_enabled_ui(!prefabs.is_empty(), |ui| {
+            ui.menu_button("Prefab", |ui| {
+                let mut drop = None;
+                for n in &prefabs {
+                    ui.horizontal(|ui| {
+                        if ui.button(n.replace('_', " ")).on_hover_text("Click, then click the ground (Shift keeps placing)").clicked() {
+                            self.tool = Tool::Place(format!("{PREFAB}{n}"));
+                            self.status = format!("Click the ground to place prefab {n}");
+                            ui.close();
+                        }
+                        if icons::button(ui, Icon::Trash, false, "Delete this prefab").clicked() {
+                            drop = Some(n.clone());
+                        }
+                    });
+                }
+                if let Some(n) = drop {
+                    session::delete_prefab(&n);
+                    self.status = format!("Deleted prefab {n}");
+                }
+            });
+        })
+        .response
+        .on_disabled_hover_text("No prefabs yet: select objects, then Object > Save as prefab…");
+        if ui.add_enabled(self.sel.iter().any(|s| !matches!(s, Sel::Spot(_))), egui::Button::new("Save selection as prefab…")).clicked() {
+            self.prefab_name = Some(String::new());
+            ui.close();
+        }
         if ui.add_enabled(ok, egui::Button::new("Edge walls")).on_hover_text("Invisible walls all around the ground, so heroes cannot walk off it").clicked() {
             self.add_edge_walls();
             ui.close();
@@ -4871,6 +4947,96 @@ impl MapEditor {
             self.unsaved = true;
             self.status = format!("Imported {}: drag it from Project into the scene", done.join(", "));
         }
+    }
+
+    /// The selection as a prefab document: each object relative to the
+    /// group's centre (height above the ground), with its own collision and
+    /// camp settings.
+    fn prefab_doc(&mut self) -> Value {
+        let saved = std::mem::take(&mut self.clipboard);
+        self.copy_selection();
+        let items = std::mem::replace(&mut self.clipboard, saved);
+        let docs: Vec<Value> = items
+            .into_iter()
+            .map(|(e, _l, x, src)| {
+                let a = src.unwrap_or_else(|| Add { uid: 0, entity: e, level: String::new(), pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None });
+                let a = Add { pos: x.pos, rot: x.rot, scale: x.scale, ..a };
+                let mut o = a.xf_json(a.pos);
+                if !a.name.is_empty() {
+                    o["name"] = json!(a.name);
+                }
+                o
+            })
+            .collect();
+        json!({"items": docs})
+    }
+
+    fn ui_prefab_name(&mut self, ctx: &egui::Context) {
+        let mut open = true;
+        let mut save = false;
+        let Some(name) = self.prefab_name.as_mut() else { return };
+        egui::Window::new("Save as prefab").open(&mut open).resizable(false).collapsible(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.label(egui::RichText::new("The selection, reusable on any map: Create > Prefab.").small().weak());
+            let r = ui.add(egui::TextEdit::singleline(name).hint_text("Market stall"));
+            r.request_focus();
+            save = (ui.button("Save").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))) && !name.trim().is_empty();
+        });
+        if save {
+            let name = self.prefab_name.take().unwrap_or_default();
+            let doc = self.prefab_doc();
+            let n = doc["items"].as_array().map_or(0, Vec::len);
+            self.status = match session::save_prefab(&name, &doc) {
+                Ok(()) => format!("Saved prefab {} ({n} objects): Create > Prefab", session::prefab_slug(&name)),
+                Err(e) => format!("Prefab not saved: {e}"),
+            };
+        } else if !open {
+            self.prefab_name = None;
+        }
+    }
+
+    /// Stand prefab `name` with its centre at `at`, as one undo step.
+    fn place_prefab(&mut self, ctx: &egui::Context, name: &str, level: &str, at: Vec3) {
+        let Some(doc) = session::load_prefab(name) else {
+            self.status = format!("Prefab {name} is gone");
+            return;
+        };
+        self.place_prefab_doc(ctx, name, &doc, level, at);
+    }
+
+    fn place_prefab_doc(&mut self, ctx: &egui::Context, name: &str, doc: &Value, level: &str, at: Vec3) -> usize {
+        let mut skipped = 0;
+        let items: Vec<(String, String, Xf, Option<Add>)> = doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| {
+                let e = o["entity"].as_str()?.to_owned();
+                // A model of another mod: not in this one, so it cannot be placed.
+                if let Some(rel) = e.strip_prefix(crate::models::PREFIX) {
+                    if !self.models.iter().any(|m| m.mesh.rel == rel) {
+                        skipped += 1;
+                        return None;
+                    }
+                }
+                let v = |k: usize| o["pos"][k].as_f64().unwrap_or(0.0) as f32;
+                let xf = Xf { pos: Vec3::new(v(0), v(1), v(2)), rot: crate::edit::read_rot(o), scale: crate::edit::read_scale(&o["scale"]) };
+                let src = Add {
+                    uid: 0,
+                    entity: e.clone(),
+                    level: level.to_owned(),
+                    pos: xf.pos,
+                    rot: xf.rot,
+                    scale: xf.scale,
+                    name: o["name"].as_str().unwrap_or_default().to_owned(),
+                    col: o.get("collision").map(crate::edit::ColBox::parse),
+                    camp: crate::edit::Camp::parse(&o["camp"]),
+                };
+                Some((e, level.to_owned(), xf, Some(src)))
+            })
+            .collect();
+        let n = self.paste_items(ctx, items, at);
+        self.status = format!("Placed prefab {name}: {n} objects{}", if skipped > 0 { format!(" ({skipped} models of another mod skipped)") } else { String::new() });
+        n
     }
 
     /// Object > Array…: copies of the selection in a row (fences, walls,
@@ -5731,6 +5897,7 @@ impl MapEditor {
             .unwrap_or_default();
         let mut pick_surface = None;
         let mut reset = None;
+        let mut tiling_set: Option<(String, Option<f32>)> = None;
         for (slot, label) in &names {
             ui.horizontal(|ui| {
                 ui.label(label);
@@ -5749,6 +5916,40 @@ impl MapEditor {
                     pick_surface = Some(slot.clone());
                 }
             });
+            // How often the layer's texture repeats per metre (the material's
+            // u_UV_<layer>_scale), saved as `map.tiling`.
+            let k = ["base", "R", "G", "B", "A"].iter().position(|x| x == slot).unwrap_or(0);
+            let shipped = self.look_base.as_ref().and_then(|l| l.slots.get(k)).map_or(0.1, |s| s.uv_scale);
+            let set = self.keep_map.as_ref().and_then(|m| m["tiling"][slot.as_str()].as_f64()).map(|v| v as f32);
+            let mut v = set.unwrap_or(shipped);
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                let r = ui.add(egui::Slider::new(&mut v, 0.01..=0.5).logarithmic(true).text("tiling /m"))
+                    .on_hover_text("How often the texture repeats per metre: smaller = bigger, less repetitive ground. Saves with the map.");
+                if r.changed() {
+                    tiling_set = Some((slot.clone(), Some(v)));
+                }
+                if set.is_some() && ui.small_button("Shipped").on_hover_text(format!("Back to {shipped:.3}")).clicked() {
+                    tiling_set = Some((slot.clone(), None));
+                }
+            });
+        }
+        if let Some((slot, v)) = tiling_set {
+            let m = self.keep_map.get_or_insert_with(|| json!({"pool": {"add": [], "remove": []}, "place": {}, "terrain": []}));
+            if !m["tiling"].is_object() {
+                m["tiling"] = json!({});
+            }
+            match v {
+                Some(v) => m["tiling"][slot.as_str()] = json!((v * 1000.0).round() / 1000.0),
+                None => {
+                    m["tiling"].as_object_mut().map(|o| o.remove(&slot));
+                }
+            }
+            if m["tiling"].as_object().is_some_and(|o| o.is_empty()) {
+                m.as_object_mut().map(|o| o.remove("tiling"));
+            }
+            self.unsaved = true;
+            self.refresh_look();
         }
         if let Some(slot) = pick_surface {
             self.spawn(ui.ctx(), move |_| {
@@ -6091,6 +6292,9 @@ impl MapEditor {
                 s.albedo = Some(t);
                 s.color = [1.0, 1.0, 1.0, 1.0]; // the picture as drawn, not tinted by the shipped colour
             }
+            if let (Some(v), Some(s)) = (self.keep_map.as_ref().and_then(|m| m["tiling"][*slot].as_f64()), look.slots.get_mut(k)) {
+                s.uv_scale = v as f32;
+            }
         }
         if let Some(r) = &mut self.renderer {
             r.set_look(look);
@@ -6388,6 +6592,7 @@ impl MapEditor {
                     let name = ts.tile.rsplit('\\').next().unwrap_or(&ts.tile).trim_end_matches(".tiledef.ot").to_owned();
                     let built = ts.built;
                     let mut exit = false;
+                    let mut empty_tile = false;
                     egui::Frame::group(ui.style()).fill(ui.visuals().selection.bg_fill.gamma_multiply(0.25)).show(ui, |ui| {
                         ui.label(egui::RichText::new(format!("Tile: {}", pretty_tile(&name))).strong());
                         ui.label(egui::RichText::new(if built {
@@ -6395,8 +6600,30 @@ impl MapEditor {
                         } else {
                             "Loading its objects…"
                         }).small());
-                        exit = ui.button("Close this tab").clicked();
+                        ui.horizontal(|ui| {
+                            exit = ui.button("Close this tab").clicked();
+                            let empty = ui.add_enabled(built, egui::Button::new("Empty this tile")).on_hover_text(
+                                "Start from scratch: remove every object but its enemies, camp reward, terrain shapes and reward pedestal. The tile keeps its size, kind and ground; it saves as an own copy.",
+                            );
+                            if empty.clicked() {
+                                empty_tile = true;
+                            }
+                        });
                     });
+                    if empty_tile {
+                        let gone: Vec<usize> = self.tile.as_ref().map(|ts| {
+                            (0..ts.objects.len()).filter(|&i| !TILE_CLEAR_KEEP.iter().any(|k| ts.objects[i].0.contains(k))).collect()
+                        }).unwrap_or_default();
+                        let n = gone.len();
+                        self.change(|e, _| {
+                            for i in gone {
+                                e.moves.remove(&i);
+                                e.removed.insert(i);
+                            }
+                        });
+                        self.prune_selection();
+                        self.status = format!("Emptied the tile: {n} objects removed (Ctrl+Z brings them back)");
+                    }
                     if exit {
                         if self.unsaved {
                             self.close_confirm = Some(self.active_tab);
@@ -6608,24 +6835,13 @@ impl MapEditor {
             }
             ui.end_row();
             row_menu(ui.add(egui::Label::new("Rotation").sense(egui::Sense::click())), 1, &mut row_cmd);
-            let yaw_only = matches!(sel, Sel::Add(_)) && self.tile.is_some();
             // Euler YXZ: show as X (pitch), Y (yaw), Z (roll).
-            for (k, idx) in [1usize, 0, 2].into_iter().enumerate() {
-                if yaw_only && idx != 0 {
-                    ui.label("—");
-                    continue;
-                }
-                let _ = k;
+            for idx in [1usize, 0, 2] {
                 track(ui.add(egui::DragValue::new(&mut ypr[idx]).speed(0.5).fixed_decimals(1).suffix("°")));
             }
             ui.end_row();
             row_menu(ui.add(egui::Label::new("Scale").sense(egui::Sense::click())), 2, &mut row_cmd);
             match sel {
-                Sel::Add(_) if self.tile.is_some() => {
-                    let mut k = new.scale.x;
-                    track(ui.add(egui::DragValue::new(&mut k).speed(0.01).range(0.05..=20.0).fixed_decimals(2)));
-                    new.scale = Vec3::splat(k);
-                }
                 Sel::Obj(_) | Sel::Add(_) => {
                     for k in 0..3 {
                         track(ui.add(egui::DragValue::new(&mut new.scale[k]).speed(0.01).range(0.05..=20.0).fixed_decimals(2)));
@@ -7312,6 +7528,9 @@ impl eframe::App for MapEditor {
         }
         if self.show_array {
             self.ui_array(&ctx);
+        }
+        if self.prefab_name.is_some() {
+            self.ui_prefab_name(&ctx);
         }
         if self.show_save_as {
             self.ui_save_as(&ctx);

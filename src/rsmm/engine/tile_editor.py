@@ -143,8 +143,33 @@ def _num(v, what: str, lo: float, hi: float) -> float:
     return float(v)
 
 
+def _xf(p: dict, what: str) -> dict:
+    """``yaw`` or ``quat = [x, y, z, w]``, and ``scale`` (one number or
+    ``[x, y, z]``), as the poi kind's ``places`` / ``move`` read them."""
+    out = {}
+    if "quat" in p:
+        q = p["quat"]
+        if not isinstance(q, list) or len(q) != 4:
+            raise TileEditError(f"{what}: quat needs four numbers")
+        q = [_num(v, f"{what} quat", -1.0001, 1.0001) for v in q]
+        n = sum(v * v for v in q) ** 0.5
+        if n < 1e-6:
+            raise TileEditError(f"{what}: quat is not a rotation")
+        out["quat"] = [round(v / n, 6) for v in q]
+    elif "yaw" in p:
+        out["yaw"] = round(_num(p.get("yaw", 0.0), f"{what} yaw", -360.0, 360.0), 3)
+    sc = p.get("scale", 1.0)
+    if isinstance(sc, list):
+        if len(sc) != 3:
+            raise TileEditError(f"{what}: scale is one number or three")
+        out["scale"] = [round(_num(v, f"{what} scale", *_SCALE_RANGE), 4) for v in sc]
+    elif "scale" in p or "yaw" in out or "quat" in out:
+        out["scale"] = round(_num(sc, f"{what} scale", *_SCALE_RANGE), 4)
+    return out
+
+
 def clean_places(places) -> list[dict]:
-    """Check what the page sent: ``[{entity, pos: [x, y, z], yaw, scale}]``."""
+    """Check what the page sent: ``[{entity, pos: [x, y, z], yaw | quat, scale}]``."""
     if not isinstance(places, list) or not places:
         raise TileEditError("add at least one object")
     if len(places) > 256:
@@ -159,11 +184,11 @@ def clean_places(places) -> list[dict]:
         pos = p.get("pos")
         if not isinstance(pos, list) or len(pos) != 3:
             raise TileEditError(f"object {i + 1}: pos needs three numbers")
+        xf = _xf({"yaw": 0.0, **p} if "quat" not in p else p, f"object {i + 1}")
         out.append({
             "entity": ent,
             "pos": [round(_num(v, f"object {i + 1} pos", -_POS_LIMIT, _POS_LIMIT), 4) for v in pos],
-            "yaw": round(_num(p.get("yaw", 0.0), f"object {i + 1} yaw", -360.0, 360.0), 3),
-            "scale": round(_num(p.get("scale", 1.0), f"object {i + 1} scale", *_SCALE_RANGE), 4),
+            **xf,
         })
     return out
 
@@ -209,7 +234,9 @@ def clean_edit(edit) -> dict:
         _anchor(r, f"removed object {i + 1}") for i, r in enumerate(edit.get("remove") or [])]
     out["move"] = [{**_anchor(m, f"moved object {i + 1}"),
                     "pos": _xyz(m.get("pos") if isinstance(m, dict) else None,
-                                f"moved object {i + 1} pos")}
+                                f"moved object {i + 1} pos"),
+                    # A turned or resized object also carries its rotation / scale.
+                    **_xf({k: m[k] for k in ("quat", "scale") if k in m}, f"moved object {i + 1}")}
                    for i, m in enumerate(edit.get("move") or [])]
     if len(out["remove"]) + len(out["move"]) > 512:
         raise TileEditError("at most 512 removed or moved objects per tile")
@@ -297,12 +324,23 @@ def poi_toml(tile: str, edit) -> str:
         ] + ["]", ""]
     for m in edit.get("move") or []:
         lines += ["[[move]]", f"entity = {_q(m['entity'])}", f"at     = {_v(m['at'])}",
-                  f"pos    = {_v(m['pos'])}", ""]
+                  f"pos    = {_v(m['pos'])}"]
+        if "quat" in m:
+            lines.append(f"quat   = {_v(m['quat'])}")
+        if "scale" in m:
+            lines.append(f"scale  = {_n(m['scale'])}")
+        lines.append("")
     for p in edit["places"]:
         lines += ["[[places]]", f"entity = {_q(p['entity'])}",
                   f"pos    = {_v(p['pos'])}",
-                  f"yaw    = {p['yaw']:g}", f"scale  = {p['scale']:g}", ""]
+                  f"quat   = {_v(p['quat'])}" if "quat" in p else f"yaw    = {p['yaw']:g}",
+                  f"scale  = {_n(p['scale'])}", ""]
     return "\n".join(lines)
+
+
+def _n(v) -> str:
+    """One number, or ``[x, y, z]``."""
+    return _v(v) if isinstance(v, list) else f"{v:g}"
 
 
 def manifest_toml(mod_id: str, name: str, tiles: list[str]) -> str:

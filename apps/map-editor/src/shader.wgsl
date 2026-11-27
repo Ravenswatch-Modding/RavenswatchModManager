@@ -236,9 +236,10 @@ fn fs_terrain(i: TOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_water(i: TOut) -> @location(0) vec4<f32> {
     let depth = max(i.col.x, 0.0);
-    let deep = select(vec3<f32>(0.17, 0.25, 0.23), tm.water_deep.rgb, tm.water_deep.a > 0.0);
-    let shallow = select(vec3<f32>(0.13, 0.19, 0.15), tm.water_shallow.rgb, tm.water_shallow.a > 0.0);
-    let banks = select(vec3<f32>(0.57, 0.59, 0.23), tm.water_banks.rgb, tm.water_banks.a > 0.0);
+    // Fallbacks: Dark Hills' M_Water, in linear RGB.
+    let deep = select(vec3<f32>(0.021, 0.048, 0.038), tm.water_deep.rgb, tm.water_deep.a > 0.0);
+    let shallow = select(vec3<f32>(0.010, 0.027, 0.014), tm.water_shallow.rgb, tm.water_shallow.a > 0.0);
+    let banks = select(vec3<f32>(0.29, 0.31, 0.04), tm.water_banks.rgb, tm.water_banks.a > 0.0);
     var c = mix(shallow, deep, smoothstep(0.0, 2.5, depth));
     c = mix(banks * 0.6, c, smoothstep(0.02, 0.25, depth));
     // Gentle ripples for the light to catch.

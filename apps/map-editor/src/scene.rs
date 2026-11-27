@@ -449,10 +449,14 @@ impl TerrainLook {
             Some([a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32, a.get(2)?.as_f64()? as f32, 1.0])
         };
         let w = &v["water"];
+        // The water material's colours are colour-picker values (sRGB bytes,
+        // 0.172549 = 44/255): linear for the shader, or the water draws about
+        // twice too bright (the "pale ravine").
+        let lin = |c: [f32; 4]| [c[0].max(0.0).powf(2.2), c[1].max(0.0).powf(2.2), c[2].max(0.0).powf(2.2), c[3]];
         let water = w.is_object().then(|| WaterLook {
-            deep: c4(&w["deep"]).unwrap_or([0.17, 0.25, 0.23, 1.0]),
-            shallow: c4(&w["shallow"]).unwrap_or([0.13, 0.19, 0.15, 1.0]),
-            banks: c4(&w["banks"]).unwrap_or([0.57, 0.59, 0.23, 1.0]),
+            deep: lin(c4(&w["deep"]).unwrap_or([0.17, 0.25, 0.23, 1.0])),
+            shallow: lin(c4(&w["shallow"]).unwrap_or([0.13, 0.19, 0.15, 1.0])),
+            banks: lin(c4(&w["banks"]).unwrap_or([0.57, 0.59, 0.23, 1.0])),
         });
         let minimap_rect = v["minimap_rect"].as_array().filter(|a| a.len() == 4).map(|a| std::array::from_fn(|i| a[i].as_f64().unwrap_or(0.0) as f32));
         Ok(TerrainLook { water, channel_sources, color_layer, n, slots, weights, color, minimap_rect })

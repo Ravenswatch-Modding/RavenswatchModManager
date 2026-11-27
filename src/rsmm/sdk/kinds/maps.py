@@ -853,8 +853,22 @@ def _surfaces_field(map_id: str, v) -> dict[str, str] | None:
     return dict(v)
 
 
+def _tiling_field(map_id: str, v) -> dict[str, float] | None:
+    """``tiling = { base = 0.09, R = 0.2 }``: how often a terrain layer's
+    texture repeats per metre (the material's ``u_UV_<layer>_scale``; Dark
+    Hills ships 0.09 .. 0.14). Smaller = bigger, less repetitive ground."""
+    if v is None:
+        return None
+    if not isinstance(v, dict) or not v or not all(
+            k in _SURFACE_SLOTS and isinstance(x, (int, float)) and not isinstance(x, bool)
+            and 0.005 <= x <= 2.0 for k, x in v.items()):
+        raise ContentError(f"map {map_id}: 'tiling' maps a layer ({', '.join(_SURFACE_SLOTS)}) "
+                           f"to repeats per metre, 0.005 .. 2, e.g. {{ base = 0.06 }}")
+    return {k: float(x) for k, x in v.items()}
+
+
 def _surfaces(map_id: str, terrain: bytes, surfaces: dict[str, str], out_dir: Path,
-              written: list[Path]) -> dict[str, str]:
+              written: list[Path], tiling: dict[str, float] | None = None) -> dict[str, str]:
     """``surfaces = { R = "art/moss.png" }``: the mod's own picture as the
     albedo of a terrain paint layer (``base`` = the unpainted ground, ``R`` ..
     ``A`` = the four painted surfaces). The clone's terrain gets its own copy
@@ -886,6 +900,10 @@ def _surfaces(map_id: str, terrain: bytes, surfaces: dict[str, str], out_dir: Pa
     new_mat = f"{art}/M_Terrain_{map_id}.mat.ot".replace("/", "\\")
     dest = out_dir / Path(*PC.art_cooked_path(new_mat).split("/"))
     dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mat = TL.set_float_params(mat, {f"u_UV_{k}_scale": v for k, v in (tiling or {}).items()})
+    except TL.LookError as e:
+        raise ContentError(f"map {map_id}: tiling: {e}") from e
     dest.write_bytes(PC.clone_material(mat, repoint))
     written.append(dest)
     return {mat_ref: new_mat}
@@ -896,6 +914,7 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   biome: str = "", strokes=None, blank: float | None = None,
                   objects: list[_Object] | None = None, scenery_edits: dict | None = None,
                   surfaces: dict[str, str] | None = None, minimap: str | None = None,
+                  tiling: dict[str, float] | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -924,7 +943,7 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
         if (edits or place or strokes or blank is not None or objects or scenery_edits
-                or surfaces or minimap):
+                or surfaces or minimap or tiling):
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -954,13 +973,14 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
-        if (surfaces or minimap) and strokes is None:
+        if (surfaces or minimap or tiling) and strokes is None:
             strokes = []                 # the terrain is cloned for its own material
         painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects,
                           scenery_edits, _chapter_of(biome) if scenery_edits else None,
-                          own_material=bool(surfaces or minimap), own_gameplay=bool(minimap))
+                          own_material=bool(surfaces or minimap or tiling),
+                          own_gameplay=bool(minimap))
                    if strokes or blank is not None or objects or scenery_edits or surfaces
-                   or minimap
+                   or minimap or tiling
                    else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
@@ -983,8 +1003,9 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
             pics = (_minimap(map_id, blob, minimap, out_dir, written)
                     if minimap and _GAMEPLAY.search(_stem(old)) else {})
             out[old] = PC.clone_tile_level(blob, old, swaps[old], pics)
-        mat_swaps = (_surfaces(map_id, painted["terrain"], surfaces, out_dir, written)
-                     if surfaces else {})
+        mat_swaps = (_surfaces(map_id, painted["terrain"], surfaces or {}, out_dir, written,
+                               tiling)
+                     if surfaces or tiling else {})
         out[terrain_ref] = PC.clone_tile_level(painted["terrain"], terrain_ref,
                                                swaps[terrain_ref], mat_swaps)
         out[scenery_ref] = PC.clone_tile_level(painted["scenery"], scenery_ref,
@@ -1037,7 +1058,8 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
                                            defn.fields.get("terrain"), blank, objects,
                                            defn.fields.get("scenery"),
                                            _surfaces_field(defn.id, defn.fields.get("surfaces")),
-                                           _minimap_field(defn.id, defn.fields.get("minimap")))
+                                           _minimap_field(defn.id, defn.fields.get("minimap")),
+                                           _tiling_field(defn.id, defn.fields.get("tiling")))
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []

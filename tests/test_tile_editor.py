@@ -146,3 +146,39 @@ def test_save_refuses_a_mod_the_editor_did_not_make(tmp_path):
         {"X-RSMM-Token": b.token, "Content-Type": "application/json"})
     assert st == 409, out
     assert Path(tmp_path / "other" / "manifest.toml").read_text() == '[mod]\nid = "other"\n'
+
+
+@needs_game
+def test_places_and_moves_take_any_rotation_and_scale(tmp_path):
+    """A tilted, stretched place and a turned move survive the toml round
+    trip and land in the emitted level with that rotation and scale."""
+    import math
+
+    from rsmm.engine import level_placements as LP
+    from rsmm.sdk.content import ContentDef
+    from rsmm.sdk.kinds import poi
+
+    def emit(tile, edit, out):
+        poi.emit("editor", ContentDef(kind="poi", id=TE.poi_id(tile),
+                                      fields=TE._fields(tile, edit)), out)
+        return [p for lv in out.rglob("*.level.ot.GameStream.gen")
+                for _i, p in LP.objects(lv.read_bytes())]
+
+    h = math.sqrt(0.5)
+    places = [{"entity": PROP, "pos": [1, 0, 1], "quat": [h, 0, 0, h], "scale": [1, 2, 3]}]
+    text = TE.poi_toml(TILE, {"places": places})
+    assert "quat" in text and "scale  = [1, 2, 3]" in text
+    tile, edit = TE.read_edit(text)
+    assert edit == TE.clean_edit({"places": places})
+    placed = [p for p in emit(tile, edit, tmp_path / "a") if p.ref == PROP]
+    assert any(p.quat == pytest.approx((h, 0, 0, h), abs=1e-4)
+               and p.scale == pytest.approx((1, 2, 3)) for p in placed)
+    # a move may carry a turn and a size too
+    tile2 = "Tiles\\Dark_Hills\\6x6_3Pigs_Material_Crates.tiledef.ot"
+    o = TE.objects_json(tile2)["objects"][0]
+    mv = {"own": True, "move": [{"entity": o["entity"], "at": o["pos"], "pos": o["pos"],
+                                 "quat": [0, h, 0, h], "scale": 2}]}
+    assert TE.read_edit(TE.poi_toml(tile2, mv)) == (tile2, TE.clean_edit(mv))
+    moved = [p for p in emit(tile2, TE.clean_edit(mv), tmp_path / "b")
+             if p.ref == o["entity"] and p.scale == pytest.approx((2, 2, 2))]
+    assert moved and moved[0].quat == pytest.approx((0, h, 0, h), abs=1e-4)

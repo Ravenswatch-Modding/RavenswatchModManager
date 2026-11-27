@@ -580,6 +580,24 @@ def test_colliders_and_wandering_camps(tmp_path):
 
 
 @needs_corpus
+def test_tiling_sets_the_clones_terrain_material(tmp_path):
+    from rsmm.engine import terrain_look as TL
+
+    out = tmp_path / "assets"
+    maps.emit("m", ContentDef(kind="map", id="Big_Ground", fields={
+        "base": "Dark_Hills", "tiling": {"base": 0.04, "R": 0.3}}), out)
+    mats = list(out.rglob("M_Terrain_Big_Ground.mat.ot*"))
+    assert len(mats) == 1
+    p = TL.material_params(mats[0].read_bytes())
+    assert p["u_UV_base_scale"][0] == pytest.approx(0.04)
+    assert p["u_UV_R_scale"][0] == pytest.approx(0.3)
+    assert p["u_UV_G_scale"][0] == pytest.approx(0.12)          # untouched
+    with pytest.raises(ContentError, match="tiling"):
+        maps.emit("m", ContentDef(kind="map", id="Bad_Tiling", fields={
+            "base": "Dark_Hills", "tiling": {"Q": 0.1}}), tmp_path / "bad")
+
+
+@needs_corpus
 def test_objects_are_validated(tmp_path):
     for bad in ([{"pos": [0, 0, 0]}],
                 [{"entity": "Nope\\X.entity.ot", "pos": [0, 0, 0]}],

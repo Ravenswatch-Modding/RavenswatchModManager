@@ -33,7 +33,9 @@ release download yet.
    chapter's own walls are removed. **File › New map from a chapter…**
    (Ctrl+N) copies a shipped chapter instead.
 2. Shape the ground with the **Terrain** tab's brushes. The Layer brush
-   makes the 4 m terraces the shipped chapters use.
+   makes the 4 m terraces the shipped chapters use. Each ground layer has a
+   **tiling** slider (repeats per metre; smaller = bigger, less repetitive
+   ground), saved with the map.
 3. Drag props from **Project › Game** into the scene, or **Import…** your own
    `.glb` (and a `.png` with the same name for its texture). Imported models
    are solid by default. **Inspector › Collision** sets the box.
@@ -74,6 +76,7 @@ release download yet.
 | Snap to surfaces | Toolbar: a dragged object lands on whatever is under the pointer (a roof, a rock, the ground) |
 | Snap to objects | Toolbar (on by default): box edges and centres line up with nearby objects, shown by blue guides |
 | Repeat in a row | Object › Array…: copies, step, turn per copy (fences, walls, paths) |
+| Prefabs | Select objects, Object › Save as prefab…; place it from Create › Prefab on any map (models of another mod are skipped) |
 | Measure | Toolbar ruler: click two points for the distance, flat distance and height difference; Esc ends |
 | Frame selection / whole map | F / Home |
 | Every command | F3 or Ctrl+P. F1 lists the shortcuts |
@@ -94,3 +97,13 @@ only that.
 
 The editor autosaves to `~/.config/rsmm-map-editor` and offers to recover
 after a crash.
+
+## Tiles
+
+The **Tiles** tab opens one of the chapter's tiles in a tab of its own.
+Objects you add there appear in every spawn of that tile; moving, turning,
+resizing or removing the tile's own objects saves an own copy of it. Both
+take any rotation and per-axis scale. **Empty this tile** starts a tile from
+scratch: everything but its enemies, camp reward, terrain shapes and reward
+pedestal is removed, and it keeps the size, kind and ground of the tile you
+opened.

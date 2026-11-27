@@ -741,7 +741,7 @@ impl Edits {
 }
 
 /// An add's rotation: `quat = [x, y, z, w]`, else `yaw` degrees about +Y.
-fn read_rot(o: &Value) -> Quat {
+pub fn read_rot(o: &Value) -> Quat {
     let q: Vec<f32> = o["quat"].as_array().into_iter().flatten().filter_map(Value::as_f64).map(|x| x as f32).collect();
     match q.as_slice() {
         [x, y, z, w] if Quat::from_xyzw(*x, *y, *z, *w).length() > 1e-6 => Quat::from_xyzw(*x, *y, *z, *w).normalize(),
@@ -750,7 +750,7 @@ fn read_rot(o: &Value) -> Quat {
 }
 
 /// One number, or `[x, y, z]`.
-fn read_scale(v: &Value) -> Vec3 {
+pub fn read_scale(v: &Value) -> Vec3 {
     match (v.as_f64(), v.as_array()) {
         (Some(k), _) => Vec3::splat(k as f32),
         (_, Some(a)) if a.len() == 3 => Vec3::from_array(std::array::from_fn(|i| a[i].as_f64().unwrap_or(1.0) as f32)),

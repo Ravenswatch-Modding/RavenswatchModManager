@@ -120,3 +120,46 @@ pub fn save_prefs(p: &Prefs) {
 pub fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
+
+// ---- prefabs: saved groups of objects, shared by every map ----------------------
+
+fn prefab_dir() -> Option<PathBuf> {
+    let d = dir()?.join("prefabs");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
+}
+
+/// A prefab's file name from what the author typed.
+pub fn prefab_slug(name: &str) -> String {
+    name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
+}
+
+/// Every saved prefab's name, sorted.
+pub fn list_prefabs() -> Vec<String> {
+    let mut out: Vec<String> = prefab_dir()
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.strip_suffix(".json").map(str::to_owned))
+        .collect();
+    out.sort_by_key(|n| n.to_lowercase());
+    out
+}
+
+/// `{"items": [{entity, pos, quat | yaw, scale, collision?, camp?}]}`.
+pub fn save_prefab(name: &str, doc: &Value) -> std::io::Result<()> {
+    let p = prefab_dir().ok_or_else(|| std::io::Error::other("no config dir"))?.join(format!("{}.json", prefab_slug(name)));
+    write_atomic(&p, &serde_json::to_vec_pretty(doc).unwrap_or_default())
+}
+
+pub fn load_prefab(name: &str) -> Option<Value> {
+    let p = prefab_dir()?.join(format!("{}.json", prefab_slug(name)));
+    serde_json::from_slice(&std::fs::read(p).ok()?).ok()
+}
+
+pub fn delete_prefab(name: &str) {
+    if let Some(d) = prefab_dir() {
+        let _ = std::fs::remove_file(d.join(format!("{}.json", prefab_slug(name))));
+    }
+}
