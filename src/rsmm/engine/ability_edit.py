@@ -95,6 +95,10 @@ One step per table::
     status = "Bleed"                      while ``switch`` (a state or flag of
     switch = "Skill Attack Bite Owned"    this entity) is on; Marked needs
     talent = "Attack Feral Bite"          ``duration`` (seconds, or a value part)
+                                          status = "blood-wolf:Frostbite" is a
+                                          status the mod declared (kind
+                                          ``status``): it needs ``duration``
+                                          and takes ``amount`` (same forms)
 
     read = "Stagger Label.value_22"       a number slot reads another part's
     to = "Dt Entity Hittable Listener"    output, picked by ``accessor`` (an
@@ -169,7 +173,7 @@ _OPS = ("clone", "set", "link", "add_link", "remove_link", "percent", "add_subob
 #: under the default suffix, and the next step found nothing).
 _KEYS = {*_OPS, "value", "to", "entity", "as", "suffix", "from", "rename",
          "donor_index", "donor", "replace_ref", "node", "from_kind", "condition", "talent",
-         "values", "tag", "flag", "factor", "base", "status", "switch", "duration",
+         "values", "tag", "flag", "factor", "base", "status", "switch", "duration", "amount",
          "accessor", "text", "inputs", "count", "radius", "hit"}
 
 #: `targets`: Kintaro's quest lightning carries the whole pick-targets set,
@@ -834,7 +838,8 @@ def _level_linear(ef: EntityFile, target: str, per_level: float, base: float,
 def _add_status(ef: EntityFile, step: dict, seed: str) -> None:
     """Damage records (``add_status``, one or a list) also put ``status`` on
     whoever they hit while ``switch`` is on, for ``talent``: every status
-    through ``talent_status.DONORS`` (Marked with its own ``duration``)."""
+    through ``talent_status.DONORS`` (Marked with its own ``duration``), or a
+    custom ``"<mod id>:<Name>"`` (``duration``, optional ``amount``)."""
     from . import talent_status as TS
     if not step.get("status") or not step.get("switch") or not step.get("talent"):
         raise AbilityEditError("add_status needs status, switch and talent")
@@ -845,7 +850,7 @@ def _add_status(ef: EntityFile, step: dict, seed: str) -> None:
     for dmg in targets:
         TS.add_status(ef, donor, donor_raw, damage=dmg, status=status,
                       switch=str(step["switch"]), talent=str(step["talent"]), seed=seed,
-                      duration=step.get("duration"))
+                      duration=step.get("duration"), amount=step.get("amount"))
 
 
 def _source(ef: EntityFile, step: dict, read) -> EntityFile:

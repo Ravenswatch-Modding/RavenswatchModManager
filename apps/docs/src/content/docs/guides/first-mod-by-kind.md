@@ -1682,7 +1682,9 @@ edits = [
   { clone = ["Blood Bomb Explode Listener", "Skill Power Special Bomb Spawner"], from = "Carmilla" },
   { set = "Skill Power Special Bomb Spawner.template[1]", value = "own:Bomb" },
 ]
-``` A summon step's `look` (`{ albedo = "art/x.png" }`) is
+```
+
+A summon step's `look` (`{ albedo = "art/x.png" }`) is
 written for a from-scratch hero too.
 
 ---
@@ -1700,7 +1702,6 @@ name         = "Frostbite"
 version      = "0.1.0"
 author       = "you"
 description  = "A Frostbite status."
-experimental = true
 
 [[content]]
 kind       = "status"
@@ -1725,9 +1726,13 @@ the live stacks, 0 for no cap.
 every enabled mod, and writes `statuses.json` beside the mod for the loader,
 which registers the status at boot.
 
-**Prove it.** The loader log names each registered status. Nothing in the CLI
-puts the status on an entity; that takes a script or an ability step that
-names the id.
+**Apply it.** A talent's hits put the status on enemies through
+[`on_hit`](/guides/talent-tutorial-advanced/#make-hits-put-a-status-on-enemies-on_hit),
+naming it as `status = "frost:Frostbite"` with a `duration` and an optional
+`amount`.
+
+**Prove it.** The loader log names each registered status. In game, a hit
+from the talent shows the status's icon on the enemy until the duration ends.
 
 **Trap.** Built on static analysis; not yet tried in game. A status the loader
 does not register is deleted from the table when the game starts, so the mod
