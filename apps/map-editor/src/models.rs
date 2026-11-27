@@ -108,6 +108,10 @@ pub fn read_glb(file: &Path) -> Result<(Vec<u8>, Vec3, Vec3)> {
 
 /// Stage a file with the backend; returns its staged id.
 pub fn upload(be: &Backend, rel: &str, bytes: &[u8]) -> Result<String> {
+    // The backend's `/api/upload` cap (`app.MAX_UPLOAD`).
+    if bytes.len() > 96 << 20 {
+        bail!("{rel}: {} MiB is over the 96 MiB import limit", bytes.len() >> 20);
+    }
     let body = json!({"name": rel.rsplit('/').next().unwrap_or(rel), "data": base64::engine::general_purpose::STANDARD.encode(bytes)});
     let r = be.call("POST", "/map/api/upload", Some(&body))?;
     if !r.ok() {

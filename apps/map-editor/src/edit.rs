@@ -21,14 +21,19 @@ pub struct Add {
     pub entity: String,
     pub level: String,
     pub pos: Vec3,
-    /// Degrees about +Y, as `scenery_edit._yaw_quat` reads it.
-    pub yaw: f32,
-    pub scale: f32,
+    /// Any rotation; saved as `yaw` (degrees about +Y) when it is only that.
+    pub rot: Quat,
+    /// Per axis; saved as one number when all three match.
+    pub scale: Vec3,
     /// The author's own name for it (Rename); empty = the entity's name.
     pub name: String,
     /// One of the mod's own models: this copy's collision, when it differs
     /// from the model's default (Inspector > Collision).
     pub col: Option<Col>,
+    /// A reopened copy's `collision` list when it is more than one plain wall
+    /// box (several volumes, ground, rotation): saved back as it was unless
+    /// the author edits the collision, which replaces it with `col`.
+    pub col_keep: Option<Value>,
 }
 
 /// A wall box around a placed model, in the model's own space.
@@ -41,7 +46,27 @@ pub struct Col {
 
 impl Add {
     pub fn xf(&self) -> Xf {
-        Xf { pos: self.pos, rot: Quat::from_rotation_y(self.yaw.to_radians()), scale: Vec3::splat(self.scale) }
+        Xf { pos: self.pos, rot: self.rot, scale: self.scale }
+    }
+
+    /// Turn about +Y in degrees (the tile editor's `places` take only that).
+    pub fn yaw(&self) -> f32 {
+        self.rot.to_euler(glam::EulerRot::YXZ).0.to_degrees()
+    }
+
+    /// `pos`, `yaw` or `quat`, and `scale` as `scenery_edit` / the `map` kind read them.
+    pub fn xf_json(&self, pos: Vec3) -> Value {
+        let mut o = json!({"entity": self.entity, "pos": [pos.x, pos.y, pos.z]});
+        let yaw = self.yaw();
+        if self.rot.dot(Quat::from_rotation_y(yaw.to_radians())).abs() > 0.99999 {
+            o["yaw"] = json!(yaw);
+        } else {
+            let q = self.rot.normalize();
+            o["quat"] = json!([q.x, q.y, q.z, q.w]);
+        }
+        let s = self.scale;
+        o["scale"] = if (s - Vec3::splat(s.x)).abs().max_element() < 1e-5 { json!(s.x) } else { json!([s.x, s.y, s.z]) };
+        o
     }
 
     pub fn name(&self) -> String {
@@ -236,10 +261,8 @@ impl Edits {
             Sel::Add(u) => {
                 if let Some(a) = self.adds.iter_mut().find(|a| a.uid == u) {
                     a.pos = xf.pos;
-                    // Adds carry yaw only: keep the rotation about Y.
-                    let (y, _, _) = xf.rot.to_euler(glam::EulerRot::YXZ);
-                    a.yaw = y.to_degrees();
-                    a.scale = xf.scale.x.clamp(0.05, 20.0);
+                    a.rot = xf.rot.normalize();
+                    a.scale = xf.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0));
                 }
             }
             // A spot is a position only: rotation and scale do not apply.
@@ -416,7 +439,7 @@ impl Edits {
             self.adds
                 .iter()
                 .map(|a| {
-                    let mut o = json!({"entity": a.entity, "pos": [a.pos.x, a.pos.y, a.pos.z], "yaw": a.yaw, "scale": a.scale});
+                    let mut o = a.xf_json(a.pos);
                     if !a.name.is_empty() {
                         o["name"] = json!(a.name);
                     }
@@ -441,10 +464,10 @@ impl Edits {
                 entity,
                 level: String::new(),
                 pos: Vec3::new(f(0), f(1), f(2)),
-                yaw: o["yaw"].as_f64().unwrap_or(0.0) as f32,
-                scale: o["scale"].as_f64().unwrap_or(1.0) as f32,
+                rot: read_rot(o),
+                scale: read_scale(&o["scale"]),
                 name: o["name"].as_str().unwrap_or_default().to_owned(),
-                col: o["model"].as_str().map(|_| {
+                col: o["model"].as_str().filter(|_| plain_wall(&o["collision"])).map(|_| {
                     let b = &o["collision"][0];
                     let v = |k: &str, d: f32| {
                         let a = b[k].as_array();
@@ -453,6 +476,7 @@ impl Edits {
                     };
                     Col { solid: b.is_object(), size: v("size", 1.0), at: v("at", 0.0) }
                 }),
+                col_keep: o["model"].as_str().filter(|_| !plain_wall(&o["collision"])).map(|_| o["collision"].clone()),
             });
         }
     }
@@ -492,7 +516,7 @@ impl Edits {
             out.entry(a.level.clone())
                 .or_default()
                 .adds
-                .push(json!({"entity": a.entity, "pos": r(a.pos), "yaw": a.yaw, "scale": a.scale}));
+                .push(a.xf_json(a.pos));
         }
         let mut doc = Map::new();
         for (lv, e) in out {
@@ -560,14 +584,47 @@ impl Edits {
                     entity: entity.to_owned(),
                     level: level.clone(),
                     pos,
-                    yaw: a["yaw"].as_f64().unwrap_or(0.0) as f32,
-                    scale: a["scale"].as_f64().unwrap_or(1.0) as f32,
+                    rot: read_rot(a),
+                    scale: read_scale(&a["scale"]),
                     name: String::new(),
                     col: None,
+                    col_keep: None,
                 });
             }
         }
         (e, skipped)
+    }
+}
+
+/// An add's rotation: `quat = [x, y, z, w]`, else `yaw` degrees about +Y.
+fn read_rot(o: &Value) -> Quat {
+    let q: Vec<f32> = o["quat"].as_array().into_iter().flatten().filter_map(Value::as_f64).map(|x| x as f32).collect();
+    match q.as_slice() {
+        [x, y, z, w] if Quat::from_xyzw(*x, *y, *z, *w).length() > 1e-6 => Quat::from_xyzw(*x, *y, *z, *w).normalize(),
+        _ => Quat::from_rotation_y((o["yaw"].as_f64().unwrap_or(0.0) as f32).to_radians()),
+    }
+}
+
+/// One number, or `[x, y, z]`.
+fn read_scale(v: &Value) -> Vec3 {
+    match (v.as_f64(), v.as_array()) {
+        (Some(k), _) => Vec3::splat(k as f32),
+        (_, Some(a)) if a.len() == 3 => Vec3::from_array(std::array::from_fn(|i| a[i].as_f64().unwrap_or(1.0) as f32)),
+        _ => Vec3::ONE,
+    }
+}
+
+/// No collision, or one wall box with only a size and a centre: what
+/// Inspector > Collision edits. Anything else is kept as authored.
+fn plain_wall(c: &Value) -> bool {
+    match c {
+        Value::Null => true,
+        Value::Array(a) => match a.as_slice() {
+            [] => true,
+            [b] => b.as_object().is_some_and(|b| b.keys().all(|k| matches!(k.as_str(), "kind" | "size" | "at")) && b.get("kind").is_none_or(|k| k == "wall")),
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -626,5 +683,34 @@ impl History {
 
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod add_xf_tests {
+    use super::*;
+
+    #[test]
+    fn an_add_saves_any_rotation_and_scale_and_reads_it_back() {
+        let a = Add {
+            uid: 0,
+            entity: "x".into(),
+            level: String::new(),
+            pos: Vec3::ZERO,
+            rot: Quat::from_rotation_x(0.7) * Quat::from_rotation_y(0.3),
+            scale: Vec3::new(1.0, 2.0, 3.0),
+            name: String::new(),
+            col: None,
+            col_keep: None,
+        };
+        let o = a.xf_json(a.pos);
+        assert!(o.get("quat").is_some() && o.get("yaw").is_none());
+        assert!(read_rot(&o).dot(a.rot).abs() > 0.9999);
+        assert_eq!(read_scale(&o["scale"]), a.scale);
+        // A plain turn about Y stays `yaw` + one number, as older files have it.
+        let b = Add { rot: Quat::from_rotation_y(1.0), scale: Vec3::splat(2.0), ..a };
+        let o = b.xf_json(b.pos);
+        assert!(o.get("quat").is_none() && (o["yaw"].as_f64().unwrap() - 1f64.to_degrees()).abs() < 1e-3);
+        assert_eq!(o["scale"], json!(2.0));
     }
 }

@@ -36,9 +36,10 @@ from rsmm.cli.editor import app
 #: Parallel requests. Mesh and texture conversion are the slow reads; a few at
 #: once keeps the viewport filling without starving the save path.
 WORKERS = 4
-#: Longest request line accepted. A save carries at most MAX_STROKES brush
-#: dabs, far below this.
-MAX_LINE = 64 * 1024 * 1024
+#: Longest request line accepted: room for the largest upload the backend
+#: takes (base64 grows it by 4/3) plus its JSON wrapper. A save carries at most
+#: MAX_STROKES brush dabs, far below this.
+MAX_LINE = app.MAX_UPLOAD * 4 // 3 + (1 << 20)
 
 
 class Pipe:

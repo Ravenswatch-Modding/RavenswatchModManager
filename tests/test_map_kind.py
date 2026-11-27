@@ -520,7 +520,7 @@ def test_objects_stand_in_the_maps_own_scenery(tmp_path, base, folder):
         "base": base, "blank": True, "objects": [
             {"entity": shipped, "pos": [10, 0, 20], "yaw": 90},
             {**hut, "pos": [5, 0, 5], "scale": 2},
-            {**hut, "pos": [-5, 0, 5]}]}), out)
+            {**hut, "pos": [-5, 0, 5], "quat": [0.5, 0, 0, 0.5], "scale": [1, 2, 3]}]}), out)
 
     own = f"DarkHills\\SceneryObjects_DarkHills\\{mid}_Obj0.entity.ot"
     assert (out / PC.entity_cooked_path(own)).is_file()
@@ -529,6 +529,9 @@ def test_objects_stand_in_the_maps_own_scenery(tmp_path, base, folder):
     placed = [p for lv in levels for _i, p in LP.objects(lv.read_bytes()) if p.pos[1] > -500]
     assert sorted((p.ref, p.pos) for p in placed) == sorted([
         (shipped, (10.0, 0.0, 20.0)), (own, (5.0, 0.0, 5.0)), (own, (-5.0, 0.0, 5.0))])
+    tilted = next(p for p in placed if p.pos == (-5.0, 0.0, 5.0))
+    assert tilted.quat == pytest.approx((0.5 ** 0.5, 0, 0, 0.5 ** 0.5), abs=1e-5)
+    assert tilted.scale == pytest.approx((1, 2, 3))
     cache = RC.parse((out / f"Definitions/Maps/{mid}.mapdef.UsedRscCache.ot").read_bytes())
     for ref in (shipped, own):
         assert any(f"|{ref}|" in ln for ln in cache), ref
@@ -542,7 +545,10 @@ def test_objects_are_validated(tmp_path):
     for bad in ([{"pos": [0, 0, 0]}],
                 [{"entity": "Nope\\X.entity.ot", "pos": [0, 0, 0]}],
                 [{"model": "art/missing.glb", "pos": [0, 0, 0]}],
-                [{"entity": _RUIN, "pos": [0, 0]}]):
+                [{"entity": _RUIN, "pos": [0, 0]}],
+                [{"entity": _RUIN, "pos": [0, 0, 0], "yaw": 1, "quat": [0, 0, 0, 1]}],
+                [{"entity": _RUIN, "pos": [0, 0, 0], "quat": [0, 0, 0, 0]}],
+                [{"entity": _RUIN, "pos": [0, 0, 0], "scale": [1, 0, 1]}]):
         with pytest.raises(ContentError):
             maps.emit("m", ContentDef(kind="map", id="Bad_Obj", fields={
                 "base": "Dark_Hills", "objects": bad}), tmp_path / "assets")

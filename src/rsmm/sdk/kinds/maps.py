@@ -60,8 +60,10 @@ Fields:
     ``objects``  (array, optional) things to stand on the map, in a scenery
                                   level of the clone's own (the base chapter
                                   never sees them): ``[[content.objects]]``
-                                  with ``pos = [x, y, z]``, ``yaw`` (degrees),
-                                  ``scale`` and EITHER ``entity`` (a shipped
+                                  with ``pos = [x, y, z]``, ``yaw`` (degrees)
+                                  or ``quat = [x, y, z, w]`` (any rotation),
+                                  ``scale`` (one number or ``[x, y, z]``)
+                                  and EITHER ``entity`` (a shipped
                                   prop, e.g.
                                   ``"DarkHills\\SceneryObjects_DarkHills\\Rock_A.entity.ot"``)
                                   OR ``model`` (a ``.glb`` in the mod, metres,
@@ -391,7 +393,7 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
 #: one-material ruin block (the `poi` kind's proven donor).
 _MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
 _MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
-_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "scale", "name"}
+_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "quat", "scale", "name"}
 _MAX_OBJECTS = 4000
 
 
@@ -400,7 +402,7 @@ class _Object:
     ref: str                                   # the placed entity
     pos: tuple[float, float, float]
     quat: tuple[float, float, float, float]
-    scale: float
+    scale: tuple[float, float, float]
 
 
 def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
@@ -422,16 +424,25 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
             raise ContentError(f"{what}: keys are {sorted(_OBJECT_KEYS)}")
         if ("entity" in o) == ("model" in o):
             raise ContentError(f"{what}: give exactly one of 'entity' or 'model'")
+        if "yaw" in o and "quat" in o:
+            raise ContentError(f"{what}: give 'yaw' or 'quat', not both")
         try:
             pos = tuple(float(v) for v in o["pos"])
             yaw = math.radians(float(o.get("yaw", 0.0)))
-            scale = float(o.get("scale", 1.0))
+            quat = (tuple(float(v) for v in o["quat"]) if "quat" in o
+                    else (0.0, math.sin(yaw / 2), 0.0, math.cos(yaw / 2)))
+            sc = o.get("scale", 1.0)
+            scale = ((float(sc),) * 3 if isinstance(sc, (int, float))
+                     else tuple(float(v) for v in sc))
         except (KeyError, TypeError, ValueError):
-            raise ContentError(f"{what}: pos = [x, y, z], yaw and scale are numbers") from None
-        if len(pos) != 3 or not all(math.isfinite(v) for v in (*pos, yaw, scale)) \
-                or not 0.01 <= scale <= 100:
-            raise ContentError(f"{what}: pos = [x, y, z], scale 0.01..100")
-        quat = (0.0, math.sin(yaw / 2), 0.0, math.cos(yaw / 2))
+            raise ContentError(f"{what}: pos = [x, y, z], yaw a number, quat = [x, y, z, w], "
+                               "scale a number or [x, y, z]") from None
+        norm = math.sqrt(sum(v * v for v in quat)) if len(quat) == 4 else 0.0
+        finite = all(math.isfinite(v) for v in (*pos, yaw, *scale, norm))
+        if len(pos) != 3 or len(scale) != 3 or not finite or norm < 1e-6 \
+                or not all(0.01 <= k <= 100 for k in scale):
+            raise ContentError(f"{what}: pos = [x, y, z], quat a rotation, scale 0.01..100")
+        quat = tuple(v / norm for v in quat)
         if "entity" in o:
             ref = str(o["entity"])
             if not ref.endswith(".entity.ot") or not corpus.exists(PC.entity_cooked_path(ref)):
@@ -651,7 +662,7 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
                                                      f"the base map's {_stem(r)}")
         try:
             for ob in objects:
-                blob = LP.add_placement(blob, ob.ref, ob.pos, ob.quat, (ob.scale,) * 3)
+                blob = LP.add_placement(blob, ob.ref, ob.pos, ob.quat, ob.scale)
         except LP.LevelPlacementError as e:
             raise ContentError(f"map {map_id}: objects: {e}") from e
         extra[r] = (blob, parent)
