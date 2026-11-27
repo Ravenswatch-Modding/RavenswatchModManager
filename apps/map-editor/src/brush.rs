@@ -16,6 +16,8 @@ use crate::edit::Stroke;
 use crate::scene::Terrain;
 
 pub const HEIGHT: &str = "Base Height";
+/// The painted water surface (metres), as `terrain.METRE_LAYERS` names it.
+pub const WATER: &str = "Base Water Height";
 
 /// Weight at normalised distance `t` (0 centre .. 1 edge).
 fn falloff(t: f32, kind: &str) -> f32 {
@@ -104,6 +106,25 @@ pub fn apply_height(t: &mut Terrain, st: &Stroke) -> Option<(usize, usize)> {
     Some((r0.saturating_sub(1), (r1 + 1).min(n - 1)))
 }
 
+/// Apply a water stroke to the terrain's water surface (`t.water`, made dry
+/// first if the map had none). Returns whether anything changed.
+pub fn apply_water(t: &mut Terrain, st: &Stroke) -> bool {
+    let n = t.n;
+    let hits = cells(t, n, st);
+    if hits.is_empty() {
+        return false;
+    }
+    let lo = t.min.y - 50.0;
+    let w = t.water.get_or_insert_with(|| vec![lo; n * n]);
+    let target = st.amount.map(|a| a.max(lo));
+    for (r, c, k) in hits {
+        let i = r * n + c;
+        let cur = w[i];
+        w[i] = op_value(&st.op, cur, target, k, || cur);
+    }
+    true
+}
+
 /// Apply a 0..1 surface stroke to channel `ch` of an RGBA8 grid.
 pub fn apply_channel(t: &Terrain, n: usize, grid: &mut [u8], ch: usize, st: &Stroke) -> bool {
     let hits = cells(t, n, st);
@@ -186,6 +207,8 @@ pub enum Mode {
     Tint,
     /// Paint blocked ground (Ctrl: clear it): invisible walls on save.
     Block,
+    /// Water at `level` metres (Ctrl: dry the ground under the brush).
+    Water,
 }
 
 #[derive(Clone, Debug)]
@@ -288,6 +311,9 @@ impl Brush {
             }
             (Mode::Tint, _) => ("tint", color_layer?.to_owned(), Some(self.strength.clamp(0.01, 1.0)), Some(hex(self.color))),
             (Mode::Block, _) => return None,
+            (Mode::Water, false) => ("set", WATER.to_owned(), Some(self.level), None),
+            // Dry: the water surface under the lowest ground there can be.
+            (Mode::Water, true) => ("set", WATER.to_owned(), Some(-1000.0), None),
         };
         Some(Stroke {
             op: op.to_owned(),

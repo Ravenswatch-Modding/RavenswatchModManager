@@ -17,6 +17,8 @@ struct Globals {
     fog_heights: vec4<f32>,   // top, mid, bottom height; w: fog on
     fog_dist: vec4<f32>,      // start, mid, end beyond focus; w: focus distance
     fog_params: vec4<f32>,    // intensity, brightness
+    light_info: vec4<f32>,    // x: point lights in use
+    lights: array<vec4<f32>, 32>,  // per light: pos + radius, colour x intensity
 };
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(1) var t_shadow: texture_depth_2d;
@@ -80,7 +82,17 @@ fn shade(albedo: vec3<f32>, n_in: vec3<f32>, wp: vec3<f32>) -> vec3<f32> {
     if (dot(n, to_eye) < 0.0) { n = -n; }
     let l = normalize(g.sun_dir.xyz);
     // Lambert: albedo / pi per unit of sun intensity, as a PBR light is.
-    let direct = g.sun_color.rgb * (max(dot(n, l), 0.0) * sunlit(wp, n) / 3.14159);
+    var direct = g.sun_color.rgb * (max(dot(n, l), 0.0) * sunlit(wp, n) / 3.14159);
+    // Prop lights (lanterns, point lights): a smooth falloff to their radius.
+    for (var k = 0; k < i32(g.light_info.x); k++) {
+        let pr = g.lights[2 * k];
+        let d = pr.xyz - wp;
+        let dist = length(d);
+        if (dist < pr.w) {
+            let f = 1.0 - dist / pr.w;
+            direct += g.lights[2 * k + 1].rgb * (f * f * max(dot(n, d / max(dist, 1e-3)), 0.0));
+        }
+    }
     let lit = albedo * (ambient(n) + direct);
     return aces(apply_fog(lit, wp) * g.params.y);
 }

@@ -32,6 +32,19 @@ pub struct Add {
     pub col: Option<Vec<ColBox>>,
     /// An enemy camp's own spawn settings (`map.objects[].camp`); None = as shipped.
     pub camp: Option<Camp>,
+    /// A light prop's own `[radius m, intensity]` (`map.objects[].light`).
+    pub light: Option<[f32; 2]>,
+}
+
+/// `light = {radius, intensity}` back from a document.
+pub fn parse_light(v: &Value) -> Option<[f32; 2]> {
+    v.is_object().then(|| [v["radius"].as_f64().unwrap_or(5.0) as f32, v["intensity"].as_f64().unwrap_or(1.0) as f32])
+}
+
+/// A prop that carries a light (lanterns, the plain point light).
+pub fn is_light(entity: &str) -> bool {
+    let n = entity.rsplit('\\').next().unwrap_or(entity);
+    n.contains("Light") || n.contains("Lantern")
 }
 
 /// `camp = {difficulty, power}` on a placed enemy camp: the difficulty
@@ -193,6 +206,9 @@ impl Add {
         }
         if let Some(c) = &self.camp {
             o["camp"] = c.json();
+        }
+        if let Some([r, i]) = self.light {
+            o["light"] = json!({"radius": r, "intensity": i});
         }
         o
     }
@@ -621,6 +637,7 @@ impl Edits {
                 // A model's or collider's boxes as saved (none = not solid).
                 col: (o["model"].is_string() || o["collider"].as_bool() == Some(true)).then(|| ColBox::parse(&o["collision"])),
                 camp: Camp::parse(&o["camp"]),
+                light: parse_light(&o["light"]),
             });
         }
     }
@@ -733,6 +750,7 @@ impl Edits {
                     name: String::new(),
                     col: a.get("collision").map(ColBox::parse),
                     camp: Camp::parse(&a["camp"]),
+                    light: parse_light(&a["light"]),
                 });
             }
         }
@@ -832,6 +850,7 @@ mod add_xf_tests {
             name: String::new(),
             col: Some(vec![ColBox::wall(Vec3::ONE, Vec3::ZERO)]),
             camp: None,
+            light: None,
         };
         let o = a.xf_json(a.pos);
         assert!(o.get("quat").is_some() && o.get("yaw").is_none());

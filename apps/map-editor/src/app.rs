@@ -506,6 +506,8 @@ pub struct MapEditor {
     new_edge_walls: bool,
     /// View > Walkability: blocked cells and every collision box.
     show_walk: bool,
+    /// View > Prop lights: lanterns and point lights light the Scene.
+    show_lights: bool,
     /// Move and rotate along the active object's own axes (scale always is).
     gizmo_local: bool,
     /// Dragged objects land on what is under the pointer (meshes or ground).
@@ -685,6 +687,7 @@ impl MapEditor {
             new_keep_kinds: false,
             new_edge_walls: true,
             show_walk: false,
+            show_lights: true,
             gizmo_local: false,
             snap_surface: false,
             snap_objects: true,
@@ -1464,6 +1467,18 @@ impl MapEditor {
             assert_eq!(n, 3, "a prefab stands every object it holds");
             self.sel = keep;
         }
+        // A point light with its own radius / intensity, and a pond.
+        if let Some(l) = self.props.iter().find(|p| p.entity.contains("Point_Light")).map(|p| p.entity.clone()) {
+            self.place(ctx, l, a.pos + Vec3::new(-6.0, 0.0, 6.0));
+            if let Some(last) = self.edits.adds.last_mut() {
+                last.light = Some([12.0, 15.0]);
+            }
+        }
+        let (mode, level) = (self.brush.mode, self.brush.level);
+        self.brush.mode = BrushMode::Water;
+        self.brush.level = a.pos.y + 1.0;
+        self.dab(a.pos + Vec3::new(-10.0, 0.0, -10.0), false, false);
+        (self.brush.mode, self.brush.level) = (mode, level);
         // Painted blocked ground and edge walls.
         self.edits.blocked.extend((0..6).flat_map(|x| (0..3).map(move |z| (x + 20, z + 20))));
         self.add_edge_walls();
@@ -1800,14 +1815,14 @@ impl MapEditor {
         let ground: Vec<Option<f32>> = ok.iter().map(|(_, _, x, _)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
         self.change(|e, _| {
             for ((entity, level, x, src), gy) in ok.into_iter().zip(ground) {
-                let (col, camp, name) = src.map(|a| (a.col, a.camp, a.name)).unwrap_or_default();
+                let (col, camp, name, light) = src.map(|a| (a.col, a.camp, a.name, a.light)).unwrap_or_default();
                 let mut pos = at + x.pos;
                 if snap_ground {
                     if let Some(g) = gy {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name, col, camp }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name, col, camp, light }));
             }
         });
         let n = new.len();
@@ -1861,7 +1876,7 @@ impl MapEditor {
         self.ensure_template(ctx, &entity);
         let mut sel = None;
         let col = crate::edit::default_cols(&entity);
-        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col, camp: None })));
+        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col, camp: None, light: None })));
         if let Some(s) = sel {
             self.select_only([s]);
         }
@@ -1943,6 +1958,10 @@ impl MapEditor {
         if st.layer == brush::HEIGHT {
             return brush::apply_height(t, st);
         }
+        if st.layer == brush::WATER {
+            brush::apply_water(t, st);
+            return None;
+        }
         let look = look?;
         if st.op == "tint" {
             if let Some(c) = color {
@@ -1997,7 +2016,13 @@ impl MapEditor {
             let rows = Self::apply_stroke_to(t, self.look_base.as_ref(), &mut self.weights_now, self.color_now.as_mut(), &st);
             if let Some(r) = &mut self.renderer {
                 match rows {
-                    Some((r0, r1)) => r.update_terrain_rows(t, r0, r1),
+                    Some((r0, r1)) => {
+                        r.update_terrain_rows(t, r0, r1);
+                        if t.water.is_some() {
+                            r.update_water(t); // its depth follows the ground
+                        }
+                    }
+                    None if st.layer == brush::WATER => r.update_water(t),
                     None => r.update_look_maps(&self.weights_now, self.color_now.as_deref()),
                 }
             }
@@ -3689,7 +3714,8 @@ impl MapEditor {
         }
         parts.extend(self.add_draw.iter().map(|(k, inst)| DrawPart { key: k, instances: inst }));
         let play_fx = self.animate_fx && !self.headless();
-        let Some(renderer) = self.renderer.as_mut() else { return };
+let lights_now = self.lights_near(self.camera.target);
+                let Some(renderer) = self.renderer.as_mut() else { return };
         if let (true, Some([x, z, d])) = (self.tile.is_none() && (self.opts.snapshot.is_some() || (self.opts.ui_snapshot.is_some() && self.settled_frames < 3)), self.opts.view) {
             let y = self.terrain.as_ref().and_then(|t| t.height_at(x, z)).unwrap_or(0.0);
             self.camera.target = Vec3::new(x, y, z);
@@ -3716,6 +3742,7 @@ impl MapEditor {
                 no_terrain: false,
                 sky: self.theme.scene_linear(),
                 time: if play_fx { self.started.elapsed().as_secs_f32() } else { 1.0 },
+                lights: &lights_now,
             },
         );
         if play_fx && renderer.stats.vfx > 0 {
@@ -4301,6 +4328,7 @@ impl MapEditor {
                 item(ui, "Perspective / Orthographic", "5", Cmd::ToggleOrtho);
                 ui.separator();
                 ui.checkbox(&mut self.show_grid, "Grid");
+                ui.checkbox(&mut self.show_lights, "Prop lights").on_hover_text("Lanterns and point lights light the Scene (the 16 nearest; their colour is a guess)");
                 ui.checkbox(&mut self.show_walk, "Walkability").on_hover_text("Blocked ground in red, every wall (orange) and walkable box (green)");
                 ui.checkbox(&mut self.snap, "Snap to grid");
                 ui.add(egui::Slider::new(&mut self.grid_size, 0.25..=16.0).logarithmic(true).text("grid m"));
@@ -4564,6 +4592,21 @@ impl MapEditor {
                 }
             });
         });
+        // Lights the chapter preloads: lanterns, and the plain point light.
+        let mut lights: Vec<(String, String)> =
+            self.props.iter().filter(|p| crate::edit::is_light(&p.entity)).map(|p| (p.entity.clone(), p.name.replace('_', " "))).collect();
+        lights.sort_by_key(|(e, n)| (!e.contains("Point_Light"), n.clone()));
+        ui.add_enabled_ui(!lights.is_empty(), |ui| {
+            ui.menu_button("Light", |ui| {
+                for (e, name) in &lights {
+                    if ui.button(name).clicked() {
+                        self.tool = Tool::Place(e.clone());
+                        self.status = format!("Click the ground to place {name} (Shift keeps placing)");
+                        ui.close();
+                    }
+                }
+            });
+        });
         for (k, label, tip) in [
             ("wall", "Invisible wall", "A box heroes and enemies cannot pass; nothing is drawn in game"),
             ("floor", "Walkable floor", "A box heroes can stand on: a deck, a bridge, a ramp (tilt it)"),
@@ -4653,7 +4696,7 @@ impl MapEditor {
         self.change(|e, _| {
             for (pos, rot, len) in walls {
                 let col = Some(vec![crate::edit::ColBox::wall(Vec3::new(len, 12.0, 1.0), Vec3::new(0.0, 5.0, 0.0))]);
-                new.push(e.push_add(Add { uid: 0, entity: format!("{}wall", crate::edit::COLLIDER), level: level.clone(), pos, rot, scale: Vec3::ONE, name: "Edge wall".into(), col, camp: None }));
+                new.push(e.push_add(Add { uid: 0, entity: format!("{}wall", crate::edit::COLLIDER), level: level.clone(), pos, rot, scale: Vec3::ONE, name: "Edge wall".into(), col, camp: None, light: None }));
             }
         });
         let n = new.len();
@@ -4669,6 +4712,39 @@ impl MapEditor {
             self.templates.entry(entity.to_owned()).or_insert(Some(Vec::new()));
             self.dirty = true;
         }
+    }
+
+    /// The prop lights nearest `at` (shipped and added), for the Scene: warm,
+    /// at lantern height. Their colour is a guess (the game animates it).
+    fn lights_near(&self, at: Vec3) -> Vec<(Vec3, f32, [f32; 3])> {
+        if !self.show_lights {
+            return Vec::new();
+        }
+        const WARM: [f32; 3] = [1.0, 0.55, 0.25];
+        let mut all: Vec<(Vec3, f32, f32)> = Vec::new();
+        if let Some(s) = &self.scenery {
+            if !self.blank_hides_shipped() {
+                for (i, xf) in s.obj_xf.iter().enumerate() {
+                    let e = &s.entities[s.obj_entity[i] as usize];
+                    if crate::edit::is_light(e) && !self.edits.removed.contains(&i) {
+                        let p = self.edits.moves.get(&i).map_or(xf.pos, |m| m.pos);
+                        all.push((p, 5.0, 1.0));
+                    }
+                }
+            }
+        }
+        for a in &self.edits.adds {
+            if crate::edit::is_light(&a.entity) && !self.hidden.contains(&Sel::Add(a.uid)) {
+                // Intensity is the game's factor (6 .. 40): the preview scales it to ~1.
+                let [r, i] = a.light.map_or([5.0, 1.0], |[r, i]| [r, i / 10.0]);
+                all.push((a.pos, r, i));
+            }
+        }
+        all.sort_by(|x, y| (x.0 - at).length_squared().total_cmp(&(y.0 - at).length_squared()));
+        all.into_iter()
+            .take(crate::render::MAX_LIGHTS)
+            .map(|(p, r, i)| (p + Vec3::Y * 1.6, r * 1.5, WARM.map(|c| c * i * 4.0)))
+            .collect()
     }
 
     /// An entity with no mesh to draw (an enemy camp, a spawner), once loaded.
@@ -4687,6 +4763,46 @@ impl MapEditor {
         let rel = a.entity.strip_prefix(crate::models::PREFIX)?;
         let m = self.models.iter().find(|m| m.mesh.rel == rel)?.clone();
         Some((a.col.clone().unwrap_or_else(|| m.default_cols()), a.xf().mat(), Some(m)))
+    }
+
+    /// Inspector > Light: a placed light prop's own radius and intensity.
+    fn ui_light(&mut self, ui: &mut egui::Ui, u: u64) {
+        let Some(a) = self.edits.add(u) else { return };
+        if !crate::edit::is_light(&a.entity) {
+            return;
+        }
+        let before = a.light;
+        let mut light = before;
+        ui.separator();
+        ui.label(egui::RichText::new("Light").strong());
+        let mut own = light.is_some();
+        ui.checkbox(&mut own, "Own light settings").on_hover_text("Off: the light as the game ships it");
+        if own != light.is_some() {
+            light = own.then_some([6.0, 10.0]);
+        }
+        let mut started = false;
+        if let Some(l) = &mut light {
+            egui::Grid::new("light").num_columns(2).spacing([6.0, 4.0]).show(ui, |ui| {
+                ui.label("Radius");
+                let r = ui.add(egui::DragValue::new(&mut l[0]).speed(0.1).range(0.5..=200.0).suffix(" m"));
+                started |= r.drag_started() || r.gained_focus();
+                ui.end_row();
+                ui.label("Intensity");
+                let r = ui.add(egui::DragValue::new(&mut l[1]).speed(0.1).range(0.1..=200.0)).on_hover_text("The light's intensity factor: the point light ships 6, lanterns 10 to 40");
+                started |= r.drag_started() || r.gained_focus();
+                ui.end_row();
+            });
+            ui.label(egui::RichText::new("Saved on a copy of the prop's light. Its colour stays the game's.").small().weak());
+        }
+        if light != before {
+            if started || !ui.ctx().egui_is_using_pointer() {
+                self.history.push(&self.edits);
+            }
+            if let Some(a) = self.edits.adds.iter_mut().find(|a| a.uid == u) {
+                a.light = light;
+            }
+            self.unsaved = true;
+        }
     }
 
     /// Inspector > Enemy camp: a placed camp's own difficulty and power (the
@@ -4877,6 +4993,7 @@ impl MapEditor {
             draw_water: false,
             no_terrain: true,
             sky: None,
+            lights: &[],
             // The preview window plays the effects; thumbnails hold them still.
             time: if preview { self.started.elapsed().as_secs_f32() } else { 1.0 },
         };
@@ -4959,7 +5076,7 @@ impl MapEditor {
         let docs: Vec<Value> = items
             .into_iter()
             .map(|(e, _l, x, src)| {
-                let a = src.unwrap_or_else(|| Add { uid: 0, entity: e, level: String::new(), pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None });
+                let a = src.unwrap_or_else(|| Add { uid: 0, entity: e, level: String::new(), pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None, light: None });
                 let a = Add { pos: x.pos, rot: x.rot, scale: x.scale, ..a };
                 let mut o = a.xf_json(a.pos);
                 if !a.name.is_empty() {
@@ -5030,6 +5147,7 @@ impl MapEditor {
                     name: o["name"].as_str().unwrap_or_default().to_owned(),
                     col: o.get("collision").map(crate::edit::ColBox::parse),
                     camp: crate::edit::Camp::parse(&o["camp"]),
+                    light: crate::edit::parse_light(&o["light"]),
                 };
                 Some((e, level.to_owned(), xf, Some(src)))
             })
@@ -5851,6 +5969,14 @@ impl MapEditor {
                 ui.color_edit_button_rgb(&mut b.color);
             }
         });
+        ui.label(egui::RichText::new("Water").strong());
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut b.mode, BrushMode::Water, "Water").on_hover_text("Paint a water surface at the level below (Ctrl dries the ground). Water shows where it is above the ground.");
+        });
+        if b.mode == BrushMode::Water {
+            ui.add(egui::Slider::new(&mut b.level, -50.0..=50.0).text("water level m"));
+            ui.label(egui::RichText::new("Water stands where its level is above the ground: dig a hollow, then fill it.").small().weak());
+        }
         ui.label(egui::RichText::new("Walking").strong());
         ui.horizontal(|ui| {
             ui.selectable_value(&mut b.mode, BrushMode::Block, "Block").on_hover_text("Paint ground heroes and enemies cannot enter (Ctrl clears). Saved as invisible walls.");
@@ -6907,6 +7033,7 @@ impl MapEditor {
         }
         if let Sel::Add(u) = sel {
             self.ui_camp(ui, u);
+            self.ui_light(ui, u);
             self.ui_collision(ui, u);
         }
         let locked = self.locked.contains(&sel);

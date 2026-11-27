@@ -35,7 +35,9 @@ release download yet.
 2. Shape the ground with the **Terrain** tab's brushes. The Layer brush
    makes the 4 m terraces the shipped chapters use. Each ground layer has a
    **tiling** slider (repeats per metre; smaller = bigger, less repetitive
-   ground), saved with the map.
+   ground), saved with the map. The **Water** brush sets a water surface at
+   a level (Ctrl dries it); water shows wherever that level is above the
+   ground, so dig a hollow and fill it. It works on blank chapters too.
 3. Drag props from **Project › Game** into the scene, or **Import…** your own
    `.glb` (and a `.png` with the same name for its texture). Imported models
    are solid by default. **Inspector › Collision** sets the box.
@@ -76,6 +78,7 @@ release download yet.
 | Snap to surfaces | Toolbar: a dragged object lands on whatever is under the pointer (a roof, a rock, the ground) |
 | Snap to objects | Toolbar (on by default): box edges and centres line up with nearby objects, shown by blue guides |
 | Repeat in a row | Object › Array…: copies, step, turn per copy (fences, walls, paths) |
+| Lights | Create › Light: the chapter's lanterns and the plain point light. Inspector › Light sets a copy's radius and intensity (its colour stays the game's). View › Prop lights previews the 16 nearest |
 | Prefabs | Select objects, Object › Save as prefab…; place it from Create › Prefab on any map (models of another mod are skipped) |
 | Measure | Toolbar ruler: click two points for the distance, flat distance and height difference; Esc ends |
 | Frame selection / whole map | F / Home |

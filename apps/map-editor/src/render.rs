@@ -46,7 +46,14 @@ struct Globals {
     fog_dist: [f32; 4],
     /// intensity, brightness
     fog_params: [f32; 4],
+    /// x: point lights in use
+    light_info: [f32; 4],
+    /// Per light: position + radius, then colour x intensity.
+    lights: [[f32; 4]; 2 * MAX_LIGHTS],
 }
+
+/// Point lights the Scene lights (the nearest to the camera).
+pub const MAX_LIGHTS: usize = 16;
 
 /// Shadow map edge in texels.
 const SHADOW_SIZE: u32 = 4096;
@@ -228,6 +235,8 @@ pub struct Frame<'a> {
     pub time: f32,
     /// The Scene background from the theme, linear; `None` = the chapter's sky.
     pub sky: Option<[f32; 4]>,
+    /// Point lights: `(position, radius m, linear colour x intensity)`.
+    pub lights: &'a [(Vec3, f32, [f32; 3])],
 }
 
 impl Renderer {
@@ -826,6 +835,15 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
         self.terrain = Some((vb, ib, idx.len() as u32));
+        self.update_water(t);
+    }
+
+    /// Rebuild only the water surface (a water brush dab).
+    pub fn update_water(&mut self, t: &Terrain) {
+        let n = t.n;
+        let verts: Vec<TerrainVertex> = (0..n * n)
+            .map(|i| TerrainVertex { pos: t.vertex_pos(i / n, i % n).into(), nrm: [0.0, 1.0, 0.0], col: [0.0; 3], uv: grid_uv(i, n) })
+            .collect();
         // Water: the cells under the painted water surface, at that height.
         // `col.x` carries the depth (water minus ground) for the shader.
         self.water = t.water.as_ref().and_then(|w| {
@@ -1102,6 +1120,15 @@ impl Renderer {
             fog_heights: [env.fog_heights[0], env.fog_heights[1], env.fog_heights[2], env.fog_on as u8 as f32],
             fog_dist: [env.fog_distances[0], env.fog_distances[1], env.fog_distances[2], (cam.eye() - cam.target).length()],
             fog_params: [env.fog_intensity, env.fog_brightness, 0.0, 0.0],
+            light_info: [f.lights.len().min(MAX_LIGHTS) as f32, 0.0, 0.0, 0.0],
+            lights: {
+                let mut l = [[0.0; 4]; 2 * MAX_LIGHTS];
+                for (k, (p, r, c)) in f.lights.iter().take(MAX_LIGHTS).enumerate() {
+                    l[2 * k] = [p.x, p.y, p.z, *r];
+                    l[2 * k + 1] = [c[0], c[1], c[2], 0.0];
+                }
+                l
+            },
         };
         self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
 

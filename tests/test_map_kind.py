@@ -598,6 +598,58 @@ def test_tiling_sets_the_clones_terrain_material(tmp_path):
 
 
 @needs_corpus
+def test_water_painted_on_a_blank_map_stays(tmp_path):
+    """`blank` dries the ground; the editor's water brush paints after it."""
+    from rsmm.engine import terrain as TR
+
+    st = [{"op": "set", "layer": "Base Water Height", "x": 0, "z": 0, "radius": 20,
+           "amount": 2.0, "falloff": "constant"}]
+    maps.emit("m", ContentDef(kind="map", id="Wet", fields={
+        "base": "Dark_Hills", "blank": {"height": 0}, "terrain": st}), tmp_path)
+    lv = next(tmp_path.rglob("Map_Wet_Terrain.level.ot*"))
+    w = TR.read(lv.read_bytes()).layers["Base Water Height"]
+    assert max(w.cells) == pytest.approx(0.52, abs=0.01)     # 2 m on the -50..50 m box
+
+
+@needs_corpus
+def test_light_props_with_their_own_radius_and_intensity(tmp_path):
+    from rsmm.engine import entity_strings as ES
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+    from rsmm.engine.entity_graph_edit import EntityFile
+
+    lan = "DarkHills\\Objects_DarkHills\\Lantern_A_Light.entity.ot"
+    point = "DarkHills\\Objects_DarkHills\\Point_Light_Day_Night.entity.ot"
+    out = tmp_path / "assets"
+    maps.emit("m", ContentDef(kind="map", id="Lit", fields={
+        "base": "Dark_Hills", "objects": [
+            {"entity": lan, "pos": [0, 0, 0], "light": {"radius": 12, "intensity": 3}},
+            {"entity": point, "pos": [5, 0, 0], "light": {"radius": 20}}]}), out)
+    levels = sorted((out / "Ot" / "DarkHills").glob("Map_Lit_Scenery_*.level.ot.GameStream.gen"))
+    placed = [p.ref for lv in levels for _i, p in LP.objects(lv.read_bytes())
+              if "Lit_Light" in p.ref]
+    assert len(placed) == 2
+    for ref, want in zip(sorted(placed), ({"Omni Light Radius": 12,
+                                           "Omni Light Itensity Factor Value": 3},
+                                         {"Omni Light Radius": 20}), strict=True):
+        # each number as the game resolves it: the nearest entity up the
+        # copied chain that carries it
+        for comp, v in want.items():
+            r = ref
+            while True:
+                raw = (out / PC.entity_cooked_path(r)).read_bytes()
+                ef = EntityFile(raw, r)
+                if comp in {c.name for c in ef.graph().components}:
+                    break
+                r = next(s for *_x, s in ES.list_strings(raw) if s.endswith(".entity.ot"))
+                assert "Lit_Light" in r                 # every link walked is this map's copy
+            assert ef.get_value(comp, "value") == pytest.approx(v)
+    cache = RC.parse((out / "Definitions/Maps/Lit.mapdef.UsedRscCache.ot").read_bytes())
+    for ref in placed:
+        assert any(f"|{ref}|" in ln for ln in cache), ref
+
+
+@needs_corpus
 def test_objects_are_validated(tmp_path):
     for bad in ([{"pos": [0, 0, 0]}],
                 [{"entity": "Nope\\X.entity.ot", "pos": [0, 0, 0]}],

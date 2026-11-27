@@ -402,7 +402,14 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
 _MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
 _MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
 _OBJECT_KEYS = {"entity", "model", "collider", "texture", "collision", "pos", "yaw", "quat",
-                "scale", "name", "camp"}
+                "scale", "name", "camp", "light"}
+#: A light prop's tunable numbers (``light = {radius, intensity}``): value
+#: components on the entity, or the ancestor, that carries its omni light.
+#: ``intensity`` is the omni light's intensity factor (the point light ships
+#: 6, lanterns 10 .. 40), spelled two ways in the game data.
+_LIGHT_VALUES = {"radius": ("Omni Light Radius",),
+                 "intensity": ("Omni Light Intensity Factor Value",
+                               "Omni Light Itensity Factor Value")}
 #: An enemy camp's spawn settings (``camp = {difficulty, power}``): the
 #: component that rolls its group, and the difficulty definitions it can name.
 _CAMP_SELECTOR = "Enemy camp entity selector to spawn"
@@ -464,8 +471,8 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path],
                 or not all(0.01 <= k <= 100 for k in scale):
             raise ContentError(f"{what}: pos = [x, y, z], quat a rotation, scale 0.01..100")
         quat = tuple(v / norm for v in quat)
-        if "camp" in o and "entity" not in o:
-            raise ContentError(f"{what}: 'camp' settings go on an enemy camp 'entity'")
+        if ("camp" in o or "light" in o) and "entity" not in o:
+            raise ContentError(f"{what}: 'camp' / 'light' settings go on a shipped 'entity'")
         if "entity" in o:
             ref = str(o["entity"])
             if not ref.endswith(".entity.ot") or not corpus.exists(PC.entity_cooked_path(ref)):
@@ -473,7 +480,12 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path],
             if any(k in o for k in ("texture", "collision")):
                 raise ContentError(f"{what}: texture and collision belong to a 'model'")
             borrow.add(ref)
-            if o.get("camp"):
+            if o.get("light"):
+                key = json.dumps(["light", ref, o["light"]], sort_keys=True)
+                if key not in own:
+                    own[key] = _own_light(map_id, len(own), ref, o["light"], what, out_dir, written)
+                ref = own[key]
+            elif o.get("camp"):
                 key = json.dumps(["camp", ref, o["camp"]], sort_keys=True)
                 if key not in own:
                     own[key], lines_extra = _own_camp(map_id, len(own), ref, o["camp"], what,
@@ -570,6 +582,65 @@ def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
             raise ContentError(str(e)) from e
     write(PC.entity_cooked_path(ent_ref), ent)
     return ent_ref
+
+
+def _own_light(map_id: str, k: int, ref: str, light, what: str, out_dir: Path,
+               written: list[Path]) -> str:
+    """A copy of light prop `ref` with its own ``radius`` (m) / ``intensity``.
+
+    Each number is set where it is nearest to `ref` (a lantern overrides its
+    model's radius; its intensity lives on the model): the entities from
+    `ref` up to the farthest one touched are copied, each parent link
+    repointed to the copy, so only this map's copies change."""
+    from ...engine import entity_strings as ES
+    from ...engine.entity_graph_edit import EntityEditError, EntityFile
+
+    if not isinstance(light, dict) or not light or set(light) - set(_LIGHT_VALUES):
+        raise ContentError(f"{what}.light: keys are {sorted(_LIGHT_VALUES)}")
+    for key, v in light.items():
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 < v <= 200:
+            raise ContentError(f"{what}.light.{key}: a number, 0 .. 200")
+    vals: dict[str, float] = {}                 # component -> value
+    chain, at = [ref], {}                       # component -> nearest chain index
+    while True:
+        raw = _read(PC.entity_cooked_path(chain[-1]), f"light prop {chain[-1]}")
+        names = {c.name for c in EntityFile(raw, chain[-1]).graph().components}
+        for key, v in light.items():
+            if key in at:
+                continue
+            hit = next((c for c in _LIGHT_VALUES[key] if c in names), None)
+            if hit:
+                at[key] = hit, len(chain) - 1
+                vals[hit] = float(v)
+        if len(at) == len(light):
+            break
+        parents = [s for *_x, s in ES.list_strings(raw) if s.endswith(".entity.ot")]
+        if len(parents) != 1 or parents[0] in chain or len(chain) > 6:
+            raise ContentError(f"{what}: {ref} carries no tunable light "
+                               f"{sorted(set(light) - set(at))}")
+        chain.append(parents[0])
+    at = dict(at.values())
+    chain = chain[:max(at.values()) + 1]
+    tag = f"{map_id}_Light{k}"
+    new = {r: f"{r.rsplit(chr(92), 1)[0]}\\{tag}_{i}.entity.ot" for i, r in enumerate(chain)}
+    for i, r in enumerate(chain):
+        raw = _read(PC.entity_cooked_path(r), f"light prop {r}")
+        if i + 1 < len(chain):
+            raw = ES.replace_strings(raw, {chain[i + 1]: new[chain[i + 1]]})
+        here = {c: v for c, v in vals.items() if at[c] == i}
+        if here:
+            ef = EntityFile(raw, r)
+            try:
+                for comp, v in here.items():
+                    ef.set_value(comp, "value", v)
+            except EntityEditError as e:
+                raise ContentError(f"{what}.light: {e}") from e
+            raw = ef.to_bytes()
+        dest = out_dir / Path(*PC.entity_cooked_path(new[r]).split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PC.restamp_entity_guids(raw, new[r]))
+        written.append(dest)
+    return new[ref]
 
 
 def _own_camp(map_id: str, k: int, ref: str, camp, what: str, out_dir: Path,
