@@ -161,6 +161,7 @@ return {
   ["SharedRef_Release"] = { pattern = "SharedRef_Release", offset = 0x0, sig = "vp" },
   ["SkillController_SetTier"] = { pattern = "SkillController_SetTier", offset = 0x0, sig = "vpi" },
   ["SkinGrid_Populate"] = { pattern = "SkinGrid_Populate", offset = 0x0, sig = "vpp" },
+  ["StatusSettingsGo_Init"] = { pattern = "StatusSettingsGo_Init", offset = 0x0, sig = "vp" },
   ["StatusValueDefs_Register"] = { pattern = "StatusValueDefs_Register", offset = 0x0, sig = "v" },
   ["StringVector_AssignFromArray"] = { pattern = "StringVector_AssignFromArray", offset = 0x0, sig = "vppu" },
   ["String_Assign"] = { pattern = "String_Assign", offset = 0x0, sig = "vpp" },

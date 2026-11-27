@@ -25,7 +25,7 @@ from .api import sdk_export
 
 KINDS = ("item", "enemy", "boss", "map", "hero", "talent", "ability", "skill", "modifier",
          "game_mode", "reward", "melody", "poi", "mesh", "tilegen", "shop", "animation",
-         "entity", "challenge", "scenery", "skin", "ingredient")
+         "entity", "challenge", "scenery", "skin", "ingredient", "status")
 
 #: Per-kind honesty rating — how much we trust the bytes this kind emits.
 #:
@@ -142,6 +142,9 @@ KIND_CONFIDENCE: dict[str, str] = {
                               # four), and this works on a `SceneryObjects_*` host, so the
                               # "scenery is never interactive" corpus rule describes shipped
                               # content rather than an engine gate.
+    "status": "experimental",  # a status of the mod's own (row in Common_Settings + a value
+                              # definition the loader registers). Built on static RE only;
+                              # nothing is tried in game yet.
     "ingredient": "confirmed",  # PROVEN IN GAME 2026-11-15 (fishermans-camp v0.9): a new
                                 # "Fish" ingredient on the HUD, pickups add to it, and the
                                 # hand-in counts and spawns its rewards. Id = hash of the
@@ -207,6 +210,16 @@ def kind_confidence(kind: str) -> str:
 
 class ContentError(ValueError):
     pass
+
+
+def block_id(block: dict) -> str | None:
+    """The id of a manifest ``[[content]]`` block: its ``id``, or for a
+    ``status`` its ``name`` (a status is declared by name alone)."""
+    if block.get("id"):
+        return block["id"]
+    if block.get("kind") == "status" and block.get("name"):
+        return block["name"]
+    return None
 
 
 class SchemaNotMined(NotImplementedError):
@@ -594,6 +607,7 @@ _KIND_MODULES = {
     "ingredient": "ingredients",
     "scenery": "scenery",
     "shop": "shops",
+    "status": "statuses",
 }
 
 def _load_kind(kind: str):

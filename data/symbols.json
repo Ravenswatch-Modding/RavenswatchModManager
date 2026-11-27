@@ -7206,6 +7206,21 @@
    "note": "oSModifierValueDesc ctor (0x80 bytes)."
   },
   {
+   "name": "StatusSettingsGo_Init",
+   "kind": "function",
+   "category": "engine",
+   "raw": "FUN_14024f850",
+   "status": "ok",
+   "signature": "void(void* self)",
+   "cabi": {
+    "ret": "void",
+    "params": [
+     "void*"
+    ]
+   },
+   "note": "oCDtStatusSettingsGo slot 8: enumerates Status-category definitions and prunes the status table to them. Runs on the game thread; custom statuses register here if the boot registrar did not."
+  },
+  {
    "name": "ModifierAppSettingsSection_Class",
    "kind": "data",
    "category": "engine-core",

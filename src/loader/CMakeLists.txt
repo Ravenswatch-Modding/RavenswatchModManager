@@ -54,6 +54,7 @@ set(LOADER_SRC
     src/hook_io.cpp
     src/hook_engine.cpp
     src/hook_skins.cpp
+    src/hook_statuses.cpp
     src/hook_skills.cpp
     src/hook_ui.cpp
     src/hook_ui_state.cpp
