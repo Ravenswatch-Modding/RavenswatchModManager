@@ -13,6 +13,8 @@ later mod by (load_order, id) wins.
 Supported patch kinds today:
 
     [[patch]] kind="stat"     name=<field>  [value=N] [min=N] [max=N]
+                              (a field may be { config = "<f>", times = n } or
+                              { scale = "<f>" }: the shipped value times config f)
     [[patch]] kind="texture"  target=<decoded_path>  donor=<decoded_path>
     [[patch]] kind="ot"       selector=<label> field=<name> value=<v>
                               [file=<game-relative .ot>] [selector_field=<name>]
@@ -37,7 +39,7 @@ from rsmm.engine.paths import (
 from rsmm.engine.paths import (
     DEFAULT_GAME_DIR as DEFAULT_GAME,
 )
-from rsmm.engine.stat_schemas import index_entries, patch_field
+from rsmm.engine.stat_schemas import index_entries, patch_field, read_field
 
 MERGED_MOD_ID = "_merged"
 
@@ -48,6 +50,13 @@ class _Patch:
     load_order: int
     kind: str
     data: dict
+
+
+@dataclass
+class _Scale:
+    """A stat field written ``{ scale = "<field>" }``: the shipped value times
+    ``by``, settled once the target file is known."""
+    by: float
 
 
 def _toml_load(p: Path) -> dict:
@@ -119,13 +128,27 @@ def collect_patches() -> list[_Patch]:
 
 def _resolve_config(mod_dir: Path, data: dict) -> dict:
     """A patch field written ``{ config = "<field>", times = n }`` takes its
-    value from the mod's config (see ``rsmm.sdk.config.config_value``)."""
-    refs = {k: v for k, v in data.items() if isinstance(v, dict) and "config" in v}
+    value from the mod's config (see ``rsmm.sdk.config.config_value``);
+    ``{ scale = "<field>" }`` becomes a ``_Scale`` that ``_stat_patches``
+    multiplies into the shipped value."""
+    refs = {k: v for k, v in data.items()
+            if isinstance(v, dict) and ("config" in v or "scale" in v)}
     if not refs:
         return data
     from rsmm.sdk.config import ConfigStore, config_value
     store = ConfigStore(mod_dir)
-    return data | {k: config_value(store, v["config"], v.get("times")) for k, v in refs.items()}
+    out = {}
+    for k, v in refs.items():
+        if "scale" not in v:
+            out[k] = config_value(store, v["config"], v.get("times"))
+            continue
+        if "config" in v or "times" in v:
+            raise ValueError(f"{k}: 'scale' stands alone, without 'config' or 'times'")
+        by = config_value(store, v["scale"])
+        if isinstance(by, bool) or not isinstance(by, int | float):
+            raise ValueError(f"{k}: scale = {v['scale']!r} needs a number field, it is {by!r}")
+        out[k] = _Scale(float(by))
+    return data | out
 
 
 def _ranked(items: list[_Patch]) -> list[_Patch]:
@@ -169,6 +192,7 @@ def _stat_patches(patches: list[_Patch], cooking: Path, out_assets: Path,
 
         # Compose: per-field winner + record conflicts
         per_field_seen: dict[str, dict[str, float]] = {}
+        vanilla: bytes | None = None
         # NOT coerced to float. `oCGlobalEntityValueSettings` is a tagged
         # union, so a bool global takes one byte and an int global takes an
         # int32 -- and `float(True)` is 1.0, which `struct` then refuses to
@@ -179,6 +203,24 @@ def _stat_patches(patches: list[_Patch], cooking: Path, out_assets: Path,
         per_field_final: dict[str, float | int | bool] = {}
         for p in group:
             for fn, v in p.data.items():
+                if isinstance(v, _Scale):
+                    if vanilla is None:
+                        bak = entry.cooked_path.parent / (entry.cooked_path.name + BACKUP_SUFFIX)
+                        vanilla = (bak if bak.exists() else entry.cooked_path).read_bytes()
+                    try:
+                        base = read_field(vanilla, entry.schema, fn)
+                    except ValueError as e:
+                        print(f"  [merge] stat {short}:{fn}: {e}", file=sys.stderr)
+                        continue
+                    if isinstance(base, bool):
+                        print(f"  [merge] stat {short}:{fn}: scale needs a number, "
+                              f"the shipped value is {base!r}", file=sys.stderr)
+                        continue
+                    # An f32 reads with decode noise (2.2 as 2.2000000477).
+                    base = float(f"{base:.7g}") if isinstance(base, float) else base
+                    v = round(base * v.by, 6)
+                    if isinstance(base, int):
+                        v = int(round(v))
                 if fn == "name" or not isinstance(v, (int, float)):
                     continue
                 per_field_seen.setdefault(fn, {})[p.mod_id] = float(v)

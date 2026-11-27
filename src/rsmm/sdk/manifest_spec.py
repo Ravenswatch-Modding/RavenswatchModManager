@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import difflib
 
-#: Keys every `[[content]]` block may carry, whatever its kind.
-CONTENT_COMMON: frozenset[str] = frozenset({"kind", "id", "schema_version"})
+#: Keys every `[[content]]` block may carry, whatever its kind. `when` names a
+#: bool config field; the registry skips the block while it is off.
+CONTENT_COMMON: frozenset[str] = frozenset({"kind", "id", "schema_version", "when"})
 
 #: Top-level fields each content kind reads, beyond :data:`CONTENT_COMMON`.
 #: Modes are unioned: a kind that also checks per-mode (enemy, item ban,
@@ -91,6 +92,8 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
     "shop": frozenset({"prices", "price_scale", "offers", "slots", "config"}),
     "scenery": frozenset({"chapter", "level", "moves", "removes", "adds"}),
     "skin": frozenset({"hero", "skins"}),
+    "status": frozenset({"name", "look", "hidden", "icon", "value", "combine",
+                         "hud_combine", "reapply", "max_stacks"}),
 }
 
 #: `[[patch]]` kinds: required and optional top-level keys (besides `kind`).
@@ -191,9 +194,11 @@ def json_schema() -> dict:
 
     content_branches = []
     for kind in sorted(CONTENT_FIELDS):
+        # A `status` is declared by `name`; every other kind by `id`.
         content_branches.append({
             "if": {"properties": {"kind": {"const": kind}}, "required": ["kind"]},
             "then": {"properties": keys(content_fields(kind)),
+                     "required": ["name"] if kind == "status" else ["id"],
                      "additionalProperties": False},
         })
     patch_branches = []
@@ -251,7 +256,7 @@ def json_schema() -> dict:
                         "id": {"type": "string",
                                "description": "Unique within this mod and kind."},
                     },
-                    "required": ["kind", "id"],
+                    "required": ["kind"],
                     "allOf": content_branches,
                 },
             },

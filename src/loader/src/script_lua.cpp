@@ -1422,6 +1422,7 @@ int lua_call_native(lua_State* L) {
         switch (t) {
             case 'i': args[i] = static_cast<std::uint64_t>(static_cast<std::int32_t>(luaL_checkinteger(L, li))); break;
             case 'u': args[i] = static_cast<std::uint64_t>(static_cast<std::uint32_t>(luaL_checkinteger(L, li))); break;
+            case 'b': args[i] = static_cast<std::uint64_t>(static_cast<std::uint8_t>(luaL_checkinteger(L, li))); break;
             case 'l':
             case 'p': args[i] = static_cast<std::uint64_t>(luaL_checkinteger(L, li)); break;
             // 'f' carries the FLOAT's 32 bits in the low half (the ABI's XMM
@@ -1437,7 +1438,7 @@ int lua_call_native(lua_State* L) {
     // call anyway and only then raise, so a typo'd signature still ran an
     // engine function with a wrong prototype.
     switch (ret_t) {
-        case 'v': case 'i': case 'u': case 'l': case 'p': case 'f': case 'd': case 's': break;
+        case 'v': case 'i': case 'u': case 'b': case 'l': case 'p': case 'f': case 'd': case 's': break;
         default: return luaL_error(L, "rsmm.call: bad ret type '%c'", ret_t);
     }
 
@@ -1447,6 +1448,8 @@ int lua_call_native(lua_State* L) {
         case 'v': return 0;
         case 'i': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::int32_t>(raw))); return 1;
         case 'u': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::uint32_t>(raw))); return 1;
+        // A byte return defines only AL; the rest of RAX is garbage.
+        case 'b': lua_pushinteger(L, static_cast<lua_Integer>(static_cast<std::uint8_t>(raw))); return 1;
         case 'l':
         case 'p': lua_pushinteger(L, static_cast<lua_Integer>(raw)); return 1;
         case 'f': { float f; auto lo = static_cast<std::uint32_t>(raw);
@@ -1481,9 +1484,8 @@ constexpr std::size_t MAX_BLOCK = 0x10000;
 template <typename T>
 int read_value(lua_State* L) {
     auto va = static_cast<std::uintptr_t>(luaL_checkinteger(L, 1));
-    if (!mem_accessible(va, sizeof(T), false)) { lua_pushnil(L); return 1; }
     T v{};
-    std::memcpy(&v, reinterpret_cast<const void*>(va), sizeof(T));
+    if (!mem_copy_from(&v, va, sizeof(T))) { lua_pushnil(L); return 1; }
     if constexpr (std::is_floating_point_v<T>) lua_pushnumber(L, v);
     else lua_pushinteger(L, static_cast<lua_Integer>(v));
     return 1;
@@ -1491,12 +1493,10 @@ int read_value(lua_State* L) {
 template <typename T>
 int write_value(lua_State* L) {
     auto va = static_cast<std::uintptr_t>(luaL_checkinteger(L, 1));
-    if (!mem_accessible(va, sizeof(T), true)) { lua_pushboolean(L, 0); return 1; }
     T v;
     if constexpr (std::is_floating_point_v<T>) v = static_cast<T>(luaL_checknumber(L, 2));
     else v = static_cast<T>(luaL_checkinteger(L, 2));
-    std::memcpy(reinterpret_cast<void*>(va), &v, sizeof(T));
-    lua_pushboolean(L, 1);
+    lua_pushboolean(L, mem_copy_to(va, &v, sizeof(T)) ? 1 : 0);
     return 1;
 }
 
@@ -1622,7 +1622,7 @@ int lua_is_grant_target(lua_State* L) {
     // Need the object header + the component-store pointer at entity+0x8.
     if (!mem_accessible(entity, 0x10, false)) { lua_pushboolean(L, 0); return 1; }
     std::uintptr_t store = 0;
-    std::memcpy(&store, reinterpret_cast<const void*>(entity + 8), sizeof(store));
+    if (!mem_load(entity + 8, &store)) { lua_pushboolean(L, 0); return 1; }
     // The lookup dereferences the store's F14 control/slot arrays at +0x1d0.. —
     // require the whole header committed before handing it to the engine fn.
     if (!mem_accessible(store, 0x1f0, false)) { lua_pushboolean(L, 0); return 1; }
@@ -2265,9 +2265,14 @@ int lua_read_block(lua_State* L) {
     auto len = static_cast<std::size_t>(luaL_checkinteger(L, 2));
     if (len == 0) { lua_pushnil(L); return 1; }
     if (len > MAX_BLOCK) len = MAX_BLOCK;
-    while (len > 0 && !mem_accessible(va, len, false)) len /= 2;
+    // Copy through the fault-tolerant path into a Lua buffer: pushing
+    // straight from `va` would read the game page after the check, which is
+    // the race that crashed lua_read_u64 on 2026-11-26.
+    luaL_Buffer b;
+    char* out = luaL_buffinitsize(L, &b, len);
+    while (len > 0 && !mem_copy_from(out, va, len)) len /= 2;
     if (len == 0) { lua_pushnil(L); return 1; }
-    lua_pushlstring(L, reinterpret_cast<const char*>(va), len);
+    luaL_pushresultsize(&b, len);
     return 1;
 }
 
@@ -2292,16 +2297,10 @@ int lua_peek(lua_State* L) {
     auto size = static_cast<int>(luaL_optinteger(L, 2, 8));
     if (size != 1 && size != 2 && size != 4 && size != 8)
         return luaL_error(L, "rsmm.peek: size must be 1, 2, 4 or 8");
-    if (!mem_accessible(addr, static_cast<std::size_t>(size), false)) {
+    std::uint64_t v = 0;   // little-endian: a 1/2/4-byte copy fills the low bytes
+    if (!mem_copy_from(&v, addr, static_cast<std::size_t>(size))) {
         lua_pushnil(L);
         return 1;
-    }
-    std::uint64_t v = 0;
-    switch (size) {
-        case 1: v = *reinterpret_cast<std::uint8_t*>(addr); break;
-        case 2: v = *reinterpret_cast<std::uint16_t*>(addr); break;
-        case 4: v = *reinterpret_cast<std::uint32_t*>(addr); break;
-        case 8: v = *reinterpret_cast<std::uint64_t*>(addr); break;
     }
     lua_pushinteger(L, static_cast<lua_Integer>(v));
     return 1;
@@ -2329,15 +2328,10 @@ int lua_poke(lua_State* L) {
         lua_pushboolean(L, 0);
         return 1;
     }
-    switch (size) {
-        case 1: *reinterpret_cast<std::uint8_t*>(addr) = static_cast<std::uint8_t>(val); break;
-        case 2: *reinterpret_cast<std::uint16_t*>(addr) = static_cast<std::uint16_t>(val); break;
-        case 4: *reinterpret_cast<std::uint32_t*>(addr) = static_cast<std::uint32_t>(val); break;
-        case 8: *reinterpret_cast<std::uint64_t*>(addr) = val; break;
-    }
+    const bool ok = mem_store_unchecked(addr, &val, static_cast<std::size_t>(size));
     DWORD tmp = 0;
     VirtualProtect(reinterpret_cast<void*>(addr), size, oldp, &tmp);
-    lua_pushboolean(L, 1);
+    lua_pushboolean(L, ok ? 1 : 0);
     return 1;
 }
 

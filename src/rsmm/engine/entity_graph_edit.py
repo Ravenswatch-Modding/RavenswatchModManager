@@ -423,6 +423,68 @@ class EntityFile:
             f = f.items[int(idx.rstrip("]"))]
         return c, f, len(self.objects[c.index - 1]) - len(c.body)
 
+    def _list_item_literal(self, comp: str, field: str) -> tuple[EG.Component, EF.Field, int]:
+        """``entries[0][1]``: the n-th literal inside one item of an object list,
+        e.g. the number in a selector's entry (a projectile's stagger power).
+        Returns the component, the item and ``n``."""
+        base, _, idx = field.partition("[")
+        c = self.component(comp)
+        f = next((x for x in EF.fields(c) if x.name == base), None)
+        i, n = (int(x) for x in idx.rstrip("]").split("]["))
+        if f is None or not 0 <= i < len(f.items) or f.items[i].kind != "obj":
+            raise EntityEditError(f"{field!r}: {c.name!r} has no object entry {i} in {base!r}")
+        return c, f.items[i], n
+
+    def _value_literal(self, c: EG.Component, f: EF.Field, field: str):
+        """The union token inside value field ``f`` (offsets within the field)."""
+        sub = EG.Component(0, c.cls, "", "", b"", None,
+                           body=c.body[f.offset:f.offset + f.size], classes=c.classes)
+        u = next((t for t in EG.tokens(sub) if t.kind == "value"), None)
+        if u is None:
+            raise EntityEditError(f"{field!r} holds no literal")
+        return u
+
+    def get_value(self, comp: str, field: str) -> int | float | bool | str:
+        """Read the literal ``set_value`` writes for the same ``field``: a raw
+        bool/u32/f32/str field, the number in a value field, ``obj[n]``,
+        ``entries[i][n]`` or ``cinebloc[i].start``. A value field that reads its
+        number from elsewhere has no inline literal to read and is refused."""
+        base, _, idx = field.partition("[")
+        if idx and "][" in idx:
+            c, item, n = self._list_item_literal(comp, field)
+            return self._get_obj_literal(c, item, n, field)
+        if base == "cinebloc":
+            i, _, prop = idx.partition("]")
+            if prop != ".start" or not i.isdigit():
+                raise EntityEditError(f"{field!r}: a cine bloc reads only its start, "
+                                      "as cinebloc[i].start")
+            _c, sub = self._cinebloc(comp, int(i))
+            return struct.unpack_from("<f", self.objects[sub], 4)[0]
+        if idx:
+            c = self.component(comp)
+            f = next((x for x in EF.fields(c) if x.name == base), None)
+            if f is not None and f.kind == "obj" and not f.items:
+                return self._get_obj_literal(c, f, int(idx.rstrip("]")), field)
+        c, f, at = self._field(comp, field)
+        p = self.objects[c.index - 1]
+        if f.kind in EF._PRIM:
+            fmt = {"bool": "<?", "u32": "<I", "f32": "<f"}[f.kind]
+            return struct.unpack_from(fmt, p, at + f.offset)[0]
+        if f.kind == "str":
+            n = struct.unpack_from("<I", p, at + f.offset)[0]
+            return bytes(p[at + f.offset + 4:at + f.offset + 4 + n]).decode("latin-1")
+        if f.kind != "value":
+            raise EntityEditError(f"{field!r} is a {f.kind}, not a literal")
+        u = self._value_literal(c, f, field)
+        kind = u.text.split()[0]
+        fmt = {"f32": "<f", "int": "<i", "bool": "<?"}.get(kind)
+        if fmt is None:
+            raise EntityEditError(f"{field!r} is a {kind}; only a number or bool is read")
+        if p[at + f.offset + 8]:
+            raise EntityEditError(f"{field!r} reads its number from elsewhere, "
+                                  "so it has no literal of its own")
+        return struct.unpack_from(fmt, p, at + f.offset + u.offset + 16)[0]
+
     def set_value(self, comp: str, field: str, value) -> None:
         """Set a literal: a raw bool/u32/f32 field, the union inside a value
         field (keeping its type; ints and floats convert), or ``obj[n]``: the
@@ -430,14 +492,8 @@ class EntityFile:
         ``position[8]`` (the spawn's yaw; see ``_set_obj_literal``)."""
         base, _, idx = field.partition("[")
         if idx and "][" in idx:
-            # `entries[0][1]`: the n-th literal inside one item of an object list,
-            # e.g. the number in a selector's entry (a projectile's stagger power).
-            c = self.component(comp)
-            f = next((x for x in EF.fields(c) if x.name == base), None)
-            i, n = (int(x) for x in idx.rstrip("]").split("]["))
-            if f is None or not 0 <= i < len(f.items) or f.items[i].kind != "obj":
-                raise EntityEditError(f"{field!r}: {c.name!r} has no object entry {i} in {base!r}")
-            self._set_obj_literal(c, f.items[i], n, value, field)
+            c, item, n = self._list_item_literal(comp, field)
+            self._set_obj_literal(c, item, n, value, field)
             return
         if base == "cinebloc":
             # `cinebloc[i].start`: when bloc i of an animatic's timeline fires.
@@ -487,11 +543,7 @@ class EntityFile:
             return
         if f.kind != "value":
             raise EntityEditError(f"{field!r} is a {f.kind}, not a literal")
-        sub = EG.Component(0, c.cls, "", "", b"", None,
-                           body=c.body[f.offset:f.offset + f.size], classes=c.classes)
-        u = next((t for t in EG.tokens(sub) if t.kind == "value"), None)
-        if u is None:
-            raise EntityEditError(f"{field!r} holds no literal")
+        u = self._value_literal(c, f, field)
         kind = u.text.split()[0]
         if kind == "text" and isinstance(value, str):
             # A one-string text (an "Alive Additional Flags Value" tag): its
@@ -556,18 +608,11 @@ class EntityFile:
             p[:] = old
             raise
 
-    def _set_obj_literal(self, c: EG.Component, f: EF.Field, n: int, value, label: str) -> None:
-        """The n-th literal inside an object field, counted as ``--show`` prints
-        them. A spawner carries two transform-shaped blocks. ``position``:
-        vec3, vec3 (0 0 1), f32 x4 (offset in 3-5), vec3, rotation in
-        radians (7-9, yaw = 8), vec3, scale (11-13) -- the rotation is what
-        the shipped scrap spawners set (1.5708). ``transform``: offset (0-2),
-        vec3, rotation (4-6, yaw = 5), vec3, scale (8-10) -- 18 shipped
-        spawners set one; a hero ability spawn IGNORES its yaw (four
-        shockwaves turned by it all went the way the hero faced, 2026-09-26).
-        Every literal's data starts 16 bytes into its token, as in a value
-        field: a scalar there, a vecN's floats packed from there (read off
-        ``position``'s ``vec3 0 0 1``: its 1.0 sits at +24)."""
+    def _obj_literal_at(self, c: EG.Component, f: EF.Field, n: int,
+                        label: str) -> tuple[bytearray, int, str]:
+        """``(object bytes, offset of the data, kind)`` of the n-th literal inside
+        object field ``f``; what ``_set_obj_literal`` writes and
+        ``_get_obj_literal`` reads."""
         p = self.objects[c.index - 1]
         at = len(p) - len(c.body) + f.offset
         sub = EG.Component(0, c.cls, "", "", b"", None,
@@ -582,7 +627,29 @@ class EntityFile:
             raise EntityEditError(f"{label!r}: {f.name} holds {len(lits)} literals, "
                                   f"no index {n}")
         u = lits[n]
-        kind = u.text.split()[0]
+        return p, at + u.offset + 16, u.text.split()[0]
+
+    def _get_obj_literal(self, c: EG.Component, f: EF.Field, n: int, label: str):
+        p, off, kind = self._obj_literal_at(c, f, n, label)
+        fmt = {"f32": "<f", "int": "<i", "bool": "<?"}.get(kind)
+        if fmt is None:
+            raise EntityEditError(f"{label!r} is a {kind} inside an object; only "
+                                  f"an f32/int/bool literal there is read")
+        return struct.unpack_from(fmt, p, off)[0]
+
+    def _set_obj_literal(self, c: EG.Component, f: EF.Field, n: int, value, label: str) -> None:
+        """The n-th literal inside an object field, counted as ``--show`` prints
+        them. A spawner carries two transform-shaped blocks. ``position``:
+        vec3, vec3 (0 0 1), f32 x4 (offset in 3-5), vec3, rotation in
+        radians (7-9, yaw = 8), vec3, scale (11-13) -- the rotation is what
+        the shipped scrap spawners set (1.5708). ``transform``: offset (0-2),
+        vec3, rotation (4-6, yaw = 5), vec3, scale (8-10) -- 18 shipped
+        spawners set one; a hero ability spawn IGNORES its yaw (four
+        shockwaves turned by it all went the way the hero faced, 2026-09-26).
+        Every literal's data starts 16 bytes into its token, as in a value
+        field: a scalar there, a vecN's floats packed from there (read off
+        ``position``'s ``vec3 0 0 1``: its 1.0 sits at +24)."""
+        p, off, kind = self._obj_literal_at(c, f, n, label)
         fmt = {"f32": "<f", "int": "<i", "bool": "<?",
                "vec2": "<2f", "vec3": "<3f", "vec4": "<4f"}.get(kind)
         if fmt is None:
@@ -592,10 +659,10 @@ class EntityFile:
             vals = list(value) if isinstance(value, (list, tuple)) else []
             if len(vals) != int(kind[3]):
                 raise EntityEditError(f"{label!r} is a {kind}; give {kind[3]} numbers")
-            struct.pack_into(fmt, p, at + u.offset + 16, *map(float, vals))
+            struct.pack_into(fmt, p, off, *map(float, vals))
             return
         conv = {"f32": float, "int": int, "bool": bool}[kind]
-        struct.pack_into(fmt, p, at + u.offset + 16, conv(value))
+        struct.pack_into(fmt, p, off, conv(value))
 
     def set_flags(self, comp: str, flags: int) -> None:
         """Set component ``comp``'s record header flags (``EG.Component.flags``:

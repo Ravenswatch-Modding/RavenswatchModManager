@@ -48,6 +48,8 @@ class ModSummary:
     conflicts: list[str]
     replaces: list[str]
     path: Path
+    #: Names of the mod's `status` content blocks.
+    statuses: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -57,10 +59,13 @@ class CompatReport:
     unmet_requires: list[tuple[str, str]] = field(default_factory=list)
     hard_conflicts: list[tuple[str, str]] = field(default_factory=list)
     cycles: list[list[str]] = field(default_factory=list)
+    #: Status ids two enabled mods (or a mod and the game) both claim.
+    status_collisions: list[str] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
-        return bool(self.unmet_requires or self.hard_conflicts or self.cycles)
+        return bool(self.unmet_requires or self.hard_conflicts or self.cycles
+                    or self.status_collisions)
 
 
 def _summarize(entry: Path) -> ModSummary | None:
@@ -81,6 +86,9 @@ def _summarize(entry: Path) -> ModSummary | None:
         conflicts=[str(x) for x in m.get("conflicts", []) or []],
         replaces=[str(x) for x in m.get("replaces", []) or []],
         path=entry,
+        statuses=[c["name"] for c in t.get("content", []) or []
+                  if isinstance(c, dict) and c.get("kind") == "status"
+                  and isinstance(c.get("name"), str)],
     )
 
 
@@ -143,6 +151,27 @@ def analyze() -> CompatReport:
                     s.id,
                     f"dep version mismatch: need {spec!r}, "
                     f"got {by_id[name].version}"))
+
+    # 3b. Custom statuses: one id per status across every active mod, and none
+    #     the game already uses. The id is a hash, so a clash is a chance
+    #     collision or two mods sharing an id; either way only one row can win.
+    from rsmm.engine.status_table import VANILLA_IDS
+    from rsmm.sdk.kinds.statuses import status_id
+    claimed: dict[int, str] = {}
+    for s in rep.summaries:
+        if not is_active(s.id):
+            continue
+        for name in s.statuses:
+            sid = status_id(s.id, name)
+            label = f"{s.id}:{name}"
+            if sid in VANILLA_IDS:
+                rep.status_collisions.append(
+                    f"{label} has {sid:#010x}, the id of a status the game ships")
+            elif sid in claimed:
+                rep.status_collisions.append(
+                    f"{label} and {claimed[sid]} both have {sid:#010x}")
+            else:
+                claimed[sid] = label
 
     # 4. Cycles among requires.
     graph: dict[str, list[str]] = {}

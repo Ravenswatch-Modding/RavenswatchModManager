@@ -341,8 +341,8 @@ def lint_one(entry: Path) -> tuple[int, int]:
                       f"{', '.join(sorted(MS.STAT_VALUE_FIELDS))}")
                 errs += 1
             for k in set_fields:
-                if isinstance(p[k], dict) and "config" in p[k]:
-                    continue        # { config = "<field>", times = n }: resolved at apply
+                if isinstance(p[k], dict) and ("config" in p[k] or "scale" in p[k]):
+                    continue        # { config, times } or { scale }: resolved at apply
                 if isinstance(p[k], bool) or not isinstance(p[k], (int, float)):
                     if isinstance(p[k], bool) and have and k == "value":
                         continue        # a bool global takes true/false
@@ -370,7 +370,7 @@ def lint_one(entry: Path) -> tuple[int, int]:
     # [[content]] blocks — item kind + per-kind confidence gate
     ce, cw = _lint_content(entry.name, t.get("content", []) or [],
                            experimental=bool(m.get("experimental", False)),
-                           mod_root=entry)
+                           mod_root=entry, mod_id=m.get("id") or entry.name)
     errs += ce
     warns += cw
     errs += _lint_poi_components(entry.name, entry, t.get("content", []) or [])
@@ -702,7 +702,8 @@ def _vanilla_items_readable() -> bool:
 
 def _lint_content(modname: str, blocks: list[dict],
                   *, experimental: bool = False,
-                  mod_root: Path | None = None) -> tuple[int, int]:
+                  mod_root: Path | None = None,
+                  mod_id: str | None = None) -> tuple[int, int]:
     """Validate `[[content]] kind="item"` blocks against the cooked corpus:
     base resolves, value_patch labels + defaults match, icon exists.
 
@@ -712,18 +713,21 @@ def _lint_content(modname: str, blocks: list[dict],
     believing it works."""
     errs = warns = 0
     try:
-        from rsmm.sdk.content import content_confidence
+        from rsmm.sdk.content import block_id, content_confidence
     except ImportError:
         def content_confidence(_k: str, _f) -> str:  # pragma: no cover
             return "confirmed"
+
+        def block_id(b: dict):  # pragma: no cover
+            return b.get("id")
     # Shape + confidence gate run for every kind, even ones with no deep
     # validator. An unknown field is an error for the same reason the
     # registry refuses it: nothing reads it, so the mod silently ignores it.
     mod_s = _ST.bold(modname)
     for n, c in enumerate(blocks, 1):
         kind = c.get("kind")
-        where = f"content #{n}" + (f" ({kind} {c.get('id')})" if kind else "")
-        if not kind or not c.get("id"):
+        where = f"content #{n}" + (f" ({kind} {block_id(c)})" if kind else "")
+        if not kind or not block_id(c):
             print(f"  {_T_FAIL} {mod_s}: {where}: needs both 'kind' and 'id' "
                   f"{_ST.dim('(apply skips a block without them)')}")
             errs += 1
@@ -738,6 +742,16 @@ def _lint_content(modname: str, blocks: list[dict],
             continue
         errs += _report_unknown(mod_s, where, c, allowed)
         errs += _check_base(mod_s, where, str(kind), c.get("base"))
+        if kind == "status":
+            from rsmm.sdk.kinds import statuses as SK
+            for msg in SK.validate(c):
+                print(f"  {_T_FAIL} {mod_s}: {where}: {msg}")
+                errs += 1
+            if SK.hud_kind(c) in ("sub", "min"):
+                print(f"  {_T_WARN} {mod_s}: {where}: the HUD kind is "
+                      f"{SK.hud_kind(c)!r}; a HUD value below 0 reaches no icon step "
+                      "at threshold 0.0, so the icon may never show")
+                warns += 1
         conf = content_confidence(str(kind), c)
         if conf == "confirmed":
             continue
@@ -753,6 +767,13 @@ def _lint_content(modname: str, blocks: list[dict],
                   f"{_ST.accent(repr(kind))} is {_ST.warn(repr(conf))} — "
                   f"{_ST.dim(hint)}")
             warns += 1
+    names = [c["name"] for c in blocks
+             if c.get("kind") == "status" and isinstance(c.get("name"), str)]
+    if names:
+        from rsmm.sdk.kinds import statuses as SK
+        for msg in SK.collisions(mod_id or modname, names):
+            print(f"  {_T_FAIL} {mod_s}: status {msg}")
+            errs += 1
     try:
         from rsmm.cli import cmd_items
         from rsmm.engine import magic_item_cook as cook

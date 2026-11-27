@@ -1171,7 +1171,12 @@ def emit_content_blocks(mods: list[Mod], game_dir: Path | None = None) -> int:
     match what the manifest says, or say nothing at all.
     """
     try:
-        from rsmm.sdk.content import ContentError, ContentRegistry, SchemaNotMined
+        from rsmm.sdk.content import (
+            ContentError,
+            ContentRegistry,
+            SchemaNotMined,
+            block_id,
+        )
     except ImportError as e:
         print(f"  [content] sdk import failed: {e}", file=sys.stderr)
         return 0
@@ -1201,7 +1206,7 @@ def emit_content_blocks(mods: list[Mod], game_dir: Path | None = None) -> int:
         clean = True            # only a fully clean emit is worth caching
         for block in m.content_blocks:
             kind = block.get("kind")
-            cid = block.get("id")
+            cid = block_id(block)
             if not kind or not cid:
                 print(f"  [content] {m.id}: skip block missing kind/id: {block}",
                       file=sys.stderr)
@@ -2299,6 +2304,18 @@ def _sync_mod_manifests(mods: list[Mod], game_dir: Path, dry_run: bool) -> int:
                 dst_lua.unlink()
             synced += 1
 
+        # The loader registers a mod's custom statuses from statuses.json; the
+        # `status` kind stages it under assets/ and it is copied from there.
+        staged = mod.assets_dir / "_pending_statuses" / "statuses.json"
+        dst_status = dst_dir / "statuses.json"
+        if enabled and staged.is_file():
+            if _sync_one_file(staged, dst_status, dry_run):
+                synced += 1
+        elif dst_status.exists() and not (mod_dir / "statuses.json").exists():
+            if not dry_run:
+                dst_status.unlink()
+            synced += 1
+
         # Sync top-level auxiliary files so mods can ship data alongside
         # init.lua (pointer tables, embedded configs, secondary scripts).
         # Only top-level — never recurse into assets/ or _root/ (lang/ is
@@ -2841,6 +2858,17 @@ def cmd_apply(args, repo: Path, cooking: Path, game_dir: Path) -> int:
         menu=encoded_to_dest(menu_enc, cooking, game_dir) if menu_enc else None,
         menu_owner=(state.active.get(menu_enc, {}).get("mod")
                     or next((m for e, _s, _d, m in additions if e == menu_enc), None)))
+
+    # Custom statuses: every enabled mod's rows go into the one Common_Settings
+    # stream (see engine.status_table).
+    from rsmm.engine.status_table import STREAM_DECODED, sync_status_table
+    stream_enc = dec2enc.get(STREAM_DECODED)
+    versiondef_changes += sync_status_table(
+        encoded_to_dest(stream_enc, cooking, game_dir) if stream_enc else None,
+        args.dry_run, mods,
+        owner=(state.active.get(stream_enc, {}).get("mod")
+               or next((m for e, _s, _d, m in additions if e == stream_enc), None))
+        if stream_enc else None)
 
     # Sync manifests so game knows which mods are enabled
     manifest_syncs = _sync_mod_manifests(mods, game_dir, args.dry_run)
@@ -3463,6 +3491,8 @@ def main() -> int:
                 print(f"    [conflict] {a} <-> {b}", file=sys.stderr)
             for c in rep.cycles:
                 print(f"    [cycle]    {' -> '.join(c)}", file=sys.stderr)
+            for msg in rep.status_collisions:
+                print(f"    [status]   {msg}", file=sys.stderr)
             print("  Re-run with --force to ignore.", file=sys.stderr)
             return 1
         for mid, why in rep.auto_disabled.items():

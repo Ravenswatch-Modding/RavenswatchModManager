@@ -154,6 +154,7 @@
               "shop",
               "skill",
               "skin",
+              "status",
               "talent",
               "tilegen"
             ],
@@ -165,8 +166,7 @@
           }
         },
         "required": [
-          "kind",
-          "id"
+          "kind"
         ],
         "allOf": [
           {
@@ -186,8 +186,12 @@
                 "hero": {},
                 "id": {},
                 "kind": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -210,8 +214,12 @@
                 "schema_version": {},
                 "source": {},
                 "strict": {},
-                "target": {}
+                "target": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -233,8 +241,12 @@
                 "id": {},
                 "kind": {},
                 "name": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -256,8 +268,12 @@
                 "kind": {},
                 "modifiers": {},
                 "name": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -297,8 +313,12 @@
                 "schema_version": {},
                 "seed": {},
                 "tribe": {},
-                "weight": {}
+                "weight": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -319,8 +339,12 @@
                 "id": {},
                 "kind": {},
                 "schema_version": {},
-                "steps": {}
+                "steps": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -341,8 +365,12 @@
                 "chapters": {},
                 "id": {},
                 "kind": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -388,8 +416,12 @@
                 "talents": {},
                 "transform": {},
                 "values": {},
-                "weapons": {}
+                "weapons": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -413,8 +445,12 @@
                 "kind": {},
                 "name": {},
                 "pickups": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -450,8 +486,12 @@
                 "super_effect": {},
                 "super_effects": {},
                 "unique_identity": {},
-                "value_patches": {}
+                "value_patches": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -480,8 +520,12 @@
                 "schema_version": {},
                 "terrain": {},
                 "tilegen": {},
-                "tribe": {}
+                "tribe": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -503,8 +547,12 @@
                 "exclude": {},
                 "id": {},
                 "kind": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -526,8 +574,12 @@
                 "model": {},
                 "schema_version": {},
                 "target": {},
-                "transform": {}
+                "transform": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -550,8 +602,12 @@
                 "id": {},
                 "kind": {},
                 "name": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -592,8 +648,12 @@
                 "teleporters": {},
                 "terrain": {},
                 "terrain_size": {},
-                "weight": {}
+                "weight": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -615,8 +675,12 @@
                 "counts": {},
                 "id": {},
                 "kind": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -640,8 +704,12 @@
                 "level": {},
                 "moves": {},
                 "removes": {},
-                "schema_version": {}
+                "schema_version": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -665,8 +733,12 @@
                 "price_scale": {},
                 "prices": {},
                 "schema_version": {},
-                "slots": {}
+                "slots": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -693,8 +765,12 @@
                 "mode": {},
                 "name": {},
                 "schema_version": {},
-                "source": {}
+                "source": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -715,8 +791,45 @@
                 "id": {},
                 "kind": {},
                 "schema_version": {},
-                "skins": {}
+                "skins": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "status"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "combine": {},
+                "hidden": {},
+                "hud_combine": {},
+                "icon": {},
+                "id": {},
+                "kind": {},
+                "look": {},
+                "max_stacks": {},
+                "name": {},
+                "reapply": {},
+                "schema_version": {},
+                "value": {},
+                "when": {}
+              },
+              "required": [
+                "name"
+              ],
               "additionalProperties": false
             }
           },
@@ -750,8 +863,12 @@
                 "stats": {},
                 "talents": {},
                 "union_patches": {},
-                "value_patches": {}
+                "value_patches": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           },
@@ -779,8 +896,12 @@
                 "quotas": {},
                 "remove_slots": {},
                 "schema_version": {},
-                "slots": {}
+                "slots": {},
+                "when": {}
               },
+              "required": [
+                "id"
+              ],
               "additionalProperties": false
             }
           }

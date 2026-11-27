@@ -11,7 +11,7 @@ Every content kind carries an honesty rating — how much the bytes it emits are
 Do not edit by hand, and do not restate a rating in prose — link here. Run `rsmm docs-gen` after changing a rating; CI `--check`s it.
 :::
 
-**22 kinds** — 16 confirmed, 4 experimental, 2 guess.
+**23 kinds** — 16 confirmed, 5 experimental, 2 guess.
 
 | Kind | Confidence | Builder | What it does |
 |---|---|---|---|
@@ -32,11 +32,12 @@ Do not edit by hand, and do not restate a rating in prose — link here. Run `rs
 | `tilegen` | ✅ confirmed | `rsmm.sdk.kinds.tilegen` | Chapter map-generation recipe content builder. |
 | `shop` | ✅ confirmed | `rsmm.sdk.kinds.shops` | **Shop** editor — change what the Sandman sells and what it costs. |
 | `animation` | ✅ confirmed | `rsmm.sdk.kinds.animations` | **Animation** content builder — play the mod's animation in place of a shipped clip. |
-| `entity` | ✅ confirmed | `rsmm.sdk.kinds.entities` | Edits to ONE shipped entity file, in place. |
+| `entity` | ✅ confirmed | `rsmm.sdk.kinds.entities` | Edits to shipped entity files, in place. |
 | `challenge` | ❓ guess | `rsmm.sdk.kinds.challenges` | Custom **challenge** content builder — a new entry on the challenge screen. |
 | `scenery` | ⚠️ experimental | `rsmm.sdk.kinds.scenery` | Chapter scenery content builder. |
 | `skin` | ✅ confirmed | `rsmm.sdk.kinds.skins` | ``kind = "skin"`` — NEW skins for a shipped hero, in the hero's own skin list. |
 | `ingredient` | ✅ confirmed | `rsmm.sdk.kinds.ingredients` | A NEW ingredient — the carried resource of a collect-and-deliver quest. |
+| `status` | ⚠️ experimental | `rsmm.sdk.kinds.statuses` | ``kind = "status"`` — a status of the mod's own: a HUD icon, a buff or debuff |
 
 A block that sets one of these fields is rated as the field, whatever its kind's rating (`FIELD_CONFIDENCE`):
 

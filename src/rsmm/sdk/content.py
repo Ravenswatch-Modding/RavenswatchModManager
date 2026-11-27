@@ -17,7 +17,7 @@ import sys
 import threading
 from contextlib import suppress
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import import_module
 from pathlib import Path
 
@@ -25,7 +25,7 @@ from .api import sdk_export
 
 KINDS = ("item", "enemy", "boss", "map", "hero", "talent", "ability", "skill", "modifier",
          "game_mode", "reward", "melody", "poi", "mesh", "tilegen", "shop", "animation",
-         "entity", "challenge", "scenery", "skin", "ingredient")
+         "entity", "challenge", "scenery", "skin", "ingredient", "status")
 
 #: Per-kind honesty rating — how much we trust the bytes this kind emits.
 #:
@@ -142,6 +142,9 @@ KIND_CONFIDENCE: dict[str, str] = {
                               # four), and this works on a `SceneryObjects_*` host, so the
                               # "scenery is never interactive" corpus rule describes shipped
                               # content rather than an engine gate.
+    "status": "experimental",  # a status of the mod's own (row in Common_Settings + a value
+                              # definition the loader registers). Built on static RE only;
+                              # nothing is tried in game yet.
     "ingredient": "confirmed",  # PROVEN IN GAME 2026-11-15 (fishermans-camp v0.9): a new
                                 # "Fish" ingredient on the HUD, pickups add to it, and the
                                 # hand-in counts and spawns its rewards. Id = hash of the
@@ -207,6 +210,16 @@ def kind_confidence(kind: str) -> str:
 
 class ContentError(ValueError):
     pass
+
+
+def block_id(block: dict) -> str | None:
+    """The id of a manifest ``[[content]]`` block: its ``id``, or for a
+    ``status`` its ``name`` (a status is declared by name alone)."""
+    if block.get("id"):
+        return block["id"]
+    if block.get("kind") == "status" and block.get("name"):
+        return block["name"]
+    return None
 
 
 class SchemaNotMined(NotImplementedError):
@@ -549,7 +562,28 @@ class ContentRegistry:
         emit = getattr(mod, "emit", None)
         if not callable(emit):
             raise ContentError(f"kind {d.kind!r} module has no emit()")
+        if "when" in d.fields:
+            if not self._block_is_on(d, out_dir):
+                return []
+            d = replace(d, fields={k: v for k, v in d.fields.items() if k != "when"})
         return emit(self.mod_id, d, out_dir)
+
+    @staticmethod
+    def _block_is_on(d: ContentDef, out_dir: Path) -> bool:
+        """The block's ``when = "<bool field>"``: the player's value of that
+        config field (or its schema default)."""
+        from .config import ConfigError, ConfigStore, config_value
+        where = f"{d.kind} {d.id}"
+        try:
+            on = config_value(ConfigStore(out_dir.parent), d.fields["when"])
+        except ConfigError as e:
+            raise ContentError(f"{where}: when: {e}") from e
+        except (OSError, ValueError) as e:
+            raise ContentError(f"{where}: config unreadable: {e}") from e
+        if not isinstance(on, bool):
+            raise ContentError(f"{where}: when = {d.fields['when']!r} must name an "
+                               f"on/off (bool) field")
+        return on
 
 
 _KIND_MODULES = {
@@ -573,6 +607,7 @@ _KIND_MODULES = {
     "ingredient": "ingredients",
     "scenery": "scenery",
     "shop": "shops",
+    "status": "statuses",
 }
 
 def _load_kind(kind: str):
