@@ -183,10 +183,13 @@ def test_effect_sprites_are_idle_tinted_and_animated():
     assert MS._ramp_color({"keys": [[0.0, 0, 0, 0, 1]]}) is None
 
 
-@pytest.mark.skipif(not MS.available("FX/Textures/Fire/Flame_Mask_01.png"), reason="needs the game")
+_TORCH = "DarkHills\\Objects_DarkHills\\Destructible_Torch_A.entity.ot"
+
+
+@pytest.mark.skipif(not (MS.available("FX/Textures/Fire/Flame_Mask_01.png")
+                         and MS._bytes("EntitySettings", _TORCH)), reason="needs the game")
 def test_a_torch_shows_its_flame():
-    parts = [(p, m) for p, m in MS.entity_parts(
-        "DarkHills\\Objects_DarkHills\\Destructible_Torch_A.entity.ot") if p.vfx]
+    parts = [(p, m) for p, m in MS.entity_parts(_TORCH) if p.vfx]
     assert any(p.texture == "FX/Textures/Fire/Flame_Mask_01.png" and p.color for p, _ in parts)
     for _p, m in parts:
         size, life, alive = m[0], m[5] / m[0], m[10] / m[0]

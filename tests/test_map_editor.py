@@ -689,6 +689,7 @@ def test_an_imported_model_saves_into_the_mod(editor, tmp_path):
         assert call("/api/save", {**nested, **bad}, token=srv.token)[0] == 400, bad
 
 
+@needs_corpus
 def test_a_terrain_layer_takes_the_mods_own_texture(editor, tmp_path):
     import base64
 
