@@ -61,7 +61,16 @@ pub fn text_button(ui: &mut Ui, icon: Icon, text: &str) -> Response {
 /// A small round badge with `icon`: beside the cursor (a tool hint), or in
 /// its place (`replace`, the pointer hidden: moving the camera).
 pub fn cursor_badge(p: &egui::Painter, at: Pos2, icon: Icon, fill: Color32, replace: bool) {
-    let c = if replace { at } else { at + vec2(20.0, 20.0) };
+    if replace {
+        // A pointer of its own: the icon in white with a dark outline, like a cursor.
+        let r = Rect::from_center_size(at, vec2(20.0, 20.0));
+        for d in [vec2(-1.5, 0.0), vec2(1.5, 0.0), vec2(0.0, -1.5), vec2(0.0, 1.5), vec2(-1.1, -1.1), vec2(1.1, 1.1), vec2(-1.1, 1.1), vec2(1.1, -1.1)] {
+            paint(p, r.translate(d), icon, Color32::from_black_alpha(220));
+        }
+        paint(p, r, icon, Color32::WHITE);
+        return;
+    }
+    let c = at + vec2(20.0, 20.0);
     p.circle_filled(c, 12.0, Color32::from_black_alpha(180));
     p.circle_stroke(c, 12.0, Stroke::new(1.5, fill));
     paint(p, Rect::from_center_size(c, vec2(14.0, 14.0)), icon, Color32::WHITE);
@@ -97,6 +106,16 @@ fn arrow_head(p: &egui::Painter, at: Pos2, dir: egui::Vec2, len: f32, col: Color
 
 /// Every icon, large and small (`--icon-sheet`, for checking how they read).
 pub fn sheet(ui: &mut Ui) {
+    // The camera pointers, on dark and light ground.
+    ui.horizontal(|ui| {
+        for bg in [40u8, 200] {
+            for i in [Icon::Eye(true), Icon::Hand, Icon::Orbit, Icon::Search] {
+                let (r, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
+                ui.painter().rect_filled(r, 4.0, Color32::from_gray(bg));
+                cursor_badge(ui.painter(), r.center(), i, Color32::RED, true);
+            }
+        }
+    });
     for size in [48.0f32, 16.0] {
         ui.horizontal_wrapped(|ui| {
             for i in ALL {

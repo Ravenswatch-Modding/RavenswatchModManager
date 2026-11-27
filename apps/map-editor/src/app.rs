@@ -3283,7 +3283,7 @@ impl MapEditor {
         } else if egui::DragAndDrop::has_any_payload(&ctx) && resp.contains_pointer() {
             Some(Icon::Pin)
         } else if resp.dragged_by(egui::PointerButton::Secondary) {
-            Some(if alt { Icon::Search } else { Icon::Camera })
+            Some(if alt { Icon::Search } else { Icon::Eye(true) })
         } else if resp.dragged_by(egui::PointerButton::Middle) {
             Some(Icon::Hand)
         } else if resp.dragged_by(egui::PointerButton::Primary) && alt {
@@ -3299,7 +3299,7 @@ impl MapEditor {
         };
         // Moving the camera: the icon takes the pointer's place (hidden), drawn
         // at its newest position so it does not trail behind.
-        let camera_move = matches!(badge, Some(Icon::Camera | Icon::Hand | Icon::Orbit)) || (badge == Some(Icon::Search) && !zooming);
+        let camera_move = matches!(badge, Some(Icon::Eye(_) | Icon::Hand | Icon::Orbit)) || (badge == Some(Icon::Search) && !zooming);
         if let (Some(icon), Some(at)) = (badge, ctx.input(|i| i.pointer.latest_pos()).or(pointer)) {
             if camera_move {
                 ctx.set_cursor_icon(egui::CursorIcon::None);
