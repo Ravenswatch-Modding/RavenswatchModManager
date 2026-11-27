@@ -1682,7 +1682,9 @@ edits = [
   { clone = ["Blood Bomb Explode Listener", "Skill Power Special Bomb Spawner"], from = "Carmilla" },
   { set = "Skill Power Special Bomb Spawner.template[1]", value = "own:Bomb" },
 ]
-``` A summon step's `look` (`{ albedo = "art/x.png" }`) is
+```
+
+A summon step's `look` (`{ albedo = "art/x.png" }`) is
 written for a from-scratch hero too.
 
 ---
