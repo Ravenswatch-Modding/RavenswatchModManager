@@ -17,6 +17,53 @@ pub enum Icon {
     Grid,
     Sun,
     Search,
+    /// Right-drag look / fly.
+    Camera,
+    /// Middle-drag pan.
+    Hand,
+    /// Alt + drag orbit.
+    Orbit,
+    /// Terrain brush.
+    Brush,
+    /// Dropping an asset into the Scene.
+    Pin,
+    Save,
+    Check,
+    Import,
+    Trash,
+    Copy,
+    /// Drop to the ground.
+    Down,
+    /// Reset / undo.
+    Undo,
+    Folder,
+    Play,
+}
+
+/// A button with an icon before its text, framed like egui's own buttons.
+pub fn text_button(ui: &mut Ui, icon: Icon, text: &str) -> Response {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER);
+    let pad = ui.spacing().button_padding;
+    let icon_w = galley.size().y.max(12.0);
+    let size = vec2(pad.x * 2.0 + icon_w + 5.0 + galley.size().x, (galley.size().y + pad.y * 2.0).max(ui.spacing().interact_size.y));
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let v = ui.style().interact(&resp);
+        ui.painter().rect(rect, v.corner_radius, v.weak_bg_fill, v.bg_stroke, egui::StrokeKind::Inside);
+        let ir = Rect::from_min_size(pos2(rect.left() + pad.x, rect.center().y - icon_w * 0.5), vec2(icon_w, icon_w));
+        paint(ui.painter(), ir.shrink(1.0), icon, v.fg_stroke.color);
+        ui.painter().galley(pos2(ir.right() + 5.0, rect.center().y - galley.size().y * 0.5), galley, v.fg_stroke.color);
+    }
+    resp
+}
+
+/// A small round badge with `icon`, drawn beside the cursor (what the mouse is doing).
+pub fn cursor_badge(p: &egui::Painter, at: Pos2, icon: Icon, fill: Color32) {
+    let c = at + vec2(20.0, 20.0);
+    p.circle_filled(c, 11.0, Color32::from_black_alpha(170));
+    p.circle_stroke(c, 11.0, Stroke::new(1.5, fill));
+    paint(p, Rect::from_center_size(c, vec2(13.0, 13.0)), icon, Color32::WHITE);
 }
 
 /// A clickable icon. `on` draws it highlighted (a toggled tool).
@@ -136,6 +183,97 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
             p.circle_stroke(c - vec2(w * 0.1, w * 0.1), w * 0.3, s);
             p.line_segment([c + vec2(w * 0.12, w * 0.12), c + vec2(w * 0.45, w * 0.45)], Stroke::new(2.0, col));
         }
+        Icon::Camera => {
+            let body = Rect::from_center_size(c + vec2(0.0, w * 0.06), vec2(w * 0.9, w * 0.6));
+            p.rect_stroke(body, 2.0, s, egui::StrokeKind::Inside);
+            p.rect_filled(Rect::from_center_size(pos2(c.x - w * 0.18, body.top() - w * 0.06), vec2(w * 0.28, w * 0.14)), 1.0, col);
+            p.circle_stroke(body.center(), w * 0.17, s);
+        }
+        Icon::Hand => {
+            // Four fingers and a palm.
+            let palm = Rect::from_min_max(pos2(c.x - w * 0.32, c.y), pos2(c.x + w * 0.3, c.y + w * 0.42));
+            p.rect_filled(palm, w * 0.12, col);
+            for (i, h) in [0.34f32, 0.44, 0.42, 0.32].iter().enumerate() {
+                let x = c.x - w * 0.26 + i as f32 * w * 0.17;
+                p.line_segment([pos2(x, c.y + w * 0.05), pos2(x, c.y - h * w)], Stroke::new(w * 0.12, col));
+            }
+            p.line_segment([pos2(c.x + w * 0.28, c.y + w * 0.2), pos2(c.x + w * 0.48, c.y - w * 0.02)], Stroke::new(w * 0.12, col));
+        }
+        Icon::Orbit => {
+            let pts: Vec<Pos2> = (0..=24)
+                .map(|k| {
+                    let t = 0.3 + k as f32 / 24.0 * 5.2;
+                    pos2(c.x + t.cos() * w * 0.48, c.y + t.sin() * w * 0.22)
+                })
+                .collect();
+            let end = *pts.last().unwrap();
+            p.add(Shape::line(pts, s));
+            p.add(Shape::convex_polygon(vec![end + vec2(3.5, -1.0), end + vec2(-2.0, -3.5), end + vec2(-1.0, 3.0)], col, Stroke::NONE));
+            p.circle_filled(c, w * 0.14, col);
+        }
+        Icon::Brush => {
+            let a = pos2(r.right() - 1.0, r.top() + 1.0);
+            let b = pos2(c.x - w * 0.05, c.y + w * 0.05);
+            p.line_segment([a, b], Stroke::new(2.0, col));
+            p.add(Shape::convex_polygon(vec![b + vec2(-1.5, -2.5), b + vec2(2.5, 1.5), pos2(r.left() + 1.0, r.bottom() - 1.0)], col, Stroke::NONE));
+        }
+        Icon::Pin => {
+            let head = pos2(c.x, c.y - w * 0.12);
+            p.circle_filled(head, w * 0.28, col);
+            p.add(Shape::convex_polygon(vec![head + vec2(-w * 0.22, w * 0.12), head + vec2(w * 0.22, w * 0.12), pos2(c.x, r.bottom())], col, Stroke::NONE));
+            p.circle_filled(head, w * 0.1, Color32::from_black_alpha(160));
+        }
+        Icon::Save => {
+            let b = r.shrink(1.0);
+            p.rect_stroke(b, 2.0, s, egui::StrokeKind::Inside);
+            p.rect_filled(Rect::from_min_size(b.min + vec2(w * 0.22, 1.0), vec2(w * 0.45, w * 0.28)), 1.0, col);
+            p.rect_stroke(Rect::from_min_max(pos2(b.left() + w * 0.2, c.y + w * 0.08), pos2(b.right() - w * 0.2, b.bottom())), 1.0, Stroke::new(1.2, col), egui::StrokeKind::Inside);
+        }
+        Icon::Check => {
+            p.add(Shape::line(vec![pos2(r.left() + 1.0, c.y), pos2(c.x - w * 0.1, r.bottom() - w * 0.15), pos2(r.right() - 1.0, r.top() + w * 0.15)], Stroke::new(2.0, col)));
+        }
+        Icon::Import => {
+            p.line_segment([pos2(c.x, r.top()), pos2(c.x, c.y + w * 0.12)], s);
+            p.add(Shape::convex_polygon(vec![pos2(c.x, c.y + w * 0.25), pos2(c.x - w * 0.22, c.y), pos2(c.x + w * 0.22, c.y)], col, Stroke::NONE));
+            p.add(Shape::line(vec![pos2(r.left(), c.y + w * 0.15), pos2(r.left(), r.bottom()), pos2(r.right(), r.bottom()), pos2(r.right(), c.y + w * 0.15)], s));
+        }
+        Icon::Trash => {
+            let b = Rect::from_min_max(pos2(r.left() + w * 0.18, r.top() + w * 0.25), pos2(r.right() - w * 0.18, r.bottom()));
+            p.rect_stroke(b, 2.0, s, egui::StrokeKind::Inside);
+            p.line_segment([pos2(r.left(), r.top() + w * 0.18), pos2(r.right(), r.top() + w * 0.18)], s);
+            p.line_segment([pos2(c.x - w * 0.12, r.top()), pos2(c.x + w * 0.12, r.top())], s);
+            for dx in [-0.12f32, 0.12] {
+                p.line_segment([pos2(c.x + dx * w, b.top() + 3.0), pos2(c.x + dx * w, b.bottom() - 3.0)], Stroke::new(1.0, col));
+            }
+        }
+        Icon::Copy => {
+            let back = Rect::from_min_size(r.min, vec2(w * 0.65, w * 0.65));
+            p.rect_stroke(back, 2.0, Stroke::new(1.2, col.gamma_multiply(0.6)), egui::StrokeKind::Inside);
+            p.rect_stroke(back.translate(vec2(w * 0.32, w * 0.32)), 2.0, s, egui::StrokeKind::Inside);
+        }
+        Icon::Down => {
+            p.line_segment([pos2(c.x, r.top()), pos2(c.x, c.y + w * 0.15)], s);
+            p.add(Shape::convex_polygon(vec![pos2(c.x, c.y + w * 0.3), pos2(c.x - w * 0.2, c.y + w * 0.02), pos2(c.x + w * 0.2, c.y + w * 0.02)], col, Stroke::NONE));
+            p.line_segment([pos2(r.left(), r.bottom()), pos2(r.right(), r.bottom())], Stroke::new(2.0, col));
+        }
+        Icon::Undo => {
+            let pts: Vec<Pos2> = (0..=16)
+                .map(|k| {
+                    let t = 3.6 - k as f32 / 16.0 * 4.4;
+                    pos2(c.x + t.cos() * w * 0.4, c.y + t.sin() * w * 0.4)
+                })
+                .collect();
+            let start = pts[0];
+            p.add(Shape::line(pts, s));
+            p.add(Shape::convex_polygon(vec![start + vec2(-3.5, 0.5), start + vec2(2.5, -3.0), start + vec2(2.0, 3.5)], col, Stroke::NONE));
+        }
+        Icon::Folder => {
+            p.rect_filled(Rect::from_min_size(pos2(r.left(), r.top() + w * 0.12), vec2(w * 0.45, w * 0.2)), 1.5, col.gamma_multiply(0.8));
+            p.rect_filled(Rect::from_min_max(pos2(r.left(), r.top() + w * 0.25), r.max), 2.0, col);
+        }
+        Icon::Play => {
+            p.add(Shape::convex_polygon(vec![pos2(r.left() + w * 0.2, r.top()), pos2(r.right(), c.y), pos2(r.left() + w * 0.2, r.bottom())], col, Stroke::NONE));
+        }
     }
 }
 
@@ -175,6 +313,26 @@ mod tests {
         frame(&ctx, vec![press(true)], &mut got, &mut at);
         frame(&ctx, vec![press(false)], &mut got, &mut at);
         got
+    }
+
+    #[test]
+    fn every_icon_paints() {
+        let ctx = egui::Context::default();
+        let all = [
+            Icon::Eye(true), Icon::Eye(false), Icon::Lock(true), Icon::Lock(false), Icon::Move, Icon::Rotate, Icon::Scale,
+            Icon::Magnet, Icon::Grid, Icon::Sun, Icon::Search, Icon::Camera, Icon::Hand, Icon::Orbit, Icon::Brush,
+            Icon::Pin, Icon::Save, Icon::Check, Icon::Import, Icon::Trash, Icon::Copy, Icon::Down, Icon::Undo,
+            Icon::Folder, Icon::Play,
+        ];
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for i in all {
+                paint(ui.painter(), Rect::from_min_size(pos2(10.0, 10.0), vec2(14.0, 14.0)), i, Color32::WHITE);
+                cursor_badge(ui.painter(), pos2(50.0, 50.0), i, Color32::RED);
+            }
+            assert!(text_button(ui, Icon::Save, "Save").rect.width() > 40.0);
+        });
+        out.textures_delta.clear();
+        assert!(!out.shapes.is_empty());
     }
 
     #[test]

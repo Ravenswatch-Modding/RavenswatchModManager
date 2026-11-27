@@ -244,20 +244,20 @@ impl Theme {
             ui.end_row();
         });
         ui.separator();
-        let import_open = egui::Id::new("theme_import_open");
+        let import_open = ui.scope_id().with("theme_import_open");
         ui.horizontal(|ui| {
-            if ui.button("Reset to default").clicked() {
+            if crate::icons::text_button(ui, crate::icons::Icon::Undo, "Reset to default").clicked() {
                 *self = Theme::default();
             }
-            if ui.button("Copy as text").on_hover_text("Share it: paste it into Import on another machine").clicked() {
+            if crate::icons::text_button(ui, crate::icons::Icon::Copy, "Copy as text").on_hover_text("Share it: paste it into Import on another machine").clicked() {
                 ui.ctx().copy_text(serde_json::to_string(self).unwrap_or_default());
             }
-            if ui.button("Import…").on_hover_text("Paste a copied theme").clicked() {
+            if crate::icons::text_button(ui, crate::icons::Icon::Import, "Import…").on_hover_text("Paste a copied theme").clicked() {
                 ui.memory_mut(|m| m.data.insert_temp(import_open, true));
             }
         });
         if ui.memory(|m| m.data.get_temp::<bool>(import_open).unwrap_or(false)) {
-            let id = egui::Id::new("theme_import_text");
+            let id = ui.scope_id().with("theme_import_text");
             let mut text: String = ui.memory(|m| m.data.get_temp(id).unwrap_or_default());
             ui.add(egui::TextEdit::multiline(&mut text).desired_rows(2).hint_text("Paste a theme here").desired_width(f32::INFINITY));
             if let Ok(t) = serde_json::from_str::<Theme>(text.trim()) {

@@ -3270,6 +3270,34 @@ impl MapEditor {
 
         // ---- overlays: gizmo, modal hint, minimap ----
         let painter = ui.painter_at(rect);
+        // What the mouse is doing, as a small badge beside the cursor.
+        let zooming = ctx.input(|i| i.smooth_scroll_delta.y != 0.0 || i.zoom_delta() != 1.0) && resp.hovered();
+        let badge = if let Some(m) = &self.modal {
+            Some(match m.kind {
+                Kind::Grab => Icon::Move,
+                Kind::Rotate => Icon::Rotate,
+                Kind::Scale => Icon::Scale,
+            })
+        } else if egui::DragAndDrop::has_any_payload(&ctx) && resp.contains_pointer() {
+            Some(Icon::Pin)
+        } else if resp.dragged_by(egui::PointerButton::Secondary) {
+            Some(if alt { Icon::Search } else { Icon::Camera })
+        } else if resp.dragged_by(egui::PointerButton::Middle) {
+            Some(Icon::Hand)
+        } else if resp.dragged_by(egui::PointerButton::Primary) && alt {
+            Some(Icon::Orbit)
+        } else if zooming {
+            Some(Icon::Search)
+        } else if resp.hovered() && self.tool == Tool::Brush {
+            Some(Icon::Brush)
+        } else if resp.hovered() && matches!(self.tool, Tool::Place(_) | Tool::AddSpot(_)) {
+            Some(Icon::Pin)
+        } else {
+            None
+        };
+        if let (Some(icon), Some(at)) = (badge, pointer) {
+            icons::cursor_badge(&painter, at, icon, ui.visuals().selection.bg_fill);
+        }
         if let (Some(p), Some(c), None, Tool::Select) = (pivot, pivot_scr, &self.modal, &self.tool) {
             draw_gizmo(&painter, self.gizmo, p, c, handle_len, gizmo_hover, &to_screen);
         }
@@ -3825,7 +3853,7 @@ impl MapEditor {
             BottomTab::Project => self.ui_assets(ui),
             BottomTab::Console => {
                 ui.horizontal(|ui| {
-                    if ui.small_button("Copy all").on_hover_text("Or select any text and press Ctrl+C").clicked() {
+                    if icons::text_button(ui, Icon::Copy, "Copy all").on_hover_text("Or select any text and press Ctrl+C").clicked() {
                         let mut all: Vec<String> = self.backend.log.lock().unwrap().iter().cloned().collect();
                         all.extend(self.failed_assets.iter().cloned());
                         ui.ctx().copy_text(all.join("\n"));
@@ -4945,7 +4973,7 @@ impl MapEditor {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.prop_filter).hint_text("Search all…").desired_width(180.0));
                     ui.checkbox(&mut self.all_props, "Gameplay objects").on_hover_text("Also list spawners, FX, chests…");
-                    if ui.button("Import…").on_hover_text(".glb models (metres, Y up) and .png textures; or drop files on the window").clicked() {
+                    if icons::text_button(ui, Icon::Import, "Import…").on_hover_text(".glb models (metres, Y up) and .png textures; or drop files on the window").clicked() {
                         import = true;
                     }
                     ui.add(egui::Slider::new(&mut self.tile_size, 56.0..=220.0).show_value(false).text("Icon size"))
@@ -5516,11 +5544,11 @@ impl MapEditor {
                         let ago = if when < 120 { format!("{when} s ago") } else if when < 7200 { format!("{} min ago", when / 60) } else { format!("{} h ago", when / 3600) };
                         ui.label(egui::RichText::new(format!("{} · {ago}", if parts.is_empty() { "map settings".to_owned() } else { parts.join(", ") })).small());
                         ui.horizontal(|ui| {
-                            if ui.button("Restore").clicked() {
+                            if icons::text_button(ui, Icon::Undo, "Restore").clicked() {
                                 self.restore_offer = None;
                                 self.restore(&ui.ctx().clone(), a.clone());
                             }
-                            if ui.button("Discard").clicked() {
+                            if icons::text_button(ui, Icon::Trash, "Discard").clicked() {
                                 self.restore_offer = None;
                                 if let Some(ch) = &self.chapter {
                                     session::clear_autosave(ch);
@@ -5576,7 +5604,16 @@ impl MapEditor {
                     ("Drop to ground", Cmd::DropToGround),
                     ("Group", Cmd::Group),
                 ] {
-                    if ui.button(label).clicked() {
+                    let icon = match c {
+                        Cmd::DropToGround => Some(Icon::Down),
+                        Cmd::Group => Some(Icon::Folder),
+                        _ => None,
+                    };
+                    let r = match icon {
+                        Some(i) => icons::text_button(ui, i, label),
+                        None => ui.button(label),
+                    };
+                    if r.clicked() {
                         self.run(&ctx, c);
                     }
                 }
@@ -5650,7 +5687,7 @@ impl MapEditor {
                 ui.horizontal(|ui| {
                     let short = entity.rsplit(['\\', '/']).next().unwrap_or(&entity).to_owned();
                     ui.label(egui::RichText::new(short).small().weak()).on_hover_text(&entity);
-                    if ui.small_button("Copy path").clicked() {
+                    if icons::text_button(ui, Icon::Copy, "Copy path").clicked() {
                         ui.ctx().copy_text(entity.clone());
                         self.status = "Path copied".into();
                     }
@@ -5791,13 +5828,13 @@ impl MapEditor {
         });
         ui.horizontal_wrapped(|ui| {
             let ctx = ui.ctx().clone();
-            for (label, c) in [
-                ("Drop to ground", Cmd::DropToGround),
-                ("Reset", Cmd::ResetTransform),
-                ("Duplicate", Cmd::Duplicate),
-                ("Delete", Cmd::Delete),
+            for (label, icon, c) in [
+                ("Drop to ground", Icon::Down, Cmd::DropToGround),
+                ("Reset", Icon::Undo, Cmd::ResetTransform),
+                ("Duplicate", Icon::Copy, Cmd::Duplicate),
+                ("Delete", Icon::Trash, Cmd::Delete),
             ] {
-                if ui.button(label).clicked() {
+                if icons::text_button(ui, icon, label).clicked() {
                     self.run(&ctx, c);
                 }
             }
@@ -6015,13 +6052,13 @@ impl MapEditor {
             }
             let busy = self.pending.is_some();
             ui.horizontal(|ui| {
-                if ui.add_enabled(!busy, egui::Button::new("Check")).clicked() {
+                if ui.add_enabled_ui(!busy, |ui| icons::text_button(ui, Icon::Check, "Check")).inner.clicked() {
                     self.submit(Pending::Check);
                 }
-                if ui.add_enabled(!busy, egui::Button::new("Save")).clicked() {
+                if ui.add_enabled_ui(!busy, |ui| icons::text_button(ui, Icon::Save, "Save")).inner.clicked() {
                     self.run(&ui.ctx().clone(), Cmd::Save);
                 }
-                if ui.add_enabled(!busy, egui::Button::new("Save As…")).clicked() {
+                if ui.add_enabled_ui(!busy, |ui| icons::text_button(ui, Icon::Save, "Save As…")).inner.clicked() {
                     self.show_save_as = true;
                 }
                 if busy {
