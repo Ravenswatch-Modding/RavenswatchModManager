@@ -120,6 +120,9 @@ pub struct GpuMesh {
     count: u32,
     pub center: Vec3,
     pub radius: f32,
+    /// Bounding box in the mesh's own space (object snapping).
+    pub lo: Vec3,
+    pub hi: Vec3,
     /// CPU copy for picking.
     pub cpu: Arc<MeshData>,
 }
@@ -918,7 +921,15 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
         let (center, radius, count) = (m.center, m.radius, m.indices.len() as u32);
-        self.meshes.insert(path, GpuMesh { vb, ib, count, center, radius, cpu: Arc::new(m) });
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for v in &m.vertices {
+            lo = lo.min(Vec3::from(v.pos));
+            hi = hi.max(Vec3::from(v.pos));
+        }
+        if m.vertices.is_empty() {
+            (lo, hi) = (Vec3::ZERO, Vec3::ZERO);
+        }
+        self.meshes.insert(path, GpuMesh { vb, ib, count, center, radius, lo, hi, cpu: Arc::new(m) });
     }
 
     pub fn texture_known(&self, path: &str, swap: bool) -> bool {

@@ -38,6 +38,14 @@ pub enum Icon {
     Undo,
     Folder,
     Play,
+    /// The ruler (measure tool).
+    Ruler,
+    /// Snap onto surfaces: a box resting on a slab.
+    Surface,
+    /// Snap to other objects: two boxes and an alignment line.
+    Align,
+    /// Local axes (the gizmo follows the object).
+    Local,
 }
 
 /// A button with an icon before its text, framed like egui's own buttons.
@@ -128,11 +136,11 @@ pub fn sheet(ui: &mut Ui) {
 }
 
 /// Every icon (the sheet and the paint test).
-pub const ALL: [Icon; 25] = [
+pub const ALL: [Icon; 29] = [
     Icon::Eye(true), Icon::Eye(false), Icon::Lock(true), Icon::Lock(false), Icon::Move, Icon::Rotate, Icon::Scale,
     Icon::Magnet, Icon::Grid, Icon::Sun, Icon::Search, Icon::Camera, Icon::Hand, Icon::Orbit, Icon::Brush,
     Icon::Pin, Icon::Save, Icon::Check, Icon::Import, Icon::Trash, Icon::Copy, Icon::Down, Icon::Undo,
-    Icon::Folder, Icon::Play,
+    Icon::Folder, Icon::Play, Icon::Ruler, Icon::Surface, Icon::Align, Icon::Local,
 ];
 
 /// A clickable icon. `on` draws it highlighted (a toggled tool).
@@ -229,6 +237,40 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
                 p.line_segment([pos2(x, c.y + w * 0.05), pos2(x, r.top() + 1.0)], Stroke::new(3.0, col));
                 p.line_segment([pos2(x - 1.5, r.top() + 3.0), pos2(x + 1.5, r.top() + 3.0)], Stroke::new(2.0, Color32::from_rgb(235, 72, 72)));
             }
+        }
+        Icon::Ruler => {
+            // A slanted rule with ticks.
+            let (a, b) = (pos2(r.left() + 1.0, r.bottom() - w * 0.3), pos2(r.right() - w * 0.3, r.top() + 1.0));
+            let n = (b - a).normalized();
+            let side = vec2(n.y, -n.x) * w * 0.22;
+            p.add(Shape::convex_polygon(vec![a, b, b + side, a + side], Color32::TRANSPARENT, Stroke::new(1.4, col)));
+            for k in 1..6 {
+                let q = a + (b - a) * (k as f32 / 6.0);
+                let l = if k % 2 == 0 { 0.6 } else { 0.35 };
+                p.line_segment([q, q + side * l], Stroke::new(1.0, col));
+            }
+        }
+        Icon::Surface => {
+            p.rect_filled(Rect::from_min_max(pos2(r.left(), c.y + w * 0.22), pos2(r.right(), c.y + w * 0.38)), 1.0, col);
+            p.rect_stroke(Rect::from_center_size(pos2(c.x, c.y - w * 0.04), vec2(w * 0.46, w * 0.46)), 1.0, Stroke::new(1.5, col), egui::StrokeKind::Inside);
+            p.line_segment([pos2(c.x, r.top()), pos2(c.x, r.top() + w * 0.1)], Stroke::new(1.4, col));
+        }
+        Icon::Align => {
+            p.rect_stroke(Rect::from_min_size(pos2(r.left(), r.top() + w * 0.1), vec2(w * 0.4, w * 0.35)), 1.0, Stroke::new(1.4, col), egui::StrokeKind::Inside);
+            p.rect_stroke(Rect::from_min_size(pos2(c.x + w * 0.05, r.top() + w * 0.1), vec2(w * 0.45, w * 0.55)), 1.0, Stroke::new(1.4, col), egui::StrokeKind::Inside);
+            let y = r.top() + w * 0.1;
+            for k in 0..6 {
+                let x = r.left() + k as f32 * w * 0.18;
+                p.line_segment([pos2(x, y - 0.5), pos2(x + w * 0.09, y - 0.5)], Stroke::new(1.2, Color32::from_rgb(90, 200, 255)));
+            }
+            p.line_segment([pos2(r.left(), r.bottom() - 1.0), pos2(r.right(), r.bottom() - 1.0)], Stroke::new(1.0, col.gamma_multiply(0.5)));
+        }
+        Icon::Local => {
+            // A tilted axis cross with a small cube: the object's own axes.
+            let (u, v) = (vec2(0.87, -0.5), vec2(0.5, 0.87));
+            p.line_segment([c, c + u * w * 0.45], Stroke::new(1.8, Color32::from_rgb(235, 72, 72)));
+            p.line_segment([c, c - v * w * 0.45], Stroke::new(1.8, Color32::from_rgb(110, 200, 90)));
+            p.rect_stroke(Rect::from_center_size(c + vec2(-w * 0.18, w * 0.18), vec2(w * 0.3, w * 0.3)), 1.0, Stroke::new(1.3, col), egui::StrokeKind::Inside);
         }
         Icon::Grid => {
             for k in 0..=3 {

@@ -70,6 +70,11 @@ release download yet.
 | Uniform scale | Drag the centre cube |
 | Blender-style keys | G / R / S, then X / Y / Z to lock an axis (Shift = a plane), type a number, Enter |
 | Snap | Ctrl while dragging (grid, 15°, 0.1×) |
+| World / Local axes | The axes button by the gizmo tools: Local moves and rotates along the object's own axes (scale always does) |
+| Snap to surfaces | Toolbar: a dragged object lands on whatever is under the pointer (a roof, a rock, the ground) |
+| Snap to objects | Toolbar (on by default): box edges and centres line up with nearby objects, shown by blue guides |
+| Repeat in a row | Object › Array…: copies, step, turn per copy (fences, walls, paths) |
+| Measure | Toolbar ruler: click two points for the distance, flat distance and height difference; Esc ends |
 | Frame selection / whole map | F / Home |
 | Every command | F3 or Ctrl+P. F1 lists the shortcuts |
 

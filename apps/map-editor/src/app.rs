@@ -158,6 +158,8 @@ enum Tool {
     /// Place a new tile spot of this footprint group.
     AddSpot(String),
     Brush,
+    /// The ruler: click two points.
+    Measure,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -240,6 +242,8 @@ struct Modal {
     /// screen direction along the ring there. The turn follows the drag along
     /// the ring, so an edge-on ring turns as smoothly as a face-on one.
     ring: Option<(f32, egui::Vec2)>,
+    /// The selection's world bounds when the move began (object snap).
+    bounds: Option<(Vec3, Vec3)>,
 }
 
 #[derive(PartialEq)]
@@ -271,6 +275,7 @@ enum Cmd {
     Lock,
     UnlockAll,
     Group,
+    Array,
     Grab,
     Rotate,
     Scale,
@@ -329,6 +334,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Lock selected", "L", Cmd::Lock),
     ("Unlock all", "Alt+L", Cmd::UnlockAll),
     ("Group selected", "Ctrl+G", Cmd::Group),
+    ("Array: repeat the selection…", "", Cmd::Array),
     ("Move (grab)", "G  then X/Y/Z, a number, Enter", Cmd::Grab),
     ("Rotate", "R  then X/Y/Z, a number, Enter", Cmd::Rotate),
     ("Scale", "S  then X/Y/Z, a number, Enter", Cmd::Scale),
@@ -491,6 +497,22 @@ pub struct MapEditor {
     new_edge_walls: bool,
     /// View > Walkability: blocked cells and every collision box.
     show_walk: bool,
+    /// Move and rotate along the active object's own axes (scale always is).
+    gizmo_local: bool,
+    /// Dragged objects land on what is under the pointer (meshes or ground).
+    snap_surface: bool,
+    /// Moved boxes snap their edges / centre to nearby objects' (with guides).
+    snap_objects: bool,
+    /// Object snap reach this frame (metres for ~8 px) and its guide lines.
+    snap_tol: std::cell::Cell<f32>,
+    guides: std::cell::RefCell<Vec<(Vec3, Vec3)>>,
+    /// The ruler: first point, then the second (None while picking it).
+    measure: Option<(Vec3, Option<Vec3>)>,
+    /// Object > Array…
+    show_array: bool,
+    array_count: u32,
+    array_step: Vec3,
+    array_yaw: f32,
     opened_doc: Option<Value>,
     unsaved: bool,
     last_autosave: Instant,
@@ -652,6 +674,16 @@ impl MapEditor {
             new_keep_kinds: false,
             new_edge_walls: true,
             show_walk: false,
+            gizmo_local: false,
+            snap_surface: false,
+            snap_objects: true,
+            snap_tol: std::cell::Cell::new(0.5),
+            guides: std::cell::RefCell::new(Vec::new()),
+            measure: None,
+            show_array: false,
+            array_count: 5,
+            array_step: Vec3::new(4.0, 0.0, 0.0),
+            array_yaw: 0.0,
             fly_speed: 25.0,
             project_dir: opts.project.clone().unwrap_or_else(|| crate::project::ASSETS.to_owned()),
             tile_size: 92.0,
@@ -1394,6 +1426,14 @@ impl MapEditor {
             if let Some(last) = self.edits.adds.last_mut() {
                 last.camp = Some(crate::edit::Camp { difficulty: "Very_Hard".into(), power: [150.0, 300.0] });
             }
+        }
+        // Array: two more of the placed prop, one undo step.
+        if let Some(u) = self.edits.adds.first().map(|a| a.uid) {
+            self.select_only([Sel::Add(u)]);
+            let before = self.edits.adds.len();
+            self.array_count = 2;
+            self.make_array(ctx);
+            assert_eq!(self.edits.adds.len(), before + 2, "array adds its copies");
         }
         // Painted blocked ground and edge walls.
         self.edits.blocked.extend((0..6).flat_map(|x| (0..3).map(move |z| (x + 20, z + 20))));
@@ -2425,6 +2465,13 @@ impl MapEditor {
                 self.select_only([]);
             }
             Cmd::UnlockAll => self.locked.clear(),
+            Cmd::Array => {
+                if self.sel.iter().any(|s| !matches!(s, Sel::Spot(_))) {
+                    self.show_array = true;
+                } else {
+                    self.status = "Array: select the objects to repeat first".into();
+                }
+            }
             Cmd::Group => {
                 if !self.sel.is_empty() {
                     let name = format!("Group {}", self.groups.len() + 1);
@@ -2581,8 +2628,14 @@ impl MapEditor {
         }
         let p0 = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
         self.history.push(&self.edits);
-        let basis = if kind == Kind::Scale { self.gizmo_spec(GizmoMode::Scale).basis } else { Quat::IDENTITY };
-        self.modal = Some(Modal { kind, lock, starts, pivot, p0, g0: self.cursor, by_drag, typed: String::new(), basis, ring: None });
+        let mode = match kind {
+            Kind::Grab => GizmoMode::Move,
+            Kind::Rotate => GizmoMode::Rotate,
+            Kind::Scale => GizmoMode::Scale,
+        };
+        let basis = self.gizmo_spec(mode).basis;
+        let bounds = self.sel_bounds(&starts.iter().map(|(s, _)| *s).collect());
+        self.modal = Some(Modal { kind, lock, starts, pivot, p0, g0: self.cursor, by_drag, typed: String::new(), basis, ring: None, bounds });
     }
 
     /// The gizmo's handles for the current selection (see `GizmoSpec`).
@@ -2590,8 +2643,9 @@ impl MapEditor {
         // A tile's `places` save a yaw and one scale only; the map's own objects take any.
         let adds_only = self.tile.is_some() && !self.sel.is_empty() && self.sel.iter().all(|s| matches!(s, Sel::Add(_)));
         let lead = self.active.filter(|a| self.sel.contains(a)).or_else(|| self.sel.iter().next().copied());
-        let basis = match (mode, &self.scenery, lead) {
-            (GizmoMode::Scale, Some(s), Some(l)) => self.edits.xf(s, l).map_or(Quat::IDENTITY, |x| x.rot.normalize()),
+        // Scale is always along the object's own axes; move and rotate when Local is on.
+        let basis = match (mode == GizmoMode::Scale || self.gizmo_local, &self.scenery, lead) {
+            (true, Some(s), Some(l)) => self.edits.xf(s, l).map_or(Quat::IDENTITY, |x| x.rot.normalize()),
             _ => Quat::IDENTITY,
         };
         let axes = match mode {
@@ -2709,19 +2763,15 @@ impl MapEditor {
                     // The point on the axis nearest each view ray: the grabbed
                     // arm stays under the pointer, in perspective too.
                     Lock::Axis(a) => {
-                        let mut dir = Vec3::ZERO;
-                        dir[a] = 1.0;
-                        let mut d = Vec3::ZERO;
-                        d[a] = match (line_ray_param(m.pivot, dir, rays[0]), line_ray_param(m.pivot, dir, rays[1])) {
+                        let dir = m.basis * [Vec3::X, Vec3::Y, Vec3::Z][a];
+                        dir * match (line_ray_param(m.pivot, dir, rays[0]), line_ray_param(m.pivot, dir, rays[1])) {
                             (Some(s0), Some(s1)) => s1 - s0,
                             _ => along_screen(a),
-                        };
-                        d
+                        }
                     }
                     // Where each view ray meets the plane through the pivot.
                     Lock::Plane(skip) => {
-                        let mut n = Vec3::ZERO;
-                        n[skip] = 1.0;
+                        let n = m.basis * [Vec3::X, Vec3::Y, Vec3::Z][skip];
                         let hit = |(o, dv): (Vec3, Vec3)| {
                             let den = dv.dot(n);
                             (den.abs() > 0.02).then(|| o + dv * ((m.pivot - o).dot(n) / den)).filter(|p| (*p - o).dot(dv) > 0.0)
@@ -2732,20 +2782,42 @@ impl MapEditor {
                         }
                     }
                 };
+                // In the lock's own frame (world, or the object's when Local).
+                let inv = m.basis.inverse();
+                let mut dl = inv * d;
                 if let Some(v) = typed {
                     let axis = match m.lock {
                         Lock::Axis(a) => a,
                         _ => 0,
                     };
-                    d = Vec3::ZERO;
-                    d[axis] = v;
+                    dl = Vec3::ZERO;
+                    dl[axis] = v;
                 }
-                d *= mask;
+                if !matches!(m.lock, Lock::Free) {
+                    dl *= mask;
+                }
                 if snap && typed.is_none() {
                     let g = self.grid_size.max(0.01);
-                    d = (d / g).round() * g;
+                    dl = (dl / g).round() * g;
                 }
-                let follow = self.snap_ground && m.lock == Lock::Free && typed.is_none();
+                d = m.basis * dl;
+                // Surface snap: the pivot lands where the pointer meets a mesh or the ground.
+                let surface = self.snap_surface && m.lock == Lock::Free && typed.is_none();
+                if surface {
+                    let skip: BTreeSet<Sel> = m.starts.iter().map(|(s, _)| *s).collect();
+                    if let Some(h) = self.ray_hit(rays[1].0, rays[1].1, &skip) {
+                        d = h - m.pivot;
+                    }
+                }
+                self.guides.borrow_mut().clear();
+                if self.snap_objects && typed.is_none() && m.basis == Quat::IDENTITY {
+                    if let Some(b0) = m.bounds {
+                        let (nd, _hit, guides) = self.object_snap(m, b0, d, self.snap_tol.get());
+                        d = nd;
+                        *self.guides.borrow_mut() = guides;
+                    }
+                }
+                let follow = self.snap_ground && m.lock == Lock::Free && typed.is_none() && !surface;
                 m.starts
                     .iter()
                     .map(|(sel, st)| {
@@ -2897,9 +2969,28 @@ impl MapEditor {
     /// The selectable thing under a screen ray: bounding spheres first, then
     /// the triangles of each candidate, nearest first.
     fn pick(&self, o: Vec3, d: Vec3) -> Option<Sel> {
+        self.pick_hit(o, d, &BTreeSet::new(), false).map(|(s, _)| s)
+    }
+
+    /// The first point a view ray hits on a mesh (not `skip`'s, not an
+    /// effect's stand-in box) or on the ground: what Surface snap lands on.
+    fn ray_hit(&self, o: Vec3, d: Vec3, skip: &BTreeSet<Sel>) -> Option<Vec3> {
+        let mesh = self.pick_hit(o, d, skip, true).map(|(_, t)| o + d * t);
+        let ground = self.terrain.as_ref().and_then(|t| t.raycast(o, d, 9000.0));
+        match (mesh, ground) {
+            (Some(a), Some(b)) => Some(if (a - o).length() <= (b - o).length() { a } else { b }),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Nearest thing under a view ray and how far along it.
+    fn pick_hit(&self, o: Vec3, d: Vec3, skip: &BTreeSet<Sel>, solid: bool) -> Option<(Sel, f32)> {
         let r = self.renderer.as_ref()?;
         let mut cands: Vec<(f32, usize)> = Vec::new();
-        for (k, (mesh, m, _)) in self.pickables.iter().enumerate() {
+        for (k, (mesh, m, sel)) in self.pickables.iter().enumerate() {
+            if skip.contains(sel) || (solid && mesh == VFX_PICK) {
+                continue;
+            }
             let Some(g) = r.meshes.get(mesh) else { continue };
             let c = m.transform_point3(g.center);
             let sc = m.x_axis.truncate().length().max(m.y_axis.truncate().length()).max(m.z_axis.truncate().length());
@@ -2929,7 +3020,81 @@ impl MapEditor {
                 }
             }
         }
-        best.map(|(s, _)| s)
+        best
+    }
+
+    /// World bounds of everything drawn for `sel` (its pickable meshes).
+    fn sel_bounds(&self, sel: &BTreeSet<Sel>) -> Option<(Vec3, Vec3)> {
+        let r = self.renderer.as_ref()?;
+        let mut out: Option<(Vec3, Vec3)> = None;
+        for (mesh, m, s) in &self.pickables {
+            if !sel.contains(s) || mesh == VFX_PICK {
+                continue;
+            }
+            if let Some(g) = r.meshes.get(mesh) {
+                let (lo, hi) = world_box(*m, g.lo, g.hi);
+                out = Some(out.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
+            }
+        }
+        out
+    }
+
+    /// Object snap: shift `d` (a move of the selection, whose bounds at the
+    /// start were `b0`) so its box edges or centre line up with a nearby
+    /// object's on the axes `mask` lets move, within `tol` metres. Returns
+    /// the new move, the axes it snapped and guide lines to draw.
+    fn object_snap(&self, m: &Modal, b0: (Vec3, Vec3), d: Vec3, tol: f32) -> (Vec3, [bool; 3], Vec<(Vec3, Vec3)>) {
+        let Some(r) = self.renderer.as_ref() else { return (d, [false; 3], Vec::new()) };
+        let skip: BTreeSet<Sel> = m.starts.iter().map(|(s, _)| *s).collect();
+        let (lo, hi) = (b0.0 + d, b0.1 + d);
+        let near = (hi - lo).length() * 0.5 + 40.0;
+        let centre = (lo + hi) * 0.5;
+        let mut best: [Option<(f32, Vec3, Vec3)>; 3] = [None; 3]; // (shift, guide a, guide b)
+        for (mesh, mm, s) in &self.pickables {
+            if skip.contains(s) || mesh == VFX_PICK {
+                continue;
+            }
+            let at = mm.transform_point3(Vec3::ZERO);
+            if (at - centre).with_y(0.0).length() > near {
+                continue;
+            }
+            let Some(g) = r.meshes.get(mesh) else { continue };
+            let (olo, ohi) = world_box(*mm, g.lo, g.hi);
+            for a in 0..3 {
+                if m.lock.mask()[a] == 0.0 && !matches!(m.lock, Lock::Free) || (a == 1 && matches!(m.lock, Lock::Free | Lock::Plane(1))) {
+                    continue; // a free / ground move keeps to the ground: no height snap
+                }
+                // Mine (min, max, centre) against theirs; a stack: my bottom on their top.
+                let mine = [lo[a], hi[a], (lo[a] + hi[a]) * 0.5];
+                let theirs = [olo[a], ohi[a], (olo[a] + ohi[a]) * 0.5];
+                for x in mine {
+                    for y in theirs {
+                        let sh = y - x;
+                        if sh.abs() < tol && best[a].is_none_or(|(b, _, _)| sh.abs() < b.abs()) {
+                            // The guide runs along the shared line, across both boxes.
+                            let (mut ga, mut gb) = (lo.min(olo), hi.max(ohi));
+                            ga[a] = y;
+                            gb[a] = y;
+                            let other = if a == 1 { 0 } else { 1 };
+                            ga[other] = (lo[other] + hi[other]) * 0.5;
+                            gb[other] = (olo[other] + ohi[other]) * 0.5;
+                            best[a] = Some((sh, ga, gb));
+                        }
+                    }
+                }
+            }
+        }
+        let mut out = d;
+        let mut hit = [false; 3];
+        let mut guides = Vec::new();
+        for a in 0..3 {
+            if let Some((sh, ga, gb)) = best[a] {
+                out[a] += sh;
+                hit[a] = true;
+                guides.push((ga, gb));
+            }
+        }
+        (out, hit, guides)
     }
 
     fn selection_lines(&self) -> Vec<LineVertex> {
@@ -3123,6 +3288,7 @@ impl MapEditor {
         };
         let px_m = 2.0 * depth_half / rect.height();
         let handle_len = GIZMO_PX * px_m;
+        self.snap_tol.set(10.0 * px_m);
         let spec = self.gizmo_spec(self.gizmo);
         let gizmo_hover = match (pivot, pivot_scr, pointer, self.modal.is_none() && self.tool == Tool::Select) {
             (Some(p), Some(c), Some(ptr), true) => gizmo_hit(&spec, p, c, ptr, handle_len, self.camera.eye(), &to_screen),
@@ -3310,6 +3476,15 @@ impl MapEditor {
                         }
                     }
                     Tool::Brush => {}
+                    Tool::Measure => {
+                        let (o, d) = ray_at(p);
+                        if let Some(h) = self.ray_hit(o, d, &BTreeSet::new()) {
+                            self.measure = match self.measure {
+                                Some((a, None)) => Some((a, Some(h))),
+                                _ => Some((h, None)),
+                            };
+                        }
+                    }
                     Tool::AddSpot(group) => {
                         if let Some(g) = ground_at(self.terrain.as_ref(), p) {
                             // A new spot allows every kind that fits its footprint.
@@ -3418,6 +3593,34 @@ impl MapEditor {
                         }
                     }
                 }
+            }
+        }
+        // Moving: object-snap guides, and a drop line from the pivot to the ground.
+        if let Some(m) = &self.modal {
+            for (a, b) in self.guides.borrow().iter() {
+                top.push(LineVertex { pos: (*a).into(), col: [0.35, 0.8, 1.0, 1.0] });
+                top.push(LineVertex { pos: (*b).into(), col: [0.35, 0.8, 1.0, 1.0] });
+            }
+            if m.kind == Kind::Grab {
+                if let Some(p) = self.pivot() {
+                    if let Some(gy) = self.ground_y(p.x, p.z) {
+                        let c = [1.0, 1.0, 1.0, 0.55];
+                        top.push(LineVertex { pos: p.into(), col: c });
+                        top.push(LineVertex { pos: [p.x, gy, p.z], col: c });
+                        ring(&mut top, Vec3::new(p.x, gy, p.z), 0.6, c, |x, z| self.ground_y(x, z));
+                    }
+                }
+            }
+        }
+        // The ruler (the second end follows the pointer until it is clicked).
+        if let Some((a, b)) = self.measure {
+            let b = b.or_else(|| (self.tool == Tool::Measure).then(|| pointer.and_then(|p| { let (o, d) = ray_at(p); self.ray_hit(o, d, &BTreeSet::new()) })).flatten());
+            let c = [1.0, 0.9, 0.3, 1.0];
+            ring(&mut top, a, 0.3, c, |_, _| Some(a.y + 0.05));
+            if let Some(b) = b {
+                top.push(LineVertex { pos: a.into(), col: c });
+                top.push(LineVertex { pos: b.into(), col: c });
+                ring(&mut top, b, 0.3, c, |_, _| Some(b.y + 0.05));
             }
         }
         match (&self.tool, hover_ground) {
@@ -3555,6 +3758,8 @@ impl MapEditor {
             Some(Icon::Search)
         } else if resp.hovered() && self.tool == Tool::Brush {
             Some(Icon::Brush)
+        } else if resp.hovered() && self.tool == Tool::Measure {
+            Some(Icon::Ruler)
         } else if resp.hovered() && matches!(self.tool, Tool::Place(_) | Tool::AddSpot(_)) {
             Some(Icon::Pin)
         } else {
@@ -3680,6 +3885,20 @@ impl MapEditor {
             let at = rect.center_bottom() - egui::vec2(gl.size().x * 0.5, gl.size().y + 14.0);
             painter.rect_filled(egui::Rect::from_min_size(at - egui::vec2(10.0, 5.0), gl.size() + egui::vec2(20.0, 10.0)), 6.0, egui::Color32::from_black_alpha(180));
             painter.galley(at, gl, egui::Color32::WHITE);
+        }
+        // The ruler's length, on a pill at its middle.
+        if let Some((a, b)) = self.measure {
+            let b = b.or_else(|| (self.tool == Tool::Measure).then(|| pointer.and_then(|p| { let (o, d) = ray_at(p); self.ray_hit(o, d, &BTreeSet::new()) })).flatten());
+            if let Some(b) = b {
+                if let Some(mid) = to_screen((a + b) * 0.5) {
+                    let d = b - a;
+                    let txt = format!("{:.2} m   (flat {:.2} m · up {:+.2} m)", d.length(), d.with_y(0.0).length(), d.y);
+                    let gl = painter.layout_no_wrap(txt, egui::FontId::proportional(14.0), egui::Color32::WHITE);
+                    let at = mid + egui::vec2(-gl.size().x * 0.5, -gl.size().y - 10.0);
+                    painter.rect_filled(egui::Rect::from_min_size(at - egui::vec2(6.0, 3.0), gl.size() + egui::vec2(12.0, 6.0)), 5.0, egui::Color32::from_black_alpha(180));
+                    painter.galley(at, gl, egui::Color32::WHITE);
+                }
+            }
         }
         if self.show_minimap && self.tile.is_none() {
             self.draw_minimap(ui, rect, aspect);
@@ -3888,6 +4107,7 @@ impl MapEditor {
         } else if p(egui::Key::Escape) {
             if self.tool != Tool::Select {
                 self.tool = Tool::Select;
+                self.measure = None;
                 None
             } else {
                 Some(Cmd::DeselectAll)
@@ -3996,6 +4216,7 @@ impl MapEditor {
                 item(ui, "Scale", "S", Cmd::Scale);
                 item(ui, "Reset transform", "Alt+G", Cmd::ResetTransform);
                 item(ui, "Drop to ground", "End", Cmd::DropToGround);
+                item(ui, "Array…", "", Cmd::Array);
                 ui.menu_button("Align", |ui| {
                     for (label, _, c) in COMMANDS.iter().filter(|(_, _, c)| matches!(c, Cmd::Align(..))) {
                         if ui.button(label.trim_start_matches("Align ")).clicked() {
@@ -4076,9 +4297,28 @@ impl MapEditor {
                     self.gizmo = mode;
                 }
             }
+            if icons::button(ui, Icon::Local, self.gizmo_local, if self.gizmo_local { "Local: move and rotate along the object's own axes (click for World)" } else { "World: move and rotate along the map's axes (click for Local)" }).clicked() {
+                self.gizmo_local = !self.gizmo_local;
+            }
             ui.separator();
             if icons::button(ui, Icon::Magnet, self.snap, "Snap to grid (hold Ctrl to invert)").clicked() {
                 self.snap = !self.snap;
+            }
+            if icons::button(ui, Icon::Surface, self.snap_surface, "Snap to surfaces: a dragged object lands on whatever is under the pointer").clicked() {
+                self.snap_surface = !self.snap_surface;
+            }
+            if icons::button(ui, Icon::Align, self.snap_objects, "Snap to objects: edges and centres line up with nearby objects (blue guides)").clicked() {
+                self.snap_objects = !self.snap_objects;
+            }
+            if icons::button(ui, Icon::Ruler, self.tool == Tool::Measure, "Measure: click two points (Esc ends)").clicked() {
+                if self.tool == Tool::Measure {
+                    self.tool = Tool::Select;
+                    self.measure = None;
+                } else {
+                    self.tool = Tool::Measure;
+                    self.measure = None;
+                    self.status = "Measure: click a first point".into();
+                }
             }
             if icons::button(ui, Icon::Grid, self.show_grid, "Grid").clicked() {
                 self.show_grid = !self.show_grid;
@@ -4631,6 +4871,67 @@ impl MapEditor {
             self.unsaved = true;
             self.status = format!("Imported {}: drag it from Project into the scene", done.join(", "));
         }
+    }
+
+    /// Object > Array…: copies of the selection in a row (fences, walls,
+    /// paths), each `array_step` further and turned `array_yaw` more.
+    fn ui_array(&mut self, ctx: &egui::Context) {
+        let mut open = true;
+        let mut apply = false;
+        egui::Window::new("Array").open(&mut open).resizable(false).collapsible(false).anchor(egui::Align2::RIGHT_TOP, [-340.0, 60.0]).show(ctx, |ui| {
+            ui.label(egui::RichText::new("Repeats the selection in a row, as one undo step.").small().weak());
+            egui::Grid::new("array").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
+                ui.label("Copies");
+                ui.add(egui::DragValue::new(&mut self.array_count).range(1..=200));
+                ui.end_row();
+                ui.label("Step");
+                for k in 0..3 {
+                    ui.add(egui::DragValue::new(&mut self.array_step[k]).speed(0.1).range(-200.0..=200.0).fixed_decimals(2).suffix(" m").prefix(["x ", "y ", "z "][k]));
+                }
+                ui.end_row();
+                ui.label("Turn each");
+                ui.add(egui::DragValue::new(&mut self.array_yaw).speed(0.5).range(-180.0..=180.0).suffix("°"));
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                if ui.small_button("Step = selection width").on_hover_text("Along X, edge to edge").clicked() {
+                    if let Some((lo, hi)) = self.sel_bounds(&self.sel.clone()) {
+                        self.array_step = Vec3::new((hi.x - lo.x).max(0.1), 0.0, 0.0);
+                    }
+                }
+            });
+            ui.label(egui::RichText::new(if self.snap_ground { "Copies follow the ground." } else { "Copies keep the selection's height." }).small().weak());
+            apply = ui.button(format!("Make {} copies", self.array_count)).clicked();
+        });
+        if apply {
+            self.make_array(ctx);
+            open = false;
+        }
+        self.show_array = open;
+    }
+
+    fn make_array(&mut self, ctx: &egui::Context) {
+        let Some(p) = self.pivot() else { return };
+        // The selection as copy would take it (relative to its centre, heights
+        // above the ground), kept apart from the user's clipboard.
+        let saved = std::mem::take(&mut self.clipboard);
+        self.copy_selection();
+        let items = std::mem::replace(&mut self.clipboard, saved);
+        if items.is_empty() {
+            return;
+        }
+        let at = Vec3::new(p.x, self.ground_y(p.x, p.z).unwrap_or(p.y), p.z);
+        let mut all = Vec::new();
+        for k in 1..=self.array_count {
+            let r = Quat::from_rotation_y((self.array_yaw * k as f32).to_radians());
+            let off = self.array_step * k as f32;
+            for (e, l, x, src) in &items {
+                let pos = off + r * x.pos.with_y(0.0) + Vec3::Y * (x.pos.y + self.array_step.y * k as f32);
+                all.push((e.clone(), l.clone(), Xf { pos, rot: r * x.rot, ..*x }, src.clone()));
+            }
+        }
+        let n = self.paste_items(ctx, all, at);
+        self.status = format!("Array: {n} copies");
     }
 
     /// Play in game, after a save: enable this mod and `rsmm run` (which
@@ -7009,6 +7310,9 @@ impl eframe::App for MapEditor {
             egui::Window::new("Environment").open(&mut open).default_width(320.0).show(&ctx, |ui| self.ui_env(ui));
             self.show_env = open;
         }
+        if self.show_array {
+            self.ui_array(&ctx);
+        }
         if self.show_save_as {
             self.ui_save_as(&ctx);
         }
@@ -7433,6 +7737,18 @@ fn aabb(v: &[crate::assets::Vertex]) -> (Vec3, Vec3) {
         hi = hi.max(Vec3::from(p.pos));
     }
     (lo, hi)
+}
+
+/// The world-axis box around a local box `lo..hi` under `m`.
+fn world_box(m: Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
+    let (mut a, mut b) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for k in 0..8 {
+        let c = Vec3::new(if k & 1 == 0 { lo.x } else { hi.x }, if k & 2 == 0 { lo.y } else { hi.y }, if k & 4 == 0 { lo.z } else { hi.z });
+        let w = m.transform_point3(c);
+        a = a.min(w);
+        b = b.max(w);
+    }
+    (a, b)
 }
 
 fn box_lines(out: &mut Vec<LineVertex>, m: Mat4, lo: Vec3, hi: Vec3, col: [f32; 4]) {
