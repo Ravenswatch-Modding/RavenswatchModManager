@@ -189,6 +189,8 @@ pub struct Stats {
     pub drawn_instances: usize,
     pub drawn_triangles: u64,
     pub draws: usize,
+    /// Effect sprites on screen (the editor keeps redrawing while they move).
+    pub vfx: usize,
 }
 
 pub struct Frame<'a> {
@@ -206,6 +208,8 @@ pub struct Frame<'a> {
     pub draw_water: bool,
     /// Leave the ground out (Project thumbnails).
     pub no_terrain: bool,
+    /// Seconds, for the effects' particles (0 holds them still).
+    pub time: f32,
 }
 
 impl Renderer {
@@ -1059,7 +1063,7 @@ impl Renderer {
             view_proj: vp.to_cols_array_2d(),
             eye: cam.eye().extend(1.0).into(),
             sun_dir: sun.extend(0.0).into(),
-            params: [f.haze, f.exposure, f.shadows as u8 as f32, 0.0],
+            params: [f.haze, f.exposure, f.shadows as u8 as f32, f.time],
             light_vp: light_vp.to_cols_array_2d(),
             sun_color: [env.sun_color[0] * env.sun_intensity, env.sun_color[1] * env.sun_intensity, env.sun_color[2] * env.sun_intensity, 0.0],
             amb_top: [env.amb_top[0] * env.amb_mul, env.amb_top[1] * env.amb_mul, env.amb_top[2] * env.amb_mul, env.amb_pow],
@@ -1122,6 +1126,9 @@ impl Renderer {
             if count > 0 {
                 draws.push((pi, first, count, if p.key.vfx { 2 } else { p.key.decal as u8 }));
                 stats.drawn_instances += count as usize;
+                if p.key.vfx {
+                    stats.vfx += count as usize;
+                }
                 stats.drawn_triangles += count as u64 * (mesh.count / 3) as u64;
             }
         }

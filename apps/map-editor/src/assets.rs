@@ -49,6 +49,23 @@ impl MeshData {
     }
 
     /// The unit decal quad: a 1x1 square in XZ facing +Y.
+    /// `VFX_PARTICLES` quads in one mesh, each one particle of an effect
+    /// sprite: the shader (`vs_billboard`) reads the particle's slot 0..1
+    /// from `nrm.x` and moves it over its life.
+    pub fn particle_quads() -> MeshData {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for k in 0..VFX_PARTICLES {
+            let id = k as f32 / VFX_PARTICLES as f32;
+            let v = |x: f32, z: f32, u: f32, w: f32| Vertex { pos: [x, 0.0, z], nrm: [id, 0.0, 0.0], uv: [u, w] };
+            let b = vertices.len() as u32;
+            vertices.extend([v(-0.5, -0.5, 0.0, 1.0), v(0.5, -0.5, 1.0, 1.0), v(0.5, 0.5, 1.0, 0.0), v(-0.5, 0.5, 0.0, 0.0)]);
+            indices.extend([b, b + 1, b + 2, b, b + 2, b + 3]);
+        }
+        // Particles rise and spread past the quad: bound them generously.
+        MeshData { vertices, indices, center: Vec3::new(0.0, 1.0, 0.0), radius: 2.5 }
+    }
+
     pub fn decal_quad() -> MeshData {
         let v = |x: f32, z: f32, u: f32, w: f32| Vertex { pos: [x, 0.0, z], nrm: [0.0, 1.0, 0.0], uv: [u, w] };
         let vertices = vec![v(-0.5, -0.5, 0.0, 1.0), v(0.5, -0.5, 1.0, 1.0), v(0.5, 0.5, 1.0, 0.0), v(-0.5, 0.5, 0.0, 0.0)];
@@ -56,6 +73,9 @@ impl MeshData {
         MeshData { vertices, indices: vec![0, 1, 2, 0, 2, 3], center, radius }
     }
 }
+
+/// Particles per effect sprite (`map_scene.VFX_PARTICLES` on the Python side).
+pub const VFX_PARTICLES: usize = 8;
 
 pub struct TextureData {
     /// RGBA8 sRGB levels, largest first.

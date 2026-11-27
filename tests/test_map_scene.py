@@ -168,3 +168,26 @@ def test_models_and_textures_come_from_the_install_alone(no_mirror):
 
     assert MS.asset_bytes("3D/Scenery/Nope.fbx.glb") is None
     assert MS.asset_bytes("3D/../../asset_map.json.glb") is None
+
+
+def test_effect_sprites_are_idle_tinted_and_animated():
+    """The editor's effect preview: event effects (a torch breaking) stay
+    out, colour comes from the colour ramp, life / density ride on the matrix."""
+    assert MS.idle_effect("Settings\\FX\\Common_FX\\Torch_Fire_01.vfx.ot")
+    assert not MS.idle_effect("Settings\\FX\\Common_FX\\Torch_Fire_01_destruction.vfx.ot")
+    assert not MS.idle_effect("Settings\\FX\\Common_FX\\Destructible_Explosion_Small.vfx.ot")
+    # HDR orange fading to black: the first half, brightest channel at 1
+    ramp = {"keys": [[0.0, 3.0, 2.5, 1.2, 1.0], [0.2, 0.96, 0.26, 0.0, 1.0], [1.0, 0, 0, 0, 1]]}
+    assert MS._ramp_color(ramp) == "#ffb24d"
+    assert MS._ramp_color(None) is None
+    assert MS._ramp_color({"keys": [[0.0, 0, 0, 0, 1]]}) is None
+
+
+@pytest.mark.skipif(not MS.available("FX/Textures/Fire/Flame_Mask_01.png"), reason="needs the game")
+def test_a_torch_shows_its_flame():
+    parts = [(p, m) for p, m in MS.entity_parts(
+        "DarkHills\\Objects_DarkHills\\Destructible_Torch_A.entity.ot") if p.vfx]
+    assert any(p.texture == "FX/Textures/Fire/Flame_Mask_01.png" and p.color for p, _ in parts)
+    for _p, m in parts:
+        size, life, alive = m[0], m[5] / m[0], m[10] / m[0]
+        assert size > 0 and 0.3 <= life <= 6.0 and 0.15 <= alive <= 1.0

@@ -312,21 +312,47 @@ fn fs_mesh(i: MOut) -> @location(0) vec4<f32> {
 
 // An effect's sprite: the quad (x, z in -0.5..0.5) turned to face the camera,
 // centred on the instance's origin, as wide as its x axis.
+fn hash1(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+
+// One particle of an effect sprite. The instance's x axis length is the
+// sprite size; y / x its lifetime (s); z / x how many of the particles are
+// alive. Each particle (slot nrm.x) starts somewhere in the emission area,
+// rises, grows and fades over its life; g.params.w is the time.
 @vertex
 fn vs_billboard(v: MIn) -> MOut {
     let m = mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
     let c = (m * vec4<f32>(0.0, 0.0, 0.0, 1.0)).xyz;
-    let size = length(m[0].xyz);
-    let fwd = normalize(c - g.eye.xyz);
+    let size = max(length(m[0].xyz), 1e-4);
+    let life = max(0.2, length(m[1].xyz) / size);
+    let alive = clamp(length(m[2].xyz) / size, 0.0, 1.0);
+    let k = v.nrm.x;
+    let seed = hash1(c.xz + vec2<f32>(k * 17.0, k * 3.0));
+    let phase = fract(g.params.w / life + k + seed);
+    // Where in the emission area this particle starts.
+    let ang = 6.2831 * (k * 1.618 + seed);
+    let rad = size * 0.35 * sqrt(hash1(vec2<f32>(seed, k)));
+    let start = vec3<f32>(cos(ang) * rad, 0.0, sin(ang) * rad);
+    let rise = vec3<f32>(0.0, phase * size * 0.9, 0.0);
+    let sway = vec3<f32>(sin(g.params.w * 1.3 + seed * 6.0), 0.0, cos(g.params.w * 1.1 + seed * 5.0)) * size * 0.08;
+    let centre = c + start + rise + sway * phase;
+    var grow = (0.55 + 0.6 * phase) * size * 0.75;
+    if (k >= alive) { grow = 0.0; }   // fewer particles for a sparse effect
+    let fwd = normalize(centre - g.eye.xyz);
     var right = cross(vec3<f32>(0.0, 1.0, 0.0), fwd);
     if (length(right) < 1e-3) { right = vec3<f32>(1.0, 0.0, 0.0); }
     right = normalize(right);
     let up = cross(fwd, right);
-    let wp = c + (right * v.pos.x - up * v.pos.z) * size;
+    // A slow turn per particle so the sprites do not read as a stack of cards.
+    let spin = (seed - 0.5) * g.params.w * 0.8;
+    let q = vec2<f32>(v.pos.x * cos(spin) - v.pos.z * sin(spin), v.pos.x * sin(spin) + v.pos.z * cos(spin));
+    let wp = centre + (right * q.x - up * q.y) * grow;
     var o: MOut;
     o.clip = g.view_proj * vec4<f32>(wp, 1.0);
     o.wp = wp;
-    o.nrm = -fwd;
+    // fs_vfx reads the fade from nrm.x: in at birth, out at death.
+    o.nrm = vec3<f32>(sin(phase * 3.14159), 0.0, 0.0);
     o.uv = v.uv;
     o.tint = v.tint;
     return o;
@@ -339,7 +365,7 @@ fn fs_vfx(i: MOut) -> @location(0) vec4<f32> {
     // as coverage so an opaque square never shows as a block.
     let cover = min(a.a, max(a.r, max(a.g, a.b)));
     let rgb = mix(a.rgb, i.tint.rgb, i.tint.a);
-    return vec4<f32>(rgb * g.params.y, cover * 0.8);
+    return vec4<f32>(rgb * g.params.y, cover * 0.45 * clamp(i.nrm.x, 0.0, 1.0));
 }
 
 @fragment

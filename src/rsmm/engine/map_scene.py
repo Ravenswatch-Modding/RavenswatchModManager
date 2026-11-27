@@ -389,6 +389,56 @@ def mul(a: Matrix, b: Matrix) -> Matrix:
 
 #: Sprites one effect previews with, at most (each emitter is one sprite cloud).
 MAX_VFX_SPRITES = 6
+#: Particles the editor draws per sprite (`apps/map-editor` shader.wgsl `vs_billboard`).
+VFX_PARTICLES = 8
+
+
+#: FX material inputs that are shader helpers, not the sprite's shape.
+_FX_HELPERS = ("square_", "noise", "\\patterns\\", "flowmap", "gradient", "ramp")
+
+
+@functools.lru_cache(maxsize=1024)
+def _fx_sprite(mat_path: str, root: str) -> tuple[str | None, bool]:
+    """The texture an effect material draws its particles with: the first
+    that is not a helper (a grey square, a noise or flow pattern)."""
+    data = _bytes(root, mat_path)
+    if not data:
+        return None, False
+    texs = [p for r, p in resource_refs(data) if r == root and p.lower().endswith((".tga", ".png"))]
+    texs.sort(key=lambda p: any(h in p.lower() for h in _FX_HELPERS))
+    for p in texs:
+        rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
+        if _uncooked(rel):
+            return rel, _texture_uncompressed(p)
+        if _cooked_key(rel):
+            return rel, False
+    return None, False
+
+
+def _ramp_color(ramp) -> str | None:
+    """An emitter's colour over life (keys ``[t, r, g, b, a]``, HDR) as one
+    ``#rrggbb``: its first half averaged, brightest channel scaled to 1."""
+    keys = [k for k in (ramp or {}).get("keys") or [] if isinstance(k, list) and len(k) >= 4]
+    early = [k for k in keys if k[0] <= 0.5] or keys[:1]
+    if not early:
+        return None
+    rgb = [sum(k[i] for k in early) / len(early) for i in (1, 2, 3)]
+    top = max(rgb)
+    if top <= 0:
+        return None
+    return "#" + "".join(f"{round(min(1.0, c / top) * 255):02x}" for c in rgb)
+
+
+#: Effects a prop plays on an event, not while it stands there: the editor
+#: shows only the idle ones (fire, glow, smoke loops).
+_EVENT_FX = ("destruct", "explos", "explod", "snuff", "trail", "hit", "impact", "death",
+             "_die", "spawn", "appear", "disappear", "_open", "break", "pickup", "activat",
+             "_end", "_start", "launch", "shot", "ping", "reveal", "collect", "heal")
+
+
+def idle_effect(path: str) -> bool:
+    low = path.lower().rsplit("\\", 1)[-1]
+    return not any(w in low for w in _EVENT_FX)
 
 
 @functools.lru_cache(maxsize=2048)
@@ -406,23 +456,39 @@ def vfx_parts(path: str) -> tuple[tuple[Part, Matrix], ...]:
     except Exception:  # noqa: BLE001 — an effect the codec cannot read only draws nothing
         return ()
     out: list[tuple[Part, Matrix]] = []
-    emitter = None
+    # One emitter's objects run from it to the next emitter: its renderer and
+    # (usually) its colour ramp. ponytail: order-based pairing, good enough to
+    # tint a preview; the effect graph's own links would be exact.
+    groups: list[list] = []
     for o in objs:
-        f = o.fields or {}
         if o.cls == "oC3dParticleEmitterSettings":
-            emitter = f
-        elif o.cls == "oI3dBillboardParticleRendererSettings" and emitter is not None:
-            tex, swap = material_albedo(f.get("material", ""), f.get("material_root") or "FX")
-            if tex:
-                box = emitter.get("vec_d8") or [0.0, 0.0, 0.0]
-                life = emitter.get("range_80") or [1.0, 1.0]
-                # A sprite as big as the emission box, never smaller than 0.3 m.
-                size = max(0.3, min(4.0, 2 * max(abs(b) for b in box) or 0.5 * max(life)))
-                lift = 0.5 + max(0.0, box[1])
-                m = (size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0,
-                     0.0, 0.0, size, 0.0, 0.0, lift, 0.0, 1.0)
-                out.append((Part(f"vfx:{tex}", tex, swap, None, False, True), m))
-            emitter = None
+            groups.append([o])
+        elif groups:
+            groups[-1].append(o)
+    for g in groups:
+        emitter = g[0].fields or {}
+        rend = next((o.fields for o in g if o.cls == "oI3dBillboardParticleRendererSettings"), None)
+        if not rend:
+            continue
+        tex, swap = _fx_sprite(rend.get("material", ""), rend.get("material_root") or "FX")
+        if not tex:
+            continue
+        ramp = next(((o.fields or {}).get("ramp") for o in g
+                     if o.cls == "oC3dParticleEffectorColorRampSettings"), None)
+        box = emitter.get("vec_d8") or [0.0, 0.0, 0.0]
+        life_rng = emitter.get("range_80") or [1.0, 1.0]
+        rate = float(emitter.get("value_14") or 1.0)
+        # A sprite as big as the emission box, never smaller than 0.3 m.
+        size = max(0.3, min(4.0, 2 * max(abs(b) for b in box) or 0.5 * max(life_rng)))
+        lift = 0.5 + max(0.0, box[1])
+        # The editor animates VFX_PARTICLES particles per sprite; their
+        # lifetime (s) and how many are alive ride on the matrix's
+        # y / z axis lengths (relative to x, so object scale cancels).
+        life = min(6.0, max(0.3, sum(life_rng) / 2))
+        alive = min(1.0, max(0.15, rate * life / VFX_PARTICLES))
+        m = (size, 0.0, 0.0, 0.0, 0.0, size * life, 0.0, 0.0,
+             0.0, 0.0, size * alive, 0.0, 0.0, lift, 0.0, 1.0)
+        out.append((Part(f"vfx:{tex}", tex, swap, _ramp_color(ramp), False, True), m))
         if len(out) >= MAX_VFX_SPRITES:
             break
     return tuple(out)
@@ -437,9 +503,24 @@ def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
     data = _bytes("EntitySettings", ref)
     if not data:
         return ()
-    fx = tuple(p for r, path in resource_refs(data)
-               if r == "FX" and path.lower().endswith(".vfx.ot") for p in vfx_parts(path))
+    fx = tuple(p for path in _idle_effects(ref) for p in vfx_parts(path))
     return _entity_meshes(ref, data, depth) + fx[:MAX_VFX_SPRITES]
+
+
+@functools.lru_cache(maxsize=8192)
+def _idle_effects(ref: str, depth: int = 0) -> tuple[str, ...]:
+    """The idle effects an entity plays, its child entities' included (a
+    torch's flame lives in a child): each path once, in order."""
+    data = _bytes("EntitySettings", ref) if depth <= MAX_DEPTH else None
+    if not data:
+        return ()
+    out: list[str] = []
+    for r, path in resource_refs(data):
+        if r == "FX" and path.lower().endswith(".vfx.ot") and idle_effect(path):
+            out.append(path)
+        elif r == "EntitySettings" and path.lower() != ref.lower():
+            out.extend(_idle_effects(path, depth + 1))
+    return tuple(dict.fromkeys(out))
 
 
 def _entity_meshes(ref: str, data: bytes, depth: int) -> tuple[tuple[Part, Matrix], ...]:

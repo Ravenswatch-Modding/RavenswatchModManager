@@ -138,3 +138,47 @@ pub fn paint(p: &egui::Painter, r: Rect, icon: Icon, col: Color32) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Click the eye in a Hierarchy-like row: a collapsing header inside a scroll area.
+    fn clicks_in_header() -> (bool, bool) {
+        let ctx = egui::Context::default();
+        let mut at = None;
+        let mut got = (false, false);
+        let mut frame = |ctx: &egui::Context, events: Vec<egui::Event>, got: &mut (bool, bool), at: &mut Option<Pos2>| {
+            let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let id = ui.make_persistent_id("row");
+                    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                        .show_header(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let eye = button(ui, Icon::Eye(true), false, "eye");
+                                let lock = button(ui, Icon::Lock(false), false, "lock");
+                                *at = Some(eye.rect.center());
+                                got.0 |= eye.clicked();
+                                got.1 |= lock.clicked();
+                            });
+                        })
+                        .body(|ui| ui.label("x"));
+                });
+            });
+            out.textures_delta.clear();
+        };
+        frame(&ctx, vec![], &mut got, &mut at);
+        let p = at.unwrap();
+        let press = |down| egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: down, modifiers: Default::default() };
+        frame(&ctx, vec![egui::Event::PointerMoved(p)], &mut got, &mut at);
+        frame(&ctx, vec![press(true)], &mut got, &mut at);
+        frame(&ctx, vec![press(false)], &mut got, &mut at);
+        got
+    }
+
+    #[test]
+    fn hierarchy_row_icons_take_clicks() {
+        assert_eq!(clicks_in_header(), (true, false));
+    }
+}

@@ -48,6 +48,9 @@ pub struct Options {
     pub view: Option<[f32; 3]>,
     /// Screenshot the whole window (UI included) once loaded, then quit.
     pub ui_snapshot: Option<std::path::PathBuf>,
+    /// With `ui_snapshot`: click these window points (in order) once loaded,
+    /// then take the screenshot. A test hook for the panels.
+    pub ui_clicks: Vec<[f32; 2]>,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
     pub tile_check: bool,
     /// Open the first pool tile whose name contains this, once loaded.
@@ -418,6 +421,9 @@ pub struct MapEditor {
     thumb_want: Vec<String>,
     /// The Project item picked with a click (placing is a drag).
     asset_sel: Option<String>,
+    /// Effects play in the Scene (View menu).
+    animate_fx: bool,
+    started: Instant,
     /// The Hierarchy scrolls this row into view the next time it draws it.
     scroll_to_sel: Option<Sel>,
     /// The Scene's last hover pick: cursor position and what is under it.
@@ -596,6 +602,8 @@ impl MapEditor {
             thumbs: HashMap::new(),
             thumb_want: Vec::new(),
             asset_sel: None,
+            animate_fx: true,
+            started: Instant::now(),
             scroll_to_sel: None,
             hover_pick: None,
             title: String::new(),
@@ -806,7 +814,7 @@ impl MapEditor {
         if key.decal || key.vfx {
             if let Some(r) = &mut self.renderer {
                 if !r.has_mesh(&key.mesh) {
-                    r.add_mesh(key.mesh.clone(), MeshData::decal_quad());
+                    r.add_mesh(key.mesh.clone(), if key.vfx { MeshData::particle_quads() } else { MeshData::decal_quad() });
                 }
             }
         } else if self.requested.insert(key.mesh.clone()) {
@@ -2873,6 +2881,10 @@ impl MapEditor {
             (Some(p), Some(c), Some(ptr), true) => gizmo_hit(self.gizmo, p, c, ptr, handle_len, &to_screen),
             _ => None,
         };
+        // Around the gizmo a near miss of a handle must not grab or select
+        // whatever stands behind it: the handles' own area (90 px + a margin).
+        let gizmo_live = !self.sel.is_empty() && self.modal.is_none() && self.tool == Tool::Select;
+        let in_gizmo_zone = move |ptr: egui::Pos2| -> bool { gizmo_live && pivot_scr.is_some_and(|c| (ptr - c).length() < 90.0 + 22.0) };
 
         // ---- pointer ----
         if resp.drag_started_by(egui::PointerButton::Primary) && self.modal.is_none() && self.tool == Tool::Select && !alt {
@@ -2888,17 +2900,24 @@ impl MapEditor {
                 } else {
                     let (o, d) = ray_at(p);
                     match self.pick_any(o, d) {
-                        Some(h) => {
-                            if !self.sel.contains(&h) {
-                                if shift {
-                                    self.sel.insert(h);
-                                    self.active = Some(h);
-                                } else {
-                                    self.select_only([h]);
-                                }
-                            }
+                        // Dragging what is already selected moves it.
+                        Some(h) if self.sel.contains(&h) => {
                             self.cursor = ground_at(self.terrain.as_ref(), p);
                             self.begin(&ctx, Kind::Grab, true);
+                        }
+                        // A near miss of a gizmo handle: nothing behind it moves or gets picked.
+                        _ if in_gizmo_zone(p) => {
+                            self.status = "Missed the handle: drag an arrow, a ring or the centre".into();
+                        }
+                        // Dragging something else selects it; it moves on the next drag
+                        // (or with G / the gizmo), so a stray drag never moves a neighbour.
+                        Some(h) => {
+                            if shift {
+                                self.sel.insert(h);
+                                self.active = Some(h);
+                            } else {
+                                self.select_only([h]);
+                            }
                         }
                         None => self.box_start = Some(p),
                     }
@@ -3058,7 +3077,11 @@ impl MapEditor {
                     }
                     Tool::Select => {
                         let (o, d) = ray_at(p);
-                        match self.pick_any(o, d) {
+                        let hit = self.pick_any(o, d);
+                        // A click just off a gizmo handle keeps the selection.
+                        let near_miss = in_gizmo_zone(p) && hit.is_none_or(|h| !self.sel.contains(&h));
+                        match hit {
+                            _ if near_miss => {}
                             Some(h) if shift => {
                                 if !self.sel.remove(&h) {
                                     self.sel.insert(h);
@@ -3114,6 +3137,7 @@ impl MapEditor {
             parts.extend(s.parts.iter().zip(&self.shipped_draw).map(|(p, inst)| DrawPart { key: &p.key, instances: inst }));
         }
         parts.extend(self.add_draw.iter().map(|(k, inst)| DrawPart { key: k, instances: inst }));
+        let play_fx = self.animate_fx && !self.headless();
         let Some(renderer) = self.renderer.as_mut() else { return };
         if let (true, Some([x, z, d])) = (self.tile.is_none() && (self.opts.snapshot.is_some() || (self.opts.ui_snapshot.is_some() && self.settled_frames < 3)), self.opts.view) {
             let y = self.terrain.as_ref().and_then(|t| t.height_at(x, z)).unwrap_or(0.0);
@@ -3139,8 +3163,12 @@ impl MapEditor {
                 env: &self.env,
                 draw_water: self.tile.is_none(),
                 no_terrain: false,
+                time: if play_fx { self.started.elapsed().as_secs_f32() } else { 1.0 },
             },
         );
+        if play_fx && renderer.stats.vfx > 0 {
+            ctx.request_repaint(); // effects move
+        }
         self.frame_ms = self.frame_ms * 0.9 + t0.elapsed().as_secs_f32() * 1000.0 * 0.1;
         ui.painter().image(tex, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
 
@@ -3163,7 +3191,7 @@ impl MapEditor {
                     self.dirty = true;
                 }
             }
-            if self.settled_frames == 12 && !self.ui_shot_sent {
+            if self.settled_frames == 12 + 2 * self.opts.ui_clicks.len() as u32 && !self.ui_shot_sent {
                 self.ui_shot_sent = true;
                 let path = path.clone();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -3577,6 +3605,7 @@ impl MapEditor {
                 ui.checkbox(&mut self.snap_ground, "Objects follow the ground");
                 ui.checkbox(&mut self.shadows, "Shadows");
                 ui.checkbox(&mut self.show_minimap, "Minimap");
+                ui.checkbox(&mut self.animate_fx, "Play effects").on_hover_text("Fire, smoke and glows move (keeps the view redrawing)");
                 ui.add(egui::Slider::new(&mut self.min_px, 0.0..=8.0).text("hide props under px"));
                 ui.separator();
                 item(ui, "Environment (light & fog)…", "", Cmd::ToggleEnv);
@@ -3933,6 +3962,8 @@ impl MapEditor {
             env: &self.env,
             draw_water: false,
             no_terrain: true,
+            // The preview window plays the effects; thumbnails hold them still.
+            time: if preview { self.started.elapsed().as_secs_f32() } else { 1.0 },
         };
         Some(Some(if preview { r.render_preview(rs, (size, size), &f) } else { r.render_thumb(rs, (size, size), &f) }))
     }
@@ -4120,7 +4151,7 @@ impl MapEditor {
             let vis = ui.visuals();
             let mut job = egui::text::LayoutJob::default();
             let font = egui::TextStyle::Button.resolve(ui.style());
-            let main = if all_hidden { vis.weak_text_color() } else { vis.text_color() };
+            let main = if all_hidden { vis.weak_text_color() } else { vis.widgets.inactive.text_color() };
             job.append(label, 0.0, egui::TextFormat::simple(font.clone(), main));
             if let Some(n) = count {
                 job.append(&format!("  {n}"), 0.0, egui::TextFormat::simple(egui::FontId::proportional(font.size - 1.5), vis.weak_text_color()));
@@ -6082,6 +6113,20 @@ impl MapEditor {
 }
 
 impl eframe::App for MapEditor {
+    /// --ui-click: one press / release pair per two settled frames, fed in
+    /// before the frame so egui sees a real click.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if self.opts.ui_snapshot.is_none() || self.settled_frames < 4 {
+            return;
+        }
+        let k = (self.settled_frames - 4) as usize;
+        if let Some([x, y]) = self.opts.ui_clicks.get(k / 2).copied() {
+            let pos = egui::pos2(x, y);
+            raw.events.push(egui::Event::PointerMoved(pos));
+            raw.events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: k % 2 == 0, modifiers: Default::default() });
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.text_copy_menu(&ctx);
@@ -6268,7 +6313,7 @@ fn gizmo_hit(
     len: f32,
     to_screen: &impl Fn(Vec3) -> Option<egui::Pos2>,
 ) -> Option<Lock> {
-    const TOL: f32 = 9.0;
+    const TOL: f32 = 13.0; // px: generous, a near miss is worse than a wide grab
     let axes = [Vec3::X, Vec3::Y, Vec3::Z];
     match mode {
         GizmoMode::Rotate => {
