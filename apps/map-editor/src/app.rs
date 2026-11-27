@@ -55,6 +55,8 @@ pub struct Options {
     pub select: Option<String>,
     /// Show every icon in a window (with `ui_snapshot`, to check them).
     pub icon_sheet: bool,
+    /// Start with this gizmo: move, rotate or scale.
+    pub gizmo: Option<String>,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
     pub tile_check: bool,
     /// Open the first pool tile whose name contains this, once loaded.
@@ -604,7 +606,11 @@ impl MapEditor {
             xf_clip: None,
             renaming_inspector: false,
             tool: Tool::Select,
-            gizmo: GizmoMode::Move,
+            gizmo: match opts.gizmo.as_deref() {
+                Some("rotate") => GizmoMode::Rotate,
+                Some("scale") => GizmoMode::Scale,
+                _ => GizmoMode::Move,
+            },
             modal: None,
             box_start: None,
             keep_edits: json!({}),
@@ -2916,7 +2922,7 @@ impl MapEditor {
         let px_m = 2.0 * depth_half / rect.height();
         let handle_len = 90.0 * px_m;
         let gizmo_hover = match (pivot, pivot_scr, pointer, self.modal.is_none() && self.tool == Tool::Select) {
-            (Some(p), Some(c), Some(ptr), true) => gizmo_hit(self.gizmo, p, c, ptr, handle_len, &to_screen),
+            (Some(p), Some(c), Some(ptr), true) => gizmo_hit(self.gizmo, p, c, ptr, handle_len, self.camera.eye(), &to_screen),
             _ => None,
         };
         // Around the gizmo a near miss of a handle must not grab or select
@@ -3299,24 +3305,69 @@ impl MapEditor {
         };
         // Moving the camera: the icon takes the pointer's place (hidden), drawn
         // at its newest position so it does not trail behind.
-        let camera_move = matches!(badge, Some(Icon::Eye(_) | Icon::Hand | Icon::Orbit)) || (badge == Some(Icon::Search) && !zooming);
+        // Every mode icon takes the pointer's place (hidden), outlined like a cursor.
         if let (Some(icon), Some(at)) = (badge, ctx.input(|i| i.pointer.latest_pos()).or(pointer)) {
-            if camera_move {
-                ctx.set_cursor_icon(egui::CursorIcon::None);
-            }
-            icons::cursor_badge(&painter, at, icon, ui.visuals().selection.bg_fill, camera_move);
+            ctx.set_cursor_icon(egui::CursorIcon::None);
+            icons::cursor_badge(&painter, at, icon, ui.visuals().selection.bg_fill, true);
         }
-        if let (Some(p), Some(c), None, Tool::Select) = (pivot, pivot_scr, &self.modal, &self.tool) {
-            draw_gizmo(&painter, self.gizmo, p, c, handle_len, gizmo_hover, &to_screen);
+        if let (Some(p), Some(c), Tool::Select) = (pivot, pivot_scr, &self.tool) {
+            // Kept on screen while dragging, the handle in use lit up.
+            let hot = self.modal.as_ref().map(|m| m.lock).or(gizmo_hover);
+            let mode = match self.modal.as_ref().map(|m| m.kind) {
+                Some(Kind::Grab) => GizmoMode::Move,
+                Some(Kind::Rotate) => GizmoMode::Rotate,
+                Some(Kind::Scale) => GizmoMode::Scale,
+                None => self.gizmo,
+            };
+            draw_gizmo(&painter, mode, p, c, handle_len, hot, self.camera.eye(), &to_screen);
         }
         if let (Some(m), Some(c)) = (&self.modal, pivot_scr) {
-            // Axis guide line through the pivot.
-            if let Lock::Axis(a) = m.lock {
+            // Guide lines through the pivot: the locked axis, or a plane's two.
+            let axes: Vec<usize> = match m.lock {
+                Lock::Axis(a) if m.kind != Kind::Rotate => vec![a],
+                Lock::Plane(skip) if m.kind != Kind::Rotate => (0..3).filter(|a| *a != skip).collect(),
+                _ => Vec::new(),
+            };
+            for a in axes {
                 let mut dir = Vec3::ZERO;
                 dir[a] = 1.0;
-                if let (Some(p1), Some(p2)) = (to_screen(m.pivot - dir * 1000.0), to_screen(m.pivot + dir * 1000.0)) {
-                    painter.line_segment([p1, p2], egui::Stroke::new(1.5, AXIS_COL[a]));
+                let reach = handle_len * 12.0;
+                if let (Some(p1), Some(p2)) = (to_screen(m.pivot - dir * reach), to_screen(m.pivot + dir * reach)) {
+                    painter.line_segment([p1, p2], egui::Stroke::new(1.5, AXIS_COL[a].gamma_multiply(0.85)));
                 }
+            }
+            // Rotate: the swept angle as a slice, with the degrees.
+            if let (Kind::Rotate, Some(ptr)) = (m.kind, pointer) {
+                let (a0, a1) = ((m.p0 - c).angle(), (ptr - c).angle());
+                let mut sweep = a1 - a0;
+                while sweep > std::f32::consts::PI {
+                    sweep -= std::f32::consts::TAU;
+                }
+                while sweep < -std::f32::consts::PI {
+                    sweep += std::f32::consts::TAU;
+                }
+                let r = 70.0;
+                let mut pts = vec![c];
+                pts.extend((0..=32).map(|k| {
+                    let t = a0 + sweep * k as f32 / 32.0;
+                    c + egui::vec2(t.cos(), t.sin()) * r
+                }));
+                let col = match m.lock {
+                    Lock::Axis(a) | Lock::Plane(a) => AXIS_COL[a.min(2)],
+                    Lock::Free => AXIS_COL[1],
+                };
+                for w in pts.windows(2).skip(1) {
+                    painter.add(egui::Shape::convex_polygon(vec![c, w[0], w[1]], col.gamma_multiply(0.22), egui::Stroke::NONE));
+                }
+                painter.line_segment([c, pts[1]], egui::Stroke::new(1.5, col));
+                painter.line_segment([c, *pts.last().unwrap()], egui::Stroke::new(1.5, col));
+                painter.text(ptr + egui::vec2(18.0, -6.0), egui::Align2::LEFT_BOTTOM, format!("{:.0}°", -sweep.to_degrees()), egui::FontId::proportional(14.0), egui::Color32::WHITE);
+            }
+            // Scale: the factor by the pointer.
+            if let (Kind::Scale, Some(ptr)) = (m.kind, pointer) {
+                let k = (ptr - c).length() / (m.p0 - c).length().max(4.0);
+                painter.line_segment([c, ptr], egui::Stroke::new(1.0, egui::Color32::from_white_alpha(120)));
+                painter.text(ptr + egui::vec2(18.0, -6.0), egui::Align2::LEFT_BOTTOM, format!("×{k:.2}"), egui::FontId::proportional(14.0), egui::Color32::WHITE);
             }
             let what = match m.kind {
                 Kind::Grab => "Move",
@@ -6556,90 +6607,196 @@ fn minimap_texture(ctx: &egui::Context, t: &Terrain) -> egui::TextureHandle {
 /// Nearest depth the gizmo is sized for (a pivot behind the eye keeps a sane size).
 const NEAR_GIZMO: f32 = 1.0;
 
-/// Which gizmo handle is under the pointer.
+/// Hover / active gizmo handles are drawn in this colour (Unity's yellow).
+const GIZMO_HOT: egui::Color32 = egui::Color32::from_rgb(255, 214, 60);
+
+/// The gizmo's handles as they stand on screen this frame.
+struct GizmoView {
+    c: egui::Pos2,
+    /// Each axis tip on screen, and whether it can be grabbed (an axis pointing
+    /// at the camera shrinks to a dot: faded, not grabbable).
+    tips: [Option<egui::Pos2>; 3],
+    usable: [bool; 3],
+    /// The plane handle squares, by the axis they leave out (screen polygons).
+    planes: [Option<[egui::Pos2; 4]>; 3],
+    /// Rotate rings, with each point's facing (true = toward the camera).
+    rings: [Vec<(egui::Pos2, bool)>; 3],
+}
+
+fn gizmo_view(mode: GizmoMode, pivot: Vec3, c: egui::Pos2, len: f32, eye: Vec3, to_screen: &impl Fn(Vec3) -> Option<egui::Pos2>) -> GizmoView {
+    let axes = [Vec3::X, Vec3::Y, Vec3::Z];
+    let tips: [Option<egui::Pos2>; 3] = std::array::from_fn(|a| to_screen(pivot + axes[a] * len));
+    let usable: [bool; 3] = std::array::from_fn(|a| tips[a].is_some_and(|t| (t - c).length() > 22.0));
+    let planes = std::array::from_fn(|skip| {
+        if mode == GizmoMode::Rotate {
+            return None;
+        }
+        let (u, v) = match skip {
+            0 => (Vec3::Y, Vec3::Z),
+            1 => (Vec3::X, Vec3::Z),
+            _ => (Vec3::X, Vec3::Y),
+        };
+        let (i, j) = match skip {
+            0 => (1, 2),
+            1 => (0, 2),
+            _ => (0, 1),
+        };
+        if !(usable[i] && usable[j]) {
+            return None;
+        }
+        let (lo, hi) = (len * 0.2, len * 0.42);
+        let q = [pivot + u * lo + v * lo, pivot + u * hi + v * lo, pivot + u * hi + v * hi, pivot + u * lo + v * hi];
+        Some([to_screen(q[0])?, to_screen(q[1])?, to_screen(q[2])?, to_screen(q[3])?])
+    });
+    let toward = (eye - pivot).normalize_or(Vec3::Y);
+    let rings = std::array::from_fn(|a| {
+        if mode != GizmoMode::Rotate {
+            return Vec::new();
+        }
+        let (u, v) = if a == 1 { (Vec3::X, Vec3::Z) } else if a == 0 { (Vec3::Y, Vec3::Z) } else { (Vec3::X, Vec3::Y) };
+        (0..=64)
+            .filter_map(|k| {
+                let t = k as f32 / 64.0 * std::f32::consts::TAU;
+                let off = (u * t.cos() + v * t.sin()) * len;
+                to_screen(pivot + off).map(|q| (q, off.dot(toward) >= -0.05 * len))
+            })
+            .collect()
+    });
+    GizmoView { c, tips, usable, planes, rings }
+}
+
+fn point_in_quad(p: egui::Pos2, q: &[egui::Pos2; 4]) -> bool {
+    let side = |a: egui::Pos2, b: egui::Pos2| (b - a).x * (p - a).y - (b - a).y * (p - a).x;
+    let s: Vec<f32> = (0..4).map(|i| side(q[i], q[(i + 1) % 4])).collect();
+    s.iter().all(|x| *x >= 0.0) || s.iter().all(|x| *x <= 0.0)
+}
+
+/// Which gizmo handle is under the pointer: the centre (free / uniform scale),
+/// a plane square (two axes), an axis (move / scale shaft, rotate ring).
 fn gizmo_hit(
     mode: GizmoMode,
     pivot: Vec3,
     c: egui::Pos2,
     ptr: egui::Pos2,
     len: f32,
+    eye: Vec3,
     to_screen: &impl Fn(Vec3) -> Option<egui::Pos2>,
 ) -> Option<Lock> {
     const TOL: f32 = 13.0; // px: generous, a near miss is worse than a wide grab
-    let axes = [Vec3::X, Vec3::Y, Vec3::Z];
-    match mode {
-        GizmoMode::Rotate => {
-            let mut best = None;
-            for (a, ax) in axes.iter().enumerate() {
-                let ring = ring_points(pivot, *ax, len, to_screen);
-                let d = ring.windows(2).map(|w| seg_dist(ptr, w[0], w[1])).fold(f32::MAX, f32::min);
+    let g = gizmo_view(mode, pivot, c, len, eye, to_screen);
+    if mode == GizmoMode::Rotate {
+        // Front halves first: the back of a ring sits behind the others.
+        let mut best: Option<(usize, f32)> = None;
+        for front in [true, false] {
+            for (a, ring) in g.rings.iter().enumerate() {
+                let d = ring
+                    .windows(2)
+                    .filter(|w| w[0].1 == front || w[1].1 == front)
+                    .map(|w| seg_dist(ptr, w[0].0, w[1].0))
+                    .fold(f32::MAX, f32::min);
                 if d < TOL && best.is_none_or(|(_, bd)| d < bd) {
                     best = Some((a, d));
                 }
             }
-            best.map(|(a, _)| Lock::Axis(a))
+            if best.is_some() {
+                break;
+            }
         }
-        _ => {
-            if (ptr - c).length() < 10.0 {
-                return Some(Lock::Free);
-            }
-            for (a, ax) in axes.iter().enumerate() {
-                if let Some(tip) = to_screen(pivot + *ax * len) {
-                    if seg_dist(ptr, c, tip) < TOL {
-                        return Some(Lock::Axis(a));
-                    }
-                }
-            }
-            None
+        return best.map(|(a, _)| Lock::Axis(a));
+    }
+    if (ptr - c).length() < 11.0 {
+        return Some(Lock::Free);
+    }
+    for (skip, q) in g.planes.iter().enumerate() {
+        if q.as_ref().is_some_and(|q| point_in_quad(ptr, q)) {
+            return Some(Lock::Plane(skip));
         }
     }
+    (0..3)
+        .filter(|a| g.usable[*a])
+        .filter_map(|a| g.tips[a].map(|t| (a, seg_dist(ptr, c, t))))
+        .filter(|(_, d)| *d < TOL)
+        .min_by(|x, y| x.1.total_cmp(&y.1))
+        .map(|(a, _)| Lock::Axis(a))
 }
 
-fn ring_points(pivot: Vec3, axis: Vec3, r: f32, to_screen: &impl Fn(Vec3) -> Option<egui::Pos2>) -> Vec<egui::Pos2> {
-    let (u, v) = if axis == Vec3::Y { (Vec3::X, Vec3::Z) } else if axis == Vec3::X { (Vec3::Y, Vec3::Z) } else { (Vec3::X, Vec3::Y) };
-    (0..=48)
-        .filter_map(|k| {
-            let a = k as f32 / 48.0 * std::f32::consts::TAU;
-            to_screen(pivot + (u * a.cos() + v * a.sin()) * r)
-        })
-        .collect()
-}
-
+/// The gizmo. `hot` is the handle under the pointer or being dragged; an
+/// axis pointing at the camera is drawn faded.
+#[allow(clippy::too_many_arguments)]
 fn draw_gizmo(
     p: &egui::Painter,
     mode: GizmoMode,
     pivot: Vec3,
     c: egui::Pos2,
     len: f32,
-    hover: Option<Lock>,
+    hot: Option<Lock>,
+    eye: Vec3,
     to_screen: &impl Fn(Vec3) -> Option<egui::Pos2>,
 ) {
-    let axes = [Vec3::X, Vec3::Y, Vec3::Z];
-    let width = |a: usize| if hover == Some(Lock::Axis(a)) { 4.0 } else { 2.5 };
+    let g = gizmo_view(mode, pivot, c, len, eye, to_screen);
+    let is_hot = |l: Lock| hot == Some(l);
+    let axis_col = |a: usize| {
+        if is_hot(Lock::Axis(a)) {
+            GIZMO_HOT
+        } else if g.usable[a] || mode == GizmoMode::Rotate {
+            AXIS_COL[a]
+        } else {
+            AXIS_COL[a].gamma_multiply(0.25)
+        }
+    };
     match mode {
         GizmoMode::Rotate => {
-            for (a, ax) in axes.iter().enumerate() {
-                let pts = ring_points(pivot, *ax, len, to_screen);
-                p.add(egui::Shape::line(pts, egui::Stroke::new(width(a), AXIS_COL[a])));
+            // Back halves first and dim, then the front halves on top.
+            for front in [false, true] {
+                for (a, ring) in g.rings.iter().enumerate() {
+                    let col = axis_col(a);
+                    let (w, col) = match (front, is_hot(Lock::Axis(a))) {
+                        (true, true) => (4.0, col),
+                        (true, false) => (2.5, col),
+                        (false, _) => (1.5, col.gamma_multiply(0.3)),
+                    };
+                    for seg in ring.windows(2).filter(|s| s[0].1 == front && s[1].1 == front) {
+                        p.line_segment([seg[0].0, seg[1].0], egui::Stroke::new(w, col));
+                    }
+                }
             }
+            p.circle_stroke(c, 4.0, egui::Stroke::new(1.5, egui::Color32::from_white_alpha(170)));
+            return;
         }
         _ => {
-            for (a, ax) in axes.iter().enumerate() {
-                if let Some(tip) = to_screen(pivot + *ax * len) {
-                    p.line_segment([c, tip], egui::Stroke::new(width(a), AXIS_COL[a]));
-                    if mode == GizmoMode::Move {
-                        let d = (tip - c).normalized();
-                        let n = egui::vec2(-d.y, d.x);
-                        p.add(egui::Shape::convex_polygon(vec![tip + d * 12.0, tip + n * 6.0, tip - n * 6.0], AXIS_COL[a], egui::Stroke::NONE));
-                    } else {
-                        p.rect_filled(egui::Rect::from_center_size(tip, egui::vec2(10.0, 10.0)), 1.0, AXIS_COL[a]);
-                    }
+            // Plane squares under the shafts.
+            for (skip, q) in g.planes.iter().enumerate() {
+                let Some(q) = q else { continue };
+                let hotp = is_hot(Lock::Plane(skip));
+                let col = if hotp { GIZMO_HOT } else { AXIS_COL[skip] };
+                p.add(egui::Shape::convex_polygon(q.to_vec(), col.gamma_multiply(if hotp { 0.55 } else { 0.25 }), egui::Stroke::new(1.2, col)));
+            }
+            for a in 0..3 {
+                let Some(tip) = g.tips[a] else { continue };
+                let col = axis_col(a);
+                let w = if is_hot(Lock::Axis(a)) { 4.0 } else { 2.5 };
+                p.line_segment([c, tip], egui::Stroke::new(w, col));
+                let d = (tip - c).normalized();
+                let n = egui::vec2(-d.y, d.x);
+                if mode == GizmoMode::Move {
+                    p.add(egui::Shape::convex_polygon(vec![tip + d * 15.0, tip + n * 7.0, tip - n * 7.0], col, egui::Stroke::NONE));
+                } else {
+                    p.rect_filled(egui::Rect::from_center_size(tip, egui::vec2(11.0, 11.0)), 2.0, col);
+                }
+                if g.usable[a] {
+                    p.text(tip + d * 24.0, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][a], egui::FontId::proportional(12.0), col);
                 }
             }
         }
     }
-    let center_col = if hover == Some(Lock::Free) { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(170) };
-    p.circle_stroke(c, 7.0, egui::Stroke::new(2.0, center_col));
+    // The centre: free move, or uniform scale (a cube).
+    let hotc = is_hot(Lock::Free);
+    let cc = if hotc { GIZMO_HOT } else { egui::Color32::from_white_alpha(200) };
+    if mode == GizmoMode::Scale {
+        p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(13.0, 13.0)), 2.0, cc);
+    } else {
+        p.circle_stroke(c, 7.0, egui::Stroke::new(if hotc { 3.0 } else { 2.0 }, cc));
+    }
 }
 
 fn seg_dist(p: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
