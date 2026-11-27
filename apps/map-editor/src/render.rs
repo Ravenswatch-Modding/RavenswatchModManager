@@ -223,6 +223,8 @@ pub struct Frame<'a> {
     pub no_terrain: bool,
     /// Seconds, for the effects' particles (0 holds them still).
     pub time: f32,
+    /// The Scene background from the theme, linear; `None` = the chapter's sky.
+    pub sky: Option<[f32; 4]>,
 }
 
 impl Renderer {
@@ -1252,7 +1254,7 @@ impl Renderer {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear({
                     // The sky behind the map: the fog's top colour, else a dusk grey.
-                    let c = if f.env.fog_on { f.env.fog_top } else { [0.21, 0.26, 0.31, 1.0] };
+                    let c = f.sky.unwrap_or(if f.env.fog_on { f.env.fog_top } else { [0.21, 0.26, 0.31, 1.0] });
                     wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: 1.0 }
                 }),
                         store: wgpu::StoreOp::Discard,

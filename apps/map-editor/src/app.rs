@@ -512,8 +512,9 @@ pub struct MapEditor {
     palette_query: String,
     show_shortcuts: bool,
     show_save_as: bool,
-    light_theme: bool,
-    accent: String,
+    /// Every colour of the editor (View > Theme…).
+    theme: crate::theme::Theme,
+    show_theme: bool,
     recent: Vec<String>,
     status: String,
     frame_ms: f32,
@@ -545,7 +546,8 @@ impl MapEditor {
         let loader = Loader::new(backend.clone(), workers, move || ctx.request_repaint());
         let (tx, rx) = channel();
         let prefs = session::load_prefs();
-        style(&cc.egui_ctx, prefs.light_theme, prefs.accent.as_deref().unwrap_or(ACCENTS[0].0));
+        let theme = prefs.theme.unwrap_or_else(|| legacy_theme(prefs.light_theme, prefs.accent.as_deref()));
+        theme.apply(&cc.egui_ctx);
         let me = MapEditor {
             backend,
             loader,
@@ -667,8 +669,8 @@ impl MapEditor {
             palette_query: String::new(),
             show_shortcuts: false,
             show_save_as: false,
-            light_theme: prefs.light_theme,
-            accent: prefs.accent.clone().unwrap_or_else(|| ACCENTS[0].0.to_owned()),
+            theme,
+            show_theme: false,
             recent: prefs.recent,
             status: "Reading chapters…".into(),
             frame_ms: 0.0,
@@ -695,7 +697,7 @@ impl MapEditor {
         if self.headless() {
             return;
         }
-        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.light_theme, grid_size: Some(self.grid_size), accent: Some(self.accent.clone()) });
+        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.theme.light, grid_size: Some(self.grid_size), accent: None, theme: Some(self.theme) });
     }
 
     fn refresh_state(&self, ctx: &egui::Context) {
@@ -2409,8 +2411,11 @@ impl MapEditor {
                 self.bottom_tab = BottomTab::Console;
             }
             Cmd::ToggleTheme => {
-                self.light_theme = !self.light_theme;
-                style(ctx, self.light_theme, &self.accent);
+                // Dark <-> light, keeping the accent; View > Theme… for the rest.
+                let accent = self.theme.accent;
+                self.theme = crate::theme::PRESETS[if self.theme.light { 0 } else { 1 }].1;
+                self.theme.accent = accent;
+                self.theme.apply(ctx);
                 self.save_prefs();
             }
             Cmd::Palette => {
@@ -2995,8 +3000,8 @@ impl MapEditor {
                 ui.painter().rect(
                     r,
                     0.0,
-                    egui::Color32::from_rgba_unmultiplied(255, 170, 60, 24),
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 170, 60)),
+                    ui.visuals().selection.bg_fill.gamma_multiply(0.1),
+                    egui::Stroke::new(1.0, ui.visuals().selection.bg_fill),
                     egui::StrokeKind::Inside,
                 );
                 if !ctx.input(|i| i.pointer.primary_down()) {
@@ -3194,6 +3199,7 @@ impl MapEditor {
                 env: &self.env,
                 draw_water: self.tile.is_none(),
                 no_terrain: false,
+                sky: self.theme.scene_linear(),
                 time: if play_fx { self.started.elapsed().as_secs_f32() } else { 1.0 },
             },
         );
@@ -3327,7 +3333,7 @@ impl MapEditor {
         if let Some(s) = &self.scenery {
             for x in &self.sel {
                 if let Some(xf) = self.edits.xf(s, *x) {
-                    p.circle_filled(to_mm(xf.pos.x, xf.pos.z), 2.0, egui::Color32::from_rgb(255, 170, 60));
+                    p.circle_filled(to_mm(xf.pos.x, xf.pos.z), 2.0, self.accent32());
                 }
             }
         }
@@ -3641,20 +3647,10 @@ impl MapEditor {
                 ui.separator();
                 item(ui, "Environment (light & fog)…", "", Cmd::ToggleEnv);
                 item(ui, "Log", "", Cmd::ToggleLog);
-                ui.menu_button("Theme", |ui| {
-                    let mut changed = false;
-                    changed |= ui.radio_value(&mut self.light_theme, false, "Dark").changed();
-                    changed |= ui.radio_value(&mut self.light_theme, true, "Light").changed();
-                    ui.separator();
-                    for (name, c) in ACCENTS {
-                        let label = egui::RichText::new(format!("● {name}")).color(egui::Color32::from_rgb(c[0], c[1], c[2]));
-                        changed |= ui.radio_value(&mut self.accent, name.to_owned(), label).changed();
-                    }
-                    if changed {
-                        style(ui.ctx(), self.light_theme, &self.accent);
-                        self.save_prefs();
-                    }
-                });
+                if ui.button("Theme…").on_hover_text("Every colour, roundness and text size").clicked() {
+                    self.show_theme = true;
+                    ui.close();
+                }
             });
             ui.menu_button("Help", |ui| {
                 item(ui, "Keyboard shortcuts", "F1", Cmd::Shortcuts);
@@ -3993,6 +3989,7 @@ impl MapEditor {
             env: &self.env,
             draw_water: false,
             no_terrain: true,
+            sky: None,
             // The preview window plays the effects; thumbnails hold them still.
             time: if preview { self.started.elapsed().as_secs_f32() } else { 1.0 },
         };
@@ -4229,7 +4226,7 @@ impl MapEditor {
             };
             r.dnd_set_drag_payload(RowDrag(dragged));
             if r.dnd_hover_payload::<RowDrag>().is_some() {
-                ui.painter().rect_stroke(r.rect.expand(2.0), 3.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(240, 160, 60)), egui::StrokeKind::Outside);
+                ui.painter().rect_stroke(r.rect.expand(2.0), 3.0, egui::Stroke::new(1.5, ui.visuals().selection.bg_fill), egui::StrokeKind::Outside);
             }
             if let Some(p) = r.dnd_release_payload::<RowDrag>() {
                 self.row_dropped = Some((members.to_vec(), p.0.clone()));
@@ -4505,7 +4502,7 @@ impl MapEditor {
                 self.select_only([]);
             }
             if rest.dnd_hover_payload::<RowDrag>().is_some() {
-                ui.painter().text(rest.rect.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, "Drop here: new group", egui::FontId::proportional(12.0), egui::Color32::from_rgb(240, 160, 60));
+                ui.painter().text(rest.rect.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, "Drop here: new group", egui::FontId::proportional(12.0), ui.visuals().selection.bg_fill);
             }
             if let Some(p) = rest.dnd_release_payload::<RowDrag>() {
                 let name = format!("Group {}", self.groups.len() + 1);
@@ -5483,7 +5480,7 @@ impl MapEditor {
                     let name = ts.tile.rsplit('\\').next().unwrap_or(&ts.tile).trim_end_matches(".tiledef.ot").to_owned();
                     let built = ts.built;
                     let mut exit = false;
-                    egui::Frame::group(ui.style()).fill(egui::Color32::from_rgb(60, 42, 20)).show(ui, |ui| {
+                    egui::Frame::group(ui.style()).fill(ui.visuals().selection.bg_fill.gamma_multiply(0.25)).show(ui, |ui| {
                         ui.label(egui::RichText::new(format!("Tile: {}", pretty_tile(&name))).strong());
                         ui.label(egui::RichText::new(if built {
                             "Added objects appear in every spawn of this tile. Moving or removing the game's own objects saves an own copy of the tile (the original still spawns)."
@@ -6392,6 +6389,7 @@ impl eframe::App for MapEditor {
         }
         if self.show_shortcuts {
             self.ui_shortcuts(&ctx);
+            self.ui_theme(&ctx);
         }
         if self.unsaved {
             ctx.request_repaint_after(AUTOSAVE_EVERY);
@@ -6407,28 +6405,41 @@ impl eframe::App for MapEditor {
 
 // ---- helpers ------------------------------------------------------------------------
 
-/// Theme accents (View > Theme); the first is the default.
-const ACCENTS: [(&str, [u8; 3]); 5] = [
-    ("Orange", [196, 120, 40]),
-    ("Blue", [52, 120, 210]),
-    ("Green", [60, 150, 80]),
-    ("Purple", [140, 90, 200]),
-    ("Red", [190, 60, 60]),
-];
+/// The theme of prefs saved before View > Theme…: dark or light, plus the
+/// accent chosen by name in the old menu.
+fn legacy_theme(light: bool, accent: Option<&str>) -> crate::theme::Theme {
+    let mut t = crate::theme::PRESETS[if light { 1 } else { 0 }].1;
+    if let Some(rgb) = accent.and_then(|a| [("Blue", [52, 120, 210]), ("Green", [60, 150, 80]), ("Purple", [140, 90, 200]), ("Red", [190, 60, 60])].into_iter().find(|(n, _)| *n == a)) {
+        t.accent = rgb.1;
+    }
+    t
+}
 
-fn style(ctx: &egui::Context, light: bool, accent: &str) {
-    let [r, g, b] = ACCENTS.iter().find(|(n, _)| *n == accent).unwrap_or(&ACCENTS[0]).1;
-    let ac = egui::Color32::from_rgb(r, g, b);
-    ctx.set_visuals(if light { egui::Visuals::light() } else { egui::Visuals::dark() });
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(8.0, 5.0);
-        s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        s.visuals.selection.bg_fill = ac;
-        s.visuals.selection.stroke.color = egui::Color32::WHITE;
-        s.visuals.hyperlink_color = ac;
-        s.visuals.widgets.hovered.bg_stroke.color = ac;
-        s.visuals.widgets.active.bg_fill = ac.gamma_multiply(0.8);
-    });
+impl MapEditor {
+    fn accent32(&self) -> egui::Color32 {
+        let [r, g, b] = self.theme.accent;
+        egui::Color32::from_rgb(r, g, b)
+    }
+
+    /// View > Theme…: every colour, live.
+    fn ui_theme(&mut self, ctx: &egui::Context) {
+        if !self.show_theme {
+            return;
+        }
+        let mut open = true;
+        let mut changed = false;
+        egui::Window::new("Theme").open(&mut open).resizable(false).default_width(320.0).show(ctx, |ui| {
+            changed = self.theme.ui(ui);
+        });
+        if changed {
+            self.theme.apply(ctx);
+            self.dirty = true;
+        }
+        if !open || changed {
+            self.show_theme = open;
+            self.save_prefs();
+        }
+    }
 }
 
 fn view_name(c: &Camera) -> &'static str {
@@ -6741,7 +6752,7 @@ fn folder_actions(r: &egui::Response, dir: &str, act: &mut FolderActs) {
         }
     }
     if r.dnd_hover_payload::<String>().is_some_and(|e| e.starts_with(crate::models::PREFIX) || e.starts_with("folder:")) {
-        r.ctx.debug_painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(240, 160, 60)), egui::StrokeKind::Outside);
+        r.ctx.debug_painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, r.ctx.global_style().visuals.selection.bg_fill), egui::StrokeKind::Outside);
     }
     r.context_menu(|ui| {
         if ui.button("New folder").clicked() {

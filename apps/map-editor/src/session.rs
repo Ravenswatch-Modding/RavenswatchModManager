@@ -55,9 +55,12 @@ pub struct Prefs {
     pub recent: Vec<String>,
     pub light_theme: bool,
     pub grid_size: Option<f32>,
-    /// Accent colour name (`ACCENTS` in app.rs); orange when unset.
+    /// Accent colour name of the old theme menu; read only to carry it into `theme`.
     #[serde(default)]
     pub accent: Option<String>,
+    /// Every colour of the editor (View > Theme…).
+    #[serde(default)]
+    pub theme: Option<crate::theme::Theme>,
 }
 
 pub fn dir() -> Option<PathBuf> {

@@ -16,6 +16,7 @@ mod outliner;
 mod brush;
 mod recipe;
 mod session;
+mod theme;
 mod render;
 mod scene;
 
