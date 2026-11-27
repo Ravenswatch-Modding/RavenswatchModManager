@@ -35,6 +35,9 @@ pub struct Autosave {
     pub recipe: Value,
     #[serde(default)]
     pub strokes: Value,
+    /// Painted blocked cells.
+    #[serde(default)]
+    pub blocked: Vec<(i32, i32)>,
 }
 
 impl Autosave {
@@ -46,7 +49,7 @@ impl Autosave {
             Value::Null => false,
             _ => true,
         };
-        some(&self.scenery) || !self.groups.is_empty() || some(&self.keep_edits) || self.keep_map.is_some() || some(&self.strokes) || some(&self.recipe)
+        some(&self.scenery) || !self.groups.is_empty() || some(&self.keep_edits) || self.keep_map.is_some() || some(&self.strokes) || some(&self.recipe) || !self.blocked.is_empty()
     }
 }
 

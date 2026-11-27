@@ -108,6 +108,8 @@ enum Event {
     /// Tagged with the upload's number: a response for bytes since replaced
     /// (another mod's model at the same path, a re-import) is dropped.
     Staged(String, u64, anyhow::Result<String>),
+    /// Play in game finished launching (or failed): rsmm's last words.
+    Played(Result<String, String>),
     Error(String),
 }
 
@@ -291,6 +293,7 @@ enum Cmd {
     ToggleTheme,
     Palette,
     Shortcuts,
+    Play,
     ToolMove,
     ToolRotate,
     ToolScale,
@@ -358,6 +361,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Light / dark theme", "", Cmd::ToggleTheme),
     ("Command palette", "F3 / Ctrl+P", Cmd::Palette),
     ("Keyboard shortcuts", "F1", Cmd::Shortcuts),
+    ("Play in game", "F5", Cmd::Play),
 ];
 
 pub struct MapEditor {
@@ -425,7 +429,8 @@ pub struct MapEditor {
     hidden: HashSet<Sel>,
     locked: HashSet<Sel>,
     groups: Vec<(String, Vec<Sel>)>,
-    clipboard: Vec<(String, String, Xf)>,
+    /// Copied objects: entity, level, transform relative to their centre, own collision.
+    clipboard: Vec<(String, String, Xf, Option<crate::edit::Add>)>,
     /// Inspector: a copied transform row (location 0, rotation 1, scale 2).
     xf_clip: Option<(usize, Xf)>,
     /// Inspector name field: one undo step per rename.
@@ -480,6 +485,12 @@ pub struct MapEditor {
     fly_speed: f32,
     /// Ground height the File > New blank map menu starts from.
     new_blank_height: f32,
+    /// File > New chapter: keep the run's tile kinds and the fill pass, and
+    /// wall off the ground's edges.
+    new_keep_kinds: bool,
+    new_edge_walls: bool,
+    /// View > Walkability: blocked cells and every collision box.
+    show_walk: bool,
     opened_doc: Option<Value>,
     unsaved: bool,
     last_autosave: Instant,
@@ -531,6 +542,10 @@ pub struct MapEditor {
     palette_query: String,
     show_shortcuts: bool,
     show_save_as: bool,
+    /// Play in game: launch once the save in flight (or the Save As) succeeds.
+    play_after_save: bool,
+    /// Play in game: rsmm is applying / launching.
+    playing: bool,
     /// Every colour of the editor (View > Theme…).
     theme: crate::theme::Theme,
     show_theme: bool,
@@ -634,6 +649,9 @@ impl MapEditor {
             keep_edits: json!({}),
             keep_map: None,
             new_blank_height: 0.0,
+            new_keep_kinds: false,
+            new_edge_walls: true,
+            show_walk: false,
             fly_speed: 25.0,
             project_dir: opts.project.clone().unwrap_or_else(|| crate::project::ASSETS.to_owned()),
             tile_size: 92.0,
@@ -695,6 +713,8 @@ impl MapEditor {
             palette_query: String::new(),
             show_shortcuts: false,
             show_save_as: false,
+            play_after_save: false,
+            playing: false,
             theme,
             show_theme: false,
             recent: prefs.recent,
@@ -875,6 +895,12 @@ impl MapEditor {
 
     fn ensure_template(&mut self, ctx: &egui::Context, entity: &str) {
         if self.templates.contains_key(entity) {
+            return;
+        }
+        if entity.starts_with(crate::edit::COLLIDER) {
+            // Only collision boxes: drawn as lines, nothing to load.
+            self.templates.insert(entity.to_owned(), Some(Vec::new()));
+            self.dirty = true;
             return;
         }
         if let Some(rel) = entity.strip_prefix(crate::models::PREFIX) {
@@ -1112,6 +1138,13 @@ impl MapEditor {
                     Err(e) => self.failed_assets.push(format!("props: {e:#}")),
                 },
                 Event::Imported(paths) => self.import_files(ctx, paths),
+                Event::Played(r) => {
+                    self.playing = false;
+                    self.status = match r {
+                        Ok(msg) => format!("Ravenswatch is starting with {}: {msg}", self.mod_id),
+                        Err(e) => format!("Play in game failed: {e}"),
+                    };
+                }
                 Event::StampPicked(Some(f)) => match std::fs::read(&f).map_err(anyhow::Error::from).and_then(|b| crate::brush::Stamp::from_png(&crate::models::clean_stem(&f), &b)) {
                     Ok(st) => {
                         self.status = format!("Brush shape: {}", st.name);
@@ -1228,6 +1261,9 @@ impl MapEditor {
                             }
                         }
                         self.refresh_state(ctx);
+                        if std::mem::take(&mut self.play_after_save) {
+                            self.start_play(ctx);
+                        }
                     } else {
                         self.status = format!("Check passed: {} change(s) build cleanly", changes.len());
                     }
@@ -1235,6 +1271,7 @@ impl MapEditor {
                 } else {
                     if saving {
                         self.unsaved |= self.save_dirty;
+                        self.play_after_save = false;
                     }
                     self.result = Some(Err(r.error_text()));
                     self.status = if saving { "Save refused — see the Save panel".into() } else { "Check failed".into() };
@@ -1351,6 +1388,20 @@ impl MapEditor {
         if let Some(p) = prop {
             self.place(ctx, p, a.pos + Vec3::new(6.0, 0.0, 6.0));
         }
+        // A wandering enemy camp, and a tilted walkable floor (a collider).
+        if let Some(c) = self.props.iter().find(|p| p.entity.contains("Enemy_Camp_Wandering")).map(|p| p.entity.clone()) {
+            self.place(ctx, c, a.pos + Vec3::new(12.0, 0.0, 6.0));
+            if let Some(last) = self.edits.adds.last_mut() {
+                last.camp = Some(crate::edit::Camp { difficulty: "Very_Hard".into(), power: [150.0, 300.0] });
+            }
+        }
+        // Painted blocked ground and edge walls.
+        self.edits.blocked.extend((0..6).flat_map(|x| (0..3).map(move |z| (x + 20, z + 20))));
+        self.add_edge_walls();
+        self.place(ctx, format!("{}floor", crate::edit::COLLIDER), a.pos + Vec3::new(6.0, 0.0, 12.0));
+        if let Some(f) = self.edits.adds.last_mut() {
+            f.col.get_or_insert_with(Vec::new)[0].rot = Vec3::new(12.0, 0.0, 0.0);
+        }
         // Recipe: move one spot, add one, change a kind; terrain: two dabs.
         let spot = self.spots_now().into_iter().find(|p| !p.whole_map);
         let kind = self.kinds_now().into_iter().next();
@@ -1451,6 +1502,7 @@ impl MapEditor {
                 .collect(),
             recipe: Value::Object(self.edits.recipe_doc(s, &self.shipped_kinds())),
             strokes: serde_json::to_value(&self.edits.strokes).unwrap_or_default(),
+            blocked: self.edits.blocked.iter().copied().collect(),
         };
         match session::save_autosave(&a) {
             Ok(()) => self.status = "Autosaved".into(),
@@ -1464,6 +1516,7 @@ impl MapEditor {
         let kinds = self.shipped_kinds();
         edits.load_recipe(&a.recipe, s, &kinds);
         edits.strokes = serde_json::from_value(a.strokes.clone()).unwrap_or_default();
+        edits.blocked = a.blocked.iter().copied().collect();
         let ents: Vec<String> = edits.adds.iter().map(|x| x.entity.clone()).collect();
         self.edits = edits;
         self.keep_edits = a.keep_edits;
@@ -1609,8 +1662,18 @@ impl MapEditor {
         if !self.clean_pending {
             return;
         }
-        let (Some(_), Some(r)) = (&self.scenery, &self.recipe) else { return };
+        let (true, Some(r)) = (self.scenery.is_some(), self.recipe.clone()) else { return };
+        if self.terrain.is_none() {
+            return;
+        }
         self.clean_pending = false;
+        if self.new_edge_walls {
+            self.add_edge_walls();
+        }
+        if self.new_keep_kinds {
+            self.status = "New chapter: flat ground; the run's tiles still roll on the chapter's spots".into();
+            return;
+        }
         const KEEP: [&str; 2] = ["Start", "Map_Boss"];
         let kinds: Vec<(String, KindVals)> = r
             .kinds
@@ -1653,25 +1716,27 @@ impl MapEditor {
 
     /// Paste `items` (entity, level, transform relative to their centre) with
     /// their centre at `at`; selects what was pasted.
-    fn paste_items(&mut self, ctx: &egui::Context, items: Vec<(String, String, Xf)>, at: Vec3) -> usize {
+    fn paste_items(&mut self, ctx: &egui::Context, items: Vec<(String, String, Xf, Option<crate::edit::Add>)>, at: Vec3) -> usize {
         let allowed: HashSet<&str> = self.props.iter().map(|p| p.entity.as_str()).collect();
-        let (ok, refused): (Vec<_>, Vec<_>) =
-            items.into_iter().partition(|(e, _, _)| allowed.contains(e.as_str()) || e.starts_with(crate::models::PREFIX));
-        for (e, _, _) in &ok {
+        let (ok, refused): (Vec<_>, Vec<_>) = items
+            .into_iter()
+            .partition(|(e, _, _, _)| allowed.contains(e.as_str()) || e.starts_with(crate::models::PREFIX) || e.starts_with(crate::edit::COLLIDER));
+        for (e, _, _, _) in &ok {
             self.ensure_template(ctx, e);
         }
         let mut new = Vec::new();
         let snap_ground = self.snap_ground;
-        let ground: Vec<Option<f32>> = ok.iter().map(|(_, _, x)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
+        let ground: Vec<Option<f32>> = ok.iter().map(|(_, _, x, _)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
         self.change(|e, _| {
-            for ((entity, level, x), gy) in ok.into_iter().zip(ground) {
+            for ((entity, level, x, src), gy) in ok.into_iter().zip(ground) {
+                let (col, camp) = src.map(|a| (a.col, a.camp)).unwrap_or_default();
                 let mut pos = at + x.pos;
                 if snap_ground {
                     if let Some(g) = gy {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name: String::new(), col: None, col_keep: None }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name: String::new(), col, camp }));
             }
         });
         let n = new.len();
@@ -1698,7 +1763,11 @@ impl MapEditor {
                 let xf = self.edits.xf(s, *x)?;
                 let (e, l) = self.entity_of(*x)?;
                 let lift = xf.pos.y - self.ground_y(xf.pos.x, xf.pos.z).unwrap_or(xf.pos.y);
-                Some((e, l, Xf { pos: Vec3::new(xf.pos.x - p.x, lift, xf.pos.z - p.z), ..xf }))
+                let col = match x {
+                    Sel::Add(u) => self.edits.add(*u).cloned(),
+                    _ => None,
+                };
+                Some((e, l, Xf { pos: Vec3::new(xf.pos.x - p.x, lift, xf.pos.z - p.z), ..xf }, col))
             })
             .collect();
         self.status = format!("Copied {} object(s)", self.clipboard.len());
@@ -1716,7 +1785,8 @@ impl MapEditor {
         let Some(level) = best else { return };
         self.ensure_template(ctx, &entity);
         let mut sel = None;
-        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col: None, col_keep: None })));
+        let col = crate::edit::default_cols(&entity);
+        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col, camp: None })));
         if let Some(s) = sel {
             self.select_only([s]);
         }
@@ -1816,6 +1886,24 @@ impl MapEditor {
 
     /// One dab of the current brush at `at`.
     fn dab(&mut self, at: Vec3, invert: bool, smooth: bool) {
+        if self.brush.mode == BrushMode::Block && !smooth {
+            // Blocked ground: cells under the brush on (Ctrl: off).
+            let (c, r) = (crate::edit::BLOCK_CELL, self.brush.radius);
+            let k = |v: f32| (v / c).floor() as i32;
+            let mut n = 0;
+            for x in k(at.x - r)..=k(at.x + r) {
+                for z in k(at.z - r)..=k(at.z + r) {
+                    let mid = Vec3::new((x as f32 + 0.5) * c, at.y, (z as f32 + 0.5) * c);
+                    if (mid - at).with_y(0.0).length() <= r {
+                        n += usize::from(if invert { self.edits.blocked.remove(&(x, z)) } else { self.edits.blocked.insert((x, z)) });
+                    }
+                }
+            }
+            if n > 0 {
+                self.unsaved = true;
+            }
+            return;
+        }
         let sources = self.look_base.as_ref().map(|l| l.channel_sources.clone()).unwrap_or_default();
         let color_layer = self.look_base.as_ref().and_then(|l| l.color_layer.clone());
         let mut b = self.brush.clone();
@@ -2453,6 +2541,19 @@ impl MapEditor {
                 self.palette_query.clear();
             }
             Cmd::Shortcuts => self.show_shortcuts = !self.show_shortcuts,
+            Cmd::Play => {
+                if self.playing || self.headless() {
+                    return;
+                }
+                if self.tile.is_some() {
+                    self.status = "Play in game: go back to the map tab first".into();
+                    return;
+                }
+                // Always save first: the game runs what is on disk.
+                self.play_after_save = true;
+                self.status = "Play in game: saving…".into();
+                self.run(ctx, Cmd::Save);
+            }
             Cmd::ToolMove => self.gizmo = GizmoMode::Move,
             Cmd::ToolRotate => self.gizmo = GizmoMode::Rotate,
             Cmd::ToolScale => self.gizmo = GizmoMode::Scale,
@@ -2743,6 +2844,19 @@ impl MapEditor {
             }
             let Some(Some(t)) = self.templates.get(&a.entity) else { continue };
             let world = a.xf().mat();
+            if meshes_ready(VFX_PICK) && !self.locked.contains(&sel) {
+                if a.entity.starts_with(crate::edit::COLLIDER) {
+                    // Clicked through its boxes (the pick box stands on y = 0).
+                    for b in a.col.iter().flatten() {
+                        let m = world * b.mat() * Mat4::from_scale_rotation_translation(b.size, Quat::IDENTITY, Vec3::new(0.0, -b.size.y * 0.5, 0.0));
+                        self.pickables.push((VFX_PICK.to_owned(), m, sel));
+                    }
+                } else if !t.iter().any(|(k, _)| !k.decal && !k.vfx) {
+                    // A spawner / camp: clicked through a box at its marker.
+                    let m = Mat4::from_scale_rotation_translation(Vec3::new(3.0, 3.0, 3.0), Quat::IDENTITY, a.pos);
+                    self.pickables.push((VFX_PICK.to_owned(), m, sel));
+                }
+            }
             for (key, mats) in t {
                 for local in mats {
                     let m = world * *local;
@@ -2822,7 +2936,8 @@ impl MapEditor {
         let Some(r) = &self.renderer else { return vec![] };
         let mut out = Vec::new();
         for (mesh, m, s) in &self.pickables {
-            if !self.sel.contains(s) {
+            // Effects and colliders are clicked through stand-in boxes: no outline.
+            if !self.sel.contains(s) || mesh == VFX_PICK {
                 continue;
             }
             if let Some(g) = r.meshes.get(mesh) {
@@ -3249,11 +3364,59 @@ impl MapEditor {
         lines.extend(self.spot_lines());
         lines.extend(self.selection_lines());
         let mut top = Vec::new();
-        for sel in self.sel.iter().copied() {
-            let Sel::Add(u) = sel else { continue };
-            if let Some((_, c, xf)) = self.model_col(u) {
-                if c.solid {
-                    box_lines(&mut top, xf, c.at - c.size * 0.5, c.at + c.size * 0.5, [1.0, 0.55, 0.15, 1.0]);
+        // Collision boxes: a selected model copy's, and every collider's (they
+        // have nothing else to show). Things with nothing to draw (enemy
+        // camps, spawners) get a marker.
+        for a in &self.edits.adds {
+            let sel = Sel::Add(a.uid);
+            if self.hidden.contains(&sel) {
+                continue;
+            }
+            let on = self.sel.contains(&sel);
+            let collider = a.entity.starts_with(crate::edit::COLLIDER);
+            if on || collider {
+                if let Some((boxes, xf, _)) = self.obj_cols(a.uid) {
+                    for b in &boxes {
+                        let c = if b.ground { [0.35, 1.0, 0.45, 1.0] } else { [1.0, 0.55, 0.15, 1.0] };
+                        let c = if on { c } else { [c[0], c[1], c[2], 0.55] };
+                        box_lines(&mut top, xf * b.mat(), -b.size * 0.5, b.size * 0.5, c);
+                    }
+                }
+            } else if self.draws_nothing(&a.entity) {
+                let c = if on { [1.0, 0.85, 0.4, 1.0] } else { [1.0, 0.3, 0.25, 0.9] };
+                ring(&mut top, a.pos, 2.0, c, |_, _| Some(a.pos.y + 0.1));
+                top.push(LineVertex { pos: a.pos.into(), col: c });
+                top.push(LineVertex { pos: (a.pos + Vec3::Y * 3.0).into(), col: c });
+            }
+        }
+        // Blocked ground, and (View > Walkability) every copy's collision too.
+        let walk = self.show_walk || (self.tool == Tool::Brush && self.brush.mode == BrushMode::Block);
+        if walk {
+            let c = crate::edit::BLOCK_CELL;
+            let col = [1.0, 0.2, 0.2, 0.9];
+            for &(x, z) in &self.edits.blocked {
+                let (x0, z0) = (x as f32 * c, z as f32 * c);
+                let y = |px: f32, pz: f32| self.ground_y(px, pz).unwrap_or(0.0) + 0.15;
+                let q = [(x0, z0), (x0 + c, z0), (x0 + c, z0 + c), (x0, z0 + c)];
+                for k in 0..4 {
+                    let (a, b) = (q[k], q[(k + 1) % 4]);
+                    top.push(LineVertex { pos: [a.0, y(a.0, a.1), a.1], col });
+                    top.push(LineVertex { pos: [b.0, y(b.0, b.1), b.1], col });
+                }
+                top.push(LineVertex { pos: [x0, y(x0, z0), z0], col });
+                top.push(LineVertex { pos: [x0 + c, y(x0 + c, z0 + c), z0 + c], col });
+            }
+            if self.show_walk {
+                for a in &self.edits.adds {
+                    if self.sel.contains(&Sel::Add(a.uid)) || a.entity.starts_with(crate::edit::COLLIDER) {
+                        continue; // drawn above
+                    }
+                    if let Some((boxes, xf, _)) = self.obj_cols(a.uid) {
+                        for b in &boxes {
+                            let c = if b.ground { [0.35, 1.0, 0.45, 0.6] } else { [1.0, 0.55, 0.15, 0.6] };
+                            box_lines(&mut top, xf * b.mat(), -b.size * 0.5, b.size * 0.5, c);
+                        }
+                    }
                 }
             }
         }
@@ -3634,6 +3797,8 @@ impl MapEditor {
         let rmb = ctx.input(|i| i.pointer.secondary_down());
         let c = if p(egui::Key::F1) {
             Some(Cmd::Shortcuts)
+        } else if p(egui::Key::F5) {
+            Some(Cmd::Play)
         } else if p(egui::Key::F2) {
             Some(Cmd::Rename)
         } else if p(egui::Key::F3) || (cmd && p(egui::Key::P)) {
@@ -3767,6 +3932,8 @@ impl MapEditor {
                     ui.label(egui::RichText::new("An empty chapter: flat unpainted ground, no scenery, no invisible walls, one start and one boss spot.").small().weak());
                     ui.label(egui::RichText::new("Pick its world: the sky, light, music, enemies and tiles it uses.").small().weak());
                     ui.add(egui::Slider::new(&mut self.new_blank_height, -40.0..=40.0).step_by(2.0).text("ground m"));
+                    ui.checkbox(&mut self.new_keep_kinds, "Keep the run's tiles").on_hover_text("Camps, crystals, shrines, chests… on the chapter's spots, as the shipped chapter rolls them; off = only the start and the boss");
+                    ui.checkbox(&mut self.new_edge_walls, "Edge walls").on_hover_text("Invisible walls around the ground, so heroes cannot walk off it");
                     for c in &self.chapters {
                         if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("{} world", c.label)).clicked() {
                             open_blank = Some((c.key.clone(), self.new_blank_height));
@@ -3799,6 +3966,7 @@ impl MapEditor {
                 ui.separator();
                 item(ui, "Save", "Ctrl+S", Cmd::Save);
                 item(ui, "Save As…", "Ctrl+Shift+S", Cmd::SaveAs);
+                item(ui, "Play in game", "F5", Cmd::Play);
                 item(ui, "Check it builds", "", Cmd::Check);
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -3864,6 +4032,7 @@ impl MapEditor {
                 item(ui, "Perspective / Orthographic", "5", Cmd::ToggleOrtho);
                 ui.separator();
                 ui.checkbox(&mut self.show_grid, "Grid");
+                ui.checkbox(&mut self.show_walk, "Walkability").on_hover_text("Blocked ground in red, every wall (orange) and walkable box (green)");
                 ui.checkbox(&mut self.snap, "Snap to grid");
                 ui.add(egui::Slider::new(&mut self.grid_size, 0.25..=16.0).logarithmic(true).text("grid m"));
                 ui.checkbox(&mut self.snap_ground, "Objects follow the ground");
@@ -4086,6 +4255,45 @@ impl MapEditor {
             self.status = "Project panel: click a prop then the ground, or drag it into the scene".into();
             ui.close();
         }
+        // Enemy camps the chapter already preloads: a camp stands its monsters
+        // there (the `_Wandering` ones roam).
+        let mut camps: Vec<(String, String)> = self
+            .props
+            .iter()
+            .filter(|p| p.entity.contains("Enemy_Camp") && !p.entity.contains("Reward"))
+            .map(|p| (p.entity.clone(), p.name.replace('_', " ")))
+            .collect();
+        // The wandering camps (what a chapter scatters) first.
+        camps.sort_by_key(|(e, n)| (!e.contains("Wandering"), n.clone()));
+        ui.add_enabled_ui(!camps.is_empty(), |ui| {
+            ui.menu_button("Enemy camp", |ui| {
+                for (e, name) in &camps {
+                    if ui.button(name).clicked() {
+                        self.tool = Tool::Place(e.clone());
+                        self.status = format!("Click the ground to place {name} (Shift keeps placing)");
+                        ui.close();
+                    }
+                }
+            });
+        });
+        for (k, label, tip) in [
+            ("wall", "Invisible wall", "A box heroes and enemies cannot pass; nothing is drawn in game"),
+            ("floor", "Walkable floor", "A box heroes can stand on: a deck, a bridge, a ramp (tilt it)"),
+        ] {
+            let ok = self.needs_map() && self.tile.is_none();
+            let r = ui.add_enabled(ok, egui::Button::new(label)).on_hover_text(tip).on_disabled_hover_text("Only on a map of your own: File > New chapter or New map from chapter");
+            if r.clicked() {
+                self.tool = Tool::Place(format!("{}{k}", crate::edit::COLLIDER));
+                self.status = format!("Click the ground to place: {label} (Shift keeps placing)");
+                ui.close();
+            }
+        }
+        let ok = self.needs_map() && self.tile.is_none() && self.terrain.is_some();
+        if ui.add_enabled(ok, egui::Button::new("Edge walls")).on_hover_text("Invisible walls all around the ground, so heroes cannot walk off it").clicked() {
+            self.add_edge_walls();
+            ui.close();
+        }
+        ui.separator();
         if self.tile.is_none() {
             if let Some(r) = self.recipe.clone() {
                 ui.menu_button("Tile spot", |ui| {
@@ -4106,50 +4314,180 @@ impl MapEditor {
         }
     }
 
-    /// A placed model copy's collision as it will save: its own, else the
-    /// model's default; with the copy's world matrix.
-    fn model_col(&self, u: u64) -> Option<(crate::models::Model, crate::edit::Col, Mat4)> {
-        let a = self.edits.add(u)?;
-        let rel = a.entity.strip_prefix(crate::models::PREFIX)?;
-        let m = self.models.iter().find(|m| m.mesh.rel == rel)?.clone();
-        let c = a.col.unwrap_or(crate::edit::Col { solid: m.solid, size: (m.hi - m.lo).max(Vec3::splat(0.1)), at: (m.hi + m.lo) * 0.5 });
-        Some((m, c, a.xf().mat()))
+    /// Invisible walls along the four edges of the ground (2 m in), in 120 m
+    /// pieces (a collision box is at most 128 m a side). What a blank map
+    /// lost with the chapter's own `_Collisions` walls. One undo step.
+    fn add_edge_walls(&mut self) {
+        let Some(t) = &self.terrain else { return };
+        let (lo, hi) = (t.min + Vec3::new(2.0, 0.0, 2.0), t.max - Vec3::new(2.0, 0.0, 2.0));
+        let level = self.edits.adds.first().map(|a| a.level.clone()).or_else(|| self.scenery.as_ref().and_then(|s| s.levels.first().cloned())).unwrap_or_default();
+        let mut walls = Vec::new();
+        for (a0, a1, fixed, along_x) in [(lo.x, hi.x, lo.z, true), (lo.x, hi.x, hi.z, true), (lo.z, hi.z, lo.x, false), (lo.z, hi.z, hi.x, false)] {
+            let n = ((a1 - a0) / 120.0).ceil().max(1.0) as usize;
+            let len = (a1 - a0) / n as f32;
+            for k in 0..n {
+                let m = a0 + len * (k as f32 + 0.5);
+                let (x, z) = if along_x { (m, fixed) } else { (fixed, m) };
+                let y = self.ground_y(x, z).unwrap_or(0.0);
+                let rot = if along_x { Quat::IDENTITY } else { Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) };
+                walls.push((Vec3::new(x, y, z), rot, len));
+            }
+        }
+        let mut new = Vec::new();
+        self.change(|e, _| {
+            for (pos, rot, len) in walls {
+                let col = Some(vec![crate::edit::ColBox::wall(Vec3::new(len, 12.0, 1.0), Vec3::new(0.0, 5.0, 0.0))]);
+                new.push(e.push_add(Add { uid: 0, entity: format!("{}wall", crate::edit::COLLIDER), level: level.clone(), pos, rot, scale: Vec3::ONE, name: "Edge wall".into(), col, camp: None }));
+            }
+        });
+        let n = new.len();
+        // One Hierarchy group, not twenty rows.
+        self.groups.push(("Edge walls".into(), new));
+        self.ensure_template_now(&format!("{}wall", crate::edit::COLLIDER));
+        self.status = format!("Edge walls: {n} invisible walls around the ground");
     }
 
-    /// Inspector > Collision, for one of the mod's own models.
+    /// `ensure_template` for a collider (needs no backend).
+    fn ensure_template_now(&mut self, entity: &str) {
+        if entity.starts_with(crate::edit::COLLIDER) {
+            self.templates.entry(entity.to_owned()).or_insert(Some(Vec::new()));
+            self.dirty = true;
+        }
+    }
+
+    /// An entity with no mesh to draw (an enemy camp, a spawner), once loaded.
+    fn draws_nothing(&self, entity: &str) -> bool {
+        matches!(self.templates.get(entity), Some(Some(t)) if !t.iter().any(|(k, _)| !k.decal && !k.vfx))
+    }
+
+    /// A placed model copy's or collider's collision boxes as they will save
+    /// (a model copy without its own: the model's default), with its world
+    /// matrix and the model it is a copy of.
+    fn obj_cols(&self, u: u64) -> Option<(Vec<crate::edit::ColBox>, Mat4, Option<crate::models::Model>)> {
+        let a = self.edits.add(u)?;
+        if a.entity.starts_with(crate::edit::COLLIDER) {
+            return Some((a.col.clone().unwrap_or_default(), a.xf().mat(), None));
+        }
+        let rel = a.entity.strip_prefix(crate::models::PREFIX)?;
+        let m = self.models.iter().find(|m| m.mesh.rel == rel)?.clone();
+        Some((a.col.clone().unwrap_or_else(|| m.default_cols()), a.xf().mat(), Some(m)))
+    }
+
+    /// Inspector > Enemy camp: a placed camp's own difficulty and power (the
+    /// map's tribe decides which monsters; these decide how hard a group).
+    fn ui_camp(&mut self, ui: &mut egui::Ui, u: u64) {
+        use crate::edit::{Camp, CAMP_DIFFICULTIES};
+        let Some(a) = self.edits.add(u) else { return };
+        if !a.entity.contains("Enemy_Camp") || a.entity.contains("Reward") {
+            return;
+        }
+        let before = a.camp.clone();
+        let mut camp = before.clone();
+        ui.separator();
+        ui.label(egui::RichText::new("Enemy camp").strong());
+        let mut own = camp.is_some();
+        ui.checkbox(&mut own, "Own spawn settings").on_hover_text("Off: the camp spawns as the shipped chapter's do");
+        if own != camp.is_some() {
+            camp = own.then(|| Camp { difficulty: "Medium".into(), power: [100.0, 200.0] });
+        }
+        let mut started = false;
+        if let Some(c) = &mut camp {
+            egui::Grid::new("camp").num_columns(3).spacing([6.0, 4.0]).show(ui, |ui| {
+                ui.label("Difficulty");
+                egui::ComboBox::from_id_salt("camp_diff").selected_text(c.difficulty.replace('_', " ")).show_ui(ui, |ui| {
+                    for d in CAMP_DIFFICULTIES {
+                        ui.selectable_value(&mut c.difficulty, d.to_owned(), d.replace('_', " "));
+                    }
+                });
+                ui.end_row();
+                ui.label("Power").on_hover_text("The two numbers the camp rolls its group from (Dark Hills' wandering camps ship 100–200, a Ghouls camp 10–20); higher = more or stronger monsters. Read from the game data, not yet confirmed in game.");
+                let r0 = ui.add(egui::DragValue::new(&mut c.power[0]).speed(1.0).range(1.0..=10000.0).prefix("min "));
+                let r1 = ui.add(egui::DragValue::new(&mut c.power[1]).speed(1.0).range(1.0..=10000.0).prefix("max "));
+                started |= r0.drag_started() || r0.gained_focus() || r1.drag_started() || r1.gained_focus();
+                c.power[1] = c.power[1].max(c.power[0]);
+                ui.end_row();
+            });
+            ui.label(egui::RichText::new("Which monsters come from the map's tribe.").small().weak());
+        }
+        if camp != before {
+            if started || !ui.ctx().egui_is_using_pointer() {
+                self.history.push(&self.edits);
+            }
+            if let Some(a) = self.edits.adds.iter_mut().find(|a| a.uid == u) {
+                a.camp = camp;
+            }
+            self.unsaved = true;
+        }
+    }
+
+    /// Inspector > Collision: the boxes of one of the mod's own models or of
+    /// a collider. Walls block heroes and enemies; ground can be stood on.
     fn ui_collision(&mut self, ui: &mut egui::Ui, u: u64) {
-        let Some((m, mut c, _)) = self.model_col(u) else { return };
+        use crate::edit::ColBox;
+        let Some((mut boxes, _, model)) = self.obj_cols(u) else { return };
         ui.separator();
         ui.label(egui::RichText::new("Collision").strong());
-        let before = c;
+        let before = boxes.clone();
         let mut started = false;
-        if let Some(n) = self.edits.add(u).filter(|a| a.col.is_none()).and_then(|a| a.col_keep.as_ref()).and_then(Value::as_array).map(Vec::len) {
-            ui.label(egui::RichText::new(format!("Authored collision ({n} volumes) is kept as is. Editing here replaces it with one wall box.")).small().weak());
-        }
-        ui.checkbox(&mut c.solid, "Solid").on_hover_text("A wall box: heroes and enemies cannot walk through it");
-        if c.solid {
-            egui::Grid::new("col").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
-                for (label, v, min) in [("Size", &mut c.size, 0.1f32), ("Centre", &mut c.at, -1000.0)] {
-                    ui.label(label);
-                    for k in 0..3 {
-                        let r = ui.add(egui::DragValue::new(&mut v[k]).speed(0.05).range(min..=1000.0).fixed_decimals(2).suffix(" m"));
-                        started |= r.drag_started() || r.gained_focus();
+        let mut drop = None;
+        for (i, b) in boxes.iter_mut().enumerate() {
+            ui.push_id(("colbox", i), |ui| {
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("kind")
+                        .width(80.0)
+                        .selected_text(if b.ground { "Ground" } else { "Wall" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut b.ground, false, "Wall").on_hover_text("Blocks heroes and enemies");
+                            ui.selectable_value(&mut b.ground, true, "Ground").on_hover_text("Can be walked on (a deck, a ramp)");
+                        });
+                    if icons::button(ui, Icon::Trash, false, "Remove this box").clicked() {
+                        drop = Some(i);
                     }
-                    ui.end_row();
-                }
+                });
+                egui::Grid::new("col").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
+                    for (label, v, lo, hi, suffix) in [
+                        ("Size", &mut b.size, 0.05f32, 128.0f32, " m"),
+                        ("Centre", &mut b.at, -128.0, 128.0, " m"),
+                        ("Rotation", &mut b.rot, -180.0, 180.0, "°"),
+                    ] {
+                        ui.label(label);
+                        for k in 0..3 {
+                            let r = ui.add(egui::DragValue::new(&mut v[k]).speed(if suffix == "°" { 0.5 } else { 0.05 }).range(lo..=hi).fixed_decimals(if suffix == "°" { 1 } else { 2 }).suffix(suffix));
+                            started |= r.drag_started() || r.gained_focus();
+                        }
+                        ui.end_row();
+                    }
+                });
             });
-            ui.label(egui::RichText::new("In the model's own space; the orange box in the scene.").small().weak());
+            ui.add_space(4.0);
         }
+        if let Some(i) = drop {
+            boxes.remove(i);
+        }
+        ui.horizontal(|ui| {
+            if ui.small_button("+ Wall box").clicked() {
+                boxes.push(ColBox::wall(Vec3::new(2.0, 2.0, 2.0), Vec3::new(0.0, 1.0, 0.0)));
+            }
+            if ui.small_button("+ Ground box").clicked() {
+                boxes.push(ColBox { ground: true, size: Vec3::new(4.0, 0.5, 4.0), at: Vec3::new(0.0, -0.25, 0.0), rot: Vec3::ZERO });
+            }
+        });
+        let empty = if model.is_some() { "No boxes: heroes walk through it." } else { "No boxes: this collider does nothing." };
+        let note = if boxes.is_empty() { empty } else { "In the object's own space: orange walls, green ground in the scene." };
+        ui.label(egui::RichText::new(note).small().weak());
         let mut reset = false;
-        if self.edits.add(u).is_some_and(|a| a.col.is_some()) {
-            reset = ui.small_button(format!("Reset to {}'s default", m.name())).clicked();
+        if let Some(m) = &model {
+            if self.edits.add(u).is_some_and(|a| a.col.is_some()) {
+                reset = ui.small_button(format!("Reset to {}'s default", m.name())).clicked();
+            }
         }
-        if started || reset || (c != before && !ui.ctx().egui_is_using_pointer()) {
+        let changed = boxes != before;
+        if started || reset || drop.is_some() || (changed && !ui.ctx().egui_is_using_pointer()) {
             self.history.push(&self.edits);
         }
-        if c != before || reset {
+        if changed || reset {
             if let Some(a) = self.edits.adds.iter_mut().find(|a| a.uid == u) {
-                a.col = if reset { None } else { Some(c) };
+                a.col = if reset { None } else { Some(boxes) };
             }
             self.unsaved = true;
             self.dirty = true;
@@ -4293,6 +4631,31 @@ impl MapEditor {
             self.unsaved = true;
             self.status = format!("Imported {}: drag it from Project into the scene", done.join(", "));
         }
+    }
+
+    /// Play in game, after a save: enable this mod and `rsmm run` (which
+    /// restores, applies every enabled mod and launches through Steam, then
+    /// leaves a watcher that restores the game files when it closes).
+    fn start_play(&mut self, ctx: &egui::Context) {
+        let id = self.mod_id.trim().to_owned();
+        if id.is_empty() {
+            return;
+        }
+        self.playing = true;
+        self.status = format!("Play in game: applying {id} and starting Ravenswatch…");
+        let (cmd, tx, ctx) = (self.backend.cmd.clone(), self.events_tx.clone(), ctx.clone());
+        thread::spawn(move || {
+            let rsmm = |args: &[&str]| -> Result<String, String> {
+                let (prog, pre) = cmd.split_first().ok_or("no rsmm command")?;
+                let out = std::process::Command::new(prog).args(pre).args(args).output().map_err(|e| format!("rsmm {}: {e}", args[0]))?;
+                let text = String::from_utf8_lossy(if out.status.success() { &out.stdout } else { &out.stderr }).trim().to_owned();
+                let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
+                if out.status.success() { Ok(last) } else { Err(format!("rsmm {}: {}", args[0], if last.is_empty() { out.status.to_string() } else { last })) }
+            };
+            let r = rsmm(&["enable", &id, "--no-apply"]).and_then(|_| rsmm(&["run"]));
+            let _ = tx.send(Event::Played(r));
+            ctx.request_repaint();
+        });
     }
 
     fn stage(&mut self, ctx: &egui::Context, rel: String, bytes: Vec<u8>) {
@@ -5021,7 +5384,13 @@ impl MapEditor {
                 ui.color_edit_button_rgb(&mut b.color);
             }
         });
-        ui.separator();
+        ui.label(egui::RichText::new("Walking").strong());
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut b.mode, BrushMode::Block, "Block").on_hover_text("Paint ground heroes and enemies cannot enter (Ctrl clears). Saved as invisible walls.");
+            if b.mode == BrushMode::Block {
+                ui.label(egui::RichText::new("Ctrl clears · red in the scene").small().weak());
+            }
+        });
         ui.add(egui::Slider::new(&mut b.radius, 1.0..=120.0).logarithmic(true).text("size m"));
         let (lo, hi, unit) = match b.mode {
             BrushMode::Raise | BrushMode::Lower => (0.02, 3.0, " m/dab"),
@@ -6020,6 +6389,7 @@ impl MapEditor {
             });
         }
         if let Sel::Add(u) = sel {
+            self.ui_camp(ui, u);
             self.ui_collision(ui, u);
         }
         let locked = self.locked.contains(&sel);
@@ -6140,25 +6510,45 @@ impl MapEditor {
             // entity, and the art a save copies into the mod.
             let mut art = serde_json::Map::new();
             for (o, add) in m["objects"].as_array_mut().into_iter().flatten().zip(&self.edits.adds) {
+                if add.entity.starts_with(crate::edit::COLLIDER) {
+                    let obj = o.as_object_mut().unwrap();
+                    obj.remove("entity");
+                    obj.insert("collider".into(), json!(true));
+                    continue;
+                }
                 let Some(rel) = o["entity"].as_str().and_then(|e| e.strip_prefix(crate::models::PREFIX)).map(str::to_owned) else { continue };
                 let Some(model) = self.models.iter().find(|x| x.mesh.rel == rel) else { continue };
                 o.as_object_mut().unwrap().remove("entity");
                 for (k, v) in model.fields().as_object().unwrap() {
                     o[k] = v.clone();
                 }
-                if let Some(c) = add.col {
+                if let Some(c) = &add.col {
                     let obj = o.as_object_mut().unwrap();
                     obj.remove("collision");
-                    if c.solid {
-                        obj.insert("collision".into(), json!([{"kind": "wall", "size": [c.size.x, c.size.y, c.size.z], "at": [c.at.x, c.at.y, c.at.z]}]));
+                    if !c.is_empty() {
+                        obj.insert("collision".into(), crate::edit::ColBox::list_json(c));
                     }
-                } else if let Some(keep) = &add.col_keep {
-                    o["collision"] = keep.clone();
                 }
                 for a in std::iter::once(&model.mesh).chain(&model.texture) {
                     if let Some(id) = self.staged.get(&a.rel) {
                         art.insert(a.rel.clone(), json!(id));
                     }
+                }
+            }
+            // Painted blocked ground: one invisible wall per merged rectangle.
+            let c = crate::edit::BLOCK_CELL;
+            for (x0, z0, x1, z1) in crate::edit::block_rects(&self.edits.blocked) {
+                let (w, d) = ((x1 - x0 + 1) as f32 * c, (z1 - z0 + 1) as f32 * c);
+                let (cx, cz) = (x0 as f32 * c + w * 0.5, z0 as f32 * c + d * 0.5);
+                let gy = [(cx, cz), (x0 as f32 * c, z0 as f32 * c), ((x1 + 1) as f32 * c, (z1 + 1) as f32 * c)]
+                    .iter()
+                    .filter_map(|&(x, z)| self.ground_y(x, z))
+                    .fold(f32::MAX, f32::min);
+                let gy = if gy == f32::MAX { 0.0 } else { gy };
+                let h = crate::edit::BLOCK_HEIGHT;
+                if let Some(a) = m["objects"].as_array_mut() {
+                    a.push(json!({"collider": true, "name": crate::edit::BLOCK_NAME, "pos": [cx, gy, cz], "yaw": 0.0, "scale": 1.0,
+                        "collision": [{"kind": "wall", "size": [w, h, d], "at": [0.0, h * 0.5 - 1.0, 0.0]}]}));
                 }
             }
             if self.export_minimap {
@@ -6273,6 +6663,11 @@ impl MapEditor {
                 if ui.add_enabled_ui(!busy, |ui| icons::text_button(ui, Icon::Save, "Save As…")).inner.clicked() {
                     self.show_save_as = true;
                 }
+                let can_play = !busy && !self.playing && self.tile.is_none();
+                let play = ui.add_enabled_ui(can_play, |ui| icons::text_button(ui, Icon::Play, "Play")).inner;
+                if play.on_hover_text("F5: save, apply this mod and start Ravenswatch").clicked() {
+                    self.run(&ui.ctx().clone(), Cmd::Play);
+                }
                 if busy {
                     ui.spinner();
                 }
@@ -6340,6 +6735,10 @@ impl MapEditor {
         if go {
             open = false;
             self.submit(Pending::Save);
+        }
+        // Closed without saving: a Play waiting on it is off.
+        if !open && self.pending.is_none() {
+            self.play_after_save = false;
         }
         self.show_save_as = open;
     }

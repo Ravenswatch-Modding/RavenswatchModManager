@@ -27,21 +27,143 @@ pub struct Add {
     pub scale: Vec3,
     /// The author's own name for it (Rename); empty = the entity's name.
     pub name: String,
-    /// One of the mod's own models: this copy's collision, when it differs
-    /// from the model's default (Inspector > Collision).
-    pub col: Option<Col>,
-    /// A reopened copy's `collision` list when it is more than one plain wall
-    /// box (several volumes, ground, rotation): saved back as it was unless
-    /// the author edits the collision, which replaces it with `col`.
-    pub col_keep: Option<Value>,
+    /// A model copy's own collision boxes (None = the model's default), or a
+    /// collider's boxes (Inspector > Collision).
+    pub col: Option<Vec<ColBox>>,
+    /// An enemy camp's own spawn settings (`map.objects[].camp`); None = as shipped.
+    pub camp: Option<Camp>,
 }
 
-/// A wall box around a placed model, in the model's own space.
+/// `camp = {difficulty, power}` on a placed enemy camp: the difficulty
+/// definition it names and the two power numbers its group is rolled from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Camp {
+    pub difficulty: String,
+    pub power: [f32; 2],
+}
+
+/// `maps.CAMP_DIFFICULTIES`.
+pub const CAMP_DIFFICULTIES: [&str; 6] = ["Very_Easy", "Easy", "Medium", "Advanced", "Hard", "Very_Hard"];
+
+impl Camp {
+    pub fn json(&self) -> Value {
+        json!({"difficulty": self.difficulty, "power": [self.power[0], self.power[1]]})
+    }
+
+    pub fn parse(v: &Value) -> Option<Camp> {
+        let p = v["power"].as_array();
+        let f = |i: usize, d: f32| p.and_then(|a| a.get(i)).and_then(Value::as_f64).map_or(d, |x| x as f32);
+        v.is_object().then(|| Camp { difficulty: v["difficulty"].as_str().unwrap_or("Medium").to_owned(), power: [f(0, 100.0), f(1, 200.0)] })
+    }
+}
+
+/// Painted blocked ground: cells of this many metres. Saved as invisible
+/// walls (`collider` objects named [`BLOCK_NAME`]), read back into cells.
+pub const BLOCK_CELL: f32 = 2.0;
+pub const BLOCK_NAME: &str = "Blocked area";
+/// Height of a blocked area's wall, from 1 m under the ground.
+pub const BLOCK_HEIGHT: f32 = 8.0;
+
+/// Blocked cells merged into rectangles `(x0, z0, x1, z1)` (inclusive cell
+/// indexes), each at most 60 cells (120 m) a side: rows of runs, then equal
+/// runs stacked down the rows.
+pub fn block_rects(cells: &BTreeSet<(i32, i32)>) -> Vec<(i32, i32, i32, i32)> {
+    const MAX: i32 = 60;
+    let mut rows: BTreeMap<i32, Vec<(i32, i32)>> = BTreeMap::new();
+    for &(x, z) in cells {
+        let runs = rows.entry(z).or_default();
+        match runs.last_mut() {
+            Some(r) if r.1 + 1 == x && r.1 - r.0 + 1 < MAX => r.1 = x,
+            _ => runs.push((x, x)),
+        }
+    }
+    let mut open: BTreeMap<(i32, i32), (i32, i32)> = BTreeMap::new(); // run -> (z0, z1)
+    let mut out = Vec::new();
+    for (z, runs) in rows {
+        let mut next = BTreeMap::new();
+        for r in runs {
+            match open.remove(&r) {
+                Some((z0, z1)) if z1 + 1 == z && z - z0 < MAX => {
+                    next.insert(r, (z0, z));
+                }
+                Some((z0, z1)) => {
+                    out.push((r.0, z0, r.1, z1));
+                    next.insert(r, (z, z));
+                }
+                None => {
+                    next.insert(r, (z, z));
+                }
+            }
+        }
+        out.extend(open.into_iter().map(|(r, (z0, z1))| (r.0, z0, r.1, z1)));
+        open = next;
+    }
+    out.extend(open.into_iter().map(|(r, (z0, z1))| (r.0, z0, r.1, z1)));
+    out
+}
+
+/// Entity prefix of a collider: an object that is only collision boxes
+/// (`map.objects[] = {collider = true, collision = [...]}`), nothing drawn.
+pub const COLLIDER: &str = "collider:";
+
+/// One collision box in the object's own space, as `collision_volumes.parse`
+/// reads it: a wall blocks, ground can be stood on.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Col {
-    pub solid: bool,
+pub struct ColBox {
+    pub ground: bool,
     pub size: Vec3,
     pub at: Vec3,
+    /// Euler degrees about X, Y, Z.
+    pub rot: Vec3,
+}
+
+impl ColBox {
+    pub fn wall(size: Vec3, at: Vec3) -> Self {
+        ColBox { ground: false, size, at, rot: Vec3::ZERO }
+    }
+
+    /// The box's frame in the object's space (unit box = `size` around it).
+    pub fn mat(&self) -> glam::Mat4 {
+        let r = self.rot * (std::f32::consts::PI / 180.0);
+        glam::Mat4::from_translation(self.at) * glam::Mat4::from_euler(glam::EulerRot::XYZ, r.x, r.y, r.z)
+    }
+
+    pub fn json(&self) -> Value {
+        let v = |v: Vec3| json!([v.x, v.y, v.z]);
+        let mut o = json!({"kind": if self.ground { "ground" } else { "wall" }, "size": v(self.size), "at": v(self.at)});
+        if self.rot != Vec3::ZERO {
+            o["rot"] = v(self.rot);
+        }
+        o
+    }
+
+    pub fn list_json(boxes: &[ColBox]) -> Value {
+        Value::Array(boxes.iter().map(ColBox::json).collect())
+    }
+
+    /// A `collision` list; anything not a box table is skipped.
+    pub fn parse(v: &Value) -> Vec<ColBox> {
+        let v3 = |b: &Value, k: &str, d: f32| {
+            let a = b[k].as_array();
+            Vec3::from_array(std::array::from_fn(|i| a.and_then(|a| a.get(i)).and_then(Value::as_f64).map_or(d, |x| x as f32)))
+        };
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter(|b| b.is_object())
+            .map(|b| ColBox { ground: b["kind"].as_str().unwrap_or("ground") == "ground", size: v3(b, "size", 1.0), at: v3(b, "at", 0.0), rot: v3(b, "rot", 0.0) })
+            .collect()
+    }
+}
+
+/// The boxes a new copy of `entity` starts with: a collider gets one (a wall
+/// or a walkable floor whose top is the object's origin); anything else none
+/// (a model uses its own default).
+pub fn default_cols(entity: &str) -> Option<Vec<ColBox>> {
+    match entity.strip_prefix(COLLIDER)? {
+        "floor" => Some(vec![ColBox { ground: true, size: Vec3::new(4.0, 0.5, 4.0), at: Vec3::new(0.0, -0.25, 0.0), rot: Vec3::ZERO }]),
+        _ => Some(vec![ColBox::wall(Vec3::new(4.0, 3.0, 0.5), Vec3::new(0.0, 1.5, 0.0))]),
+    }
 }
 
 impl Add {
@@ -66,6 +188,12 @@ impl Add {
         }
         let s = self.scale;
         o["scale"] = if (s - Vec3::splat(s.x)).abs().max_element() < 1e-5 { json!(s.x) } else { json!([s.x, s.y, s.z]) };
+        if let Some(c) = &self.col {
+            o["collision"] = ColBox::list_json(c);
+        }
+        if let Some(c) = &self.camp {
+            o["camp"] = c.json();
+        }
         o
     }
 
@@ -75,6 +203,9 @@ impl Add {
         }
         if let Some(rel) = self.entity.strip_prefix(crate::models::PREFIX) {
             return crate::models::stem(rel).to_owned();
+        }
+        if let Some(k) = self.entity.strip_prefix(COLLIDER) {
+            return if k == "floor" { "Walkable floor" } else { "Invisible wall" }.to_owned();
         }
         let e = self.entity.rsplit('\\').next().unwrap_or(&self.entity);
         e.trim_end_matches(".entity.ot").to_owned()
@@ -132,6 +263,8 @@ pub struct Edits {
     pub kinds: BTreeMap<String, KindVals>,
     // the ground
     pub strokes: Vec<Stroke>,
+    /// Painted blocked cells (`BLOCK_CELL` m), see [`block_rects`].
+    pub blocked: BTreeSet<(i32, i32)>,
 }
 
 impl Edits {
@@ -237,7 +370,7 @@ impl Edits {
     }
 
     pub fn count(&self) -> usize {
-        self.scenery_count() + self.recipe_count() + usize::from(!self.strokes.is_empty())
+        self.scenery_count() + self.recipe_count() + usize::from(!self.strokes.is_empty()) + usize::from(!self.blocked.is_empty())
     }
 
     /// Where a selection stands now.
@@ -452,9 +585,27 @@ impl Edits {
     /// Read `map.objects` back as adds.
     pub fn load_objects(&mut self, doc: &Value) {
         for o in doc.as_array().into_iter().flatten() {
-            let entity = match (o["entity"].as_str(), o["model"].as_str()) {
-                (Some(e), _) => e.to_owned(),
-                (None, Some(m)) => format!("{}{m}", crate::models::PREFIX),
+            // A painted blocked area comes back as cells.
+            if o["collider"].as_bool() == Some(true) && o["name"].as_str() == Some(BLOCK_NAME) {
+                let p = |i: usize| o["pos"][i].as_f64().unwrap_or(0.0) as f32;
+                let b = &o["collision"][0]["size"];
+                let (w, d) = (b[0].as_f64().unwrap_or(0.0) as f32, b[2].as_f64().unwrap_or(0.0) as f32);
+                let c = |v: f32| (v / BLOCK_CELL).round() as i32;
+                let (x0, z0) = (c(p(0) - w * 0.5), c(p(2) - d * 0.5));
+                for x in x0..x0 + c(w) {
+                    for z in z0..z0 + c(d) {
+                        self.blocked.insert((x, z));
+                    }
+                }
+                continue;
+            }
+            let entity = match (o["entity"].as_str(), o["model"].as_str(), o["collider"].as_bool()) {
+                (Some(e), _, _) => e.to_owned(),
+                (None, Some(m), _) => format!("{}{m}", crate::models::PREFIX),
+                (None, None, Some(true)) => {
+                    let floor = ColBox::parse(&o["collision"]).iter().all(|b| b.ground);
+                    format!("{COLLIDER}{}", if floor { "floor" } else { "wall" })
+                }
                 _ => continue,
             };
             let Some(p) = o["pos"].as_array() else { continue };
@@ -467,16 +618,9 @@ impl Edits {
                 rot: read_rot(o),
                 scale: read_scale(&o["scale"]),
                 name: o["name"].as_str().unwrap_or_default().to_owned(),
-                col: o["model"].as_str().filter(|_| plain_wall(&o["collision"])).map(|_| {
-                    let b = &o["collision"][0];
-                    let v = |k: &str, d: f32| {
-                        let a = b[k].as_array();
-                        let f = |i: usize| a.and_then(|a| a.get(i)).and_then(Value::as_f64).map_or(d, |x| x as f32);
-                        Vec3::new(f(0), f(1), f(2))
-                    };
-                    Col { solid: b.is_object(), size: v("size", 1.0), at: v("at", 0.0) }
-                }),
-                col_keep: o["model"].as_str().filter(|_| !plain_wall(&o["collision"])).map(|_| o["collision"].clone()),
+                // A model's or collider's boxes as saved (none = not solid).
+                col: (o["model"].is_string() || o["collider"].as_bool() == Some(true)).then(|| ColBox::parse(&o["collision"])),
+                camp: Camp::parse(&o["camp"]),
             });
         }
     }
@@ -587,8 +731,8 @@ impl Edits {
                     rot: read_rot(a),
                     scale: read_scale(&a["scale"]),
                     name: String::new(),
-                    col: None,
-                    col_keep: None,
+                    col: a.get("collision").map(ColBox::parse),
+                    camp: Camp::parse(&a["camp"]),
                 });
             }
         }
@@ -611,20 +755,6 @@ fn read_scale(v: &Value) -> Vec3 {
         (Some(k), _) => Vec3::splat(k as f32),
         (_, Some(a)) if a.len() == 3 => Vec3::from_array(std::array::from_fn(|i| a[i].as_f64().unwrap_or(1.0) as f32)),
         _ => Vec3::ONE,
-    }
-}
-
-/// No collision, or one wall box with only a size and a centre: what
-/// Inspector > Collision edits. Anything else is kept as authored.
-fn plain_wall(c: &Value) -> bool {
-    match c {
-        Value::Null => true,
-        Value::Array(a) => match a.as_slice() {
-            [] => true,
-            [b] => b.as_object().is_some_and(|b| b.keys().all(|k| matches!(k.as_str(), "kind" | "size" | "at")) && b.get("kind").is_none_or(|k| k == "wall")),
-            _ => false,
-        },
-        _ => false,
     }
 }
 
@@ -700,17 +830,32 @@ mod add_xf_tests {
             rot: Quat::from_rotation_x(0.7) * Quat::from_rotation_y(0.3),
             scale: Vec3::new(1.0, 2.0, 3.0),
             name: String::new(),
-            col: None,
-            col_keep: None,
+            col: Some(vec![ColBox::wall(Vec3::ONE, Vec3::ZERO)]),
+            camp: None,
         };
         let o = a.xf_json(a.pos);
         assert!(o.get("quat").is_some() && o.get("yaw").is_none());
         assert!(read_rot(&o).dot(a.rot).abs() > 0.9999);
         assert_eq!(read_scale(&o["scale"]), a.scale);
+        assert_eq!(ColBox::parse(&o["collision"]), a.col.clone().unwrap());
         // A plain turn about Y stays `yaw` + one number, as older files have it.
-        let b = Add { rot: Quat::from_rotation_y(1.0), scale: Vec3::splat(2.0), ..a };
+        let b = Add { rot: Quat::from_rotation_y(1.0), scale: Vec3::splat(2.0), col: None, ..a };
         let o = b.xf_json(b.pos);
         assert!(o.get("quat").is_none() && (o["yaw"].as_f64().unwrap() - 1f64.to_degrees()).abs() < 1e-3);
         assert_eq!(o["scale"], json!(2.0));
+    }
+
+    #[test]
+    fn blocked_cells_merge_into_rectangles() {
+        // A 3x2 block and a lone cell: two rectangles covering exactly them.
+        let cells: BTreeSet<(i32, i32)> = [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (5, 5)].into_iter().collect();
+        let mut r = block_rects(&cells);
+        r.sort();
+        assert_eq!(r, vec![(0, 0, 2, 1), (5, 5, 5, 5)]);
+        // A long strip is cut into pieces of at most 60 cells.
+        let strip: BTreeSet<(i32, i32)> = (0..130).map(|x| (x, 0)).collect();
+        let r = block_rects(&strip);
+        assert_eq!(r.iter().map(|r| r.2 - r.0 + 1).sum::<i32>(), 130);
+        assert!(r.iter().all(|r| r.2 - r.0 < 60));
     }
 }

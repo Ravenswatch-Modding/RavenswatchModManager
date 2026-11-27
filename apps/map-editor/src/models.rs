@@ -67,10 +67,18 @@ impl Model {
             o["texture"] = json!(t.rel);
         }
         if self.solid {
-            let (size, at) = ((self.hi - self.lo).max(Vec3::splat(0.1)), (self.hi + self.lo) * 0.5);
-            o["collision"] = json!([{"kind": "wall", "size": [size.x, size.y, size.z], "at": [at.x, at.y, at.z]}]);
+            o["collision"] = crate::edit::ColBox::list_json(&self.default_cols());
         }
         o
+    }
+
+    /// A placed copy's boxes unless it has its own: one wall box around the
+    /// model's bounds when it is solid.
+    pub fn default_cols(&self) -> Vec<crate::edit::ColBox> {
+        if !self.solid {
+            return Vec::new();
+        }
+        vec![crate::edit::ColBox::wall((self.hi - self.lo).max(Vec3::splat(0.1)), (self.hi + self.lo) * 0.5)]
     }
 }
 

@@ -541,6 +541,45 @@ _RUIN = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot
 
 
 @needs_corpus
+def test_colliders_and_wandering_camps(tmp_path):
+    from rsmm.engine import collision_volumes as CV
+    from rsmm.engine import level_placements as LP
+    from rsmm.engine import prop_cook as PC
+
+    camp = "DarkHills\\Dark_Hills_Enemy_Spawner\\Dark_Hills_Basic_Enemy_Camp_Wandering.entity.ot"
+    wall = {"kind": "wall", "size": [4, 3, 0.5], "at": [0, 1.5, 0]}
+    deck = {"kind": "ground", "size": [4, 0.5, 4], "at": [0, -0.25, 0], "rot": [10, 0, 0]}
+    out = tmp_path / "assets"
+    maps.emit("m", ContentDef(kind="map", id="Walls_And_Camps", fields={
+        "base": "Dark_Hills", "blank": True, "objects": [
+            {"collider": True, "collision": [wall], "pos": [1, 0, 1]},
+            {"collider": True, "collision": [wall, deck], "pos": [5, 0, 5], "yaw": 45},
+            {"entity": camp, "pos": [20, 0, 20]},
+            {"entity": camp, "pos": [30, 0, 20],
+             "camp": {"difficulty": "Very_Hard", "power": [300, 600]}}]}), out)
+
+    own = "DarkHills\\Objects_DarkHills\\Walls_And_Camps_Obj{}.entity.ot"
+    vols = [CV.read_volumes((out / PC.entity_cooked_path(own.format(k))).read_bytes())
+            for k in (0, 1)]
+    live = [[(v["group"], v["half"]) for _n, v in vs if v["obj_4"][8] > -1000] for vs in vols]
+    assert live == [[(8, (2.0, 1.5, 0.25))], [(8, (2.0, 1.5, 0.25)), (7, (2.0, 0.25, 2.0))]]
+    levels = sorted((out / "Ot" / "DarkHills").glob(
+        "Map_Walls_And_Camps_Scenery_*.level.ot.GameStream.gen"))
+    placed = {p.ref for lv in levels for _i, p in LP.objects(lv.read_bytes()) if p.pos[1] > -500}
+    tuned = "Enemies\\Enemy_Spawner\\Walls_And_Camps_Camp2.entity.ot"
+    assert placed == {own.format(0), own.format(1), camp, tuned}
+    from rsmm.engine.entity_graph_edit import EntityFile
+    ef = EntityFile((out / PC.entity_cooked_path(tuned)).read_bytes(), tuned)
+    sel = "Enemy camp entity selector to spawn"
+    assert (ef.get_value(sel, "value_4"), ef.get_value(sel, "value_5")) == (300, 600)
+    assert b"Very_Hard.enemycampdifficultydef" in ef.to_bytes()
+    cache = RC.parse((out / "Definitions/Maps/Walls_And_Camps.mapdef.UsedRscCache.ot").read_bytes())
+    for ref in (camp, own.format(0), own.format(1), tuned,
+                "EnemyCampDifficulties\\Very_Hard.enemycampdifficultydef.ot"):
+        assert any(f"|{ref}|" in ln for ln in cache), ref
+
+
+@needs_corpus
 def test_objects_are_validated(tmp_path):
     for bad in ([{"pos": [0, 0, 0]}],
                 [{"entity": "Nope\\X.entity.ot", "pos": [0, 0, 0]}],
@@ -548,7 +587,11 @@ def test_objects_are_validated(tmp_path):
                 [{"entity": _RUIN, "pos": [0, 0]}],
                 [{"entity": _RUIN, "pos": [0, 0, 0], "yaw": 1, "quat": [0, 0, 0, 1]}],
                 [{"entity": _RUIN, "pos": [0, 0, 0], "quat": [0, 0, 0, 0]}],
-                [{"entity": _RUIN, "pos": [0, 0, 0], "scale": [1, 0, 1]}]):
+                [{"entity": _RUIN, "pos": [0, 0, 0], "scale": [1, 0, 1]}],
+                [{"collider": True, "pos": [0, 0, 0]}],
+                [{"entity": _RUIN, "pos": [0, 0, 0], "camp": {"difficulty": "Hard"}}],
+                [{"collider": True, "entity": _RUIN, "pos": [0, 0, 0],
+                  "collision": [{"kind": "wall", "size": [1, 1, 1], "at": [0, 0, 0]}]}]):
         with pytest.raises(ContentError):
             maps.emit("m", ContentDef(kind="map", id="Bad_Obj", fields={
                 "base": "Dark_Hills", "objects": bad}), tmp_path / "assets")

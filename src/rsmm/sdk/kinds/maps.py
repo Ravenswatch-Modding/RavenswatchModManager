@@ -73,7 +73,14 @@ Fields:
                                   kind's; without them a model is walked
                                   through). Each distinct model becomes one
                                   prop entity of the mod's own, cloned from a
-                                  plain ruin block. ⚠ Unplaytested.
+                                  plain ruin block. OR ``collider = true``
+                                  with ``collision``: an invisible wall or
+                                  walkable floor (boxes only, cloned from the
+                                  collision-only ``Pontoon_8x7``). An enemy
+                                  camp the base map places (its Gameplay
+                                  level's ``*_Enemy_Camp_Wandering``) can be
+                                  placed too: the base map's cache preloads
+                                  it. ⚠ Unplaytested.
     ``scenery``  (table, optional) moves and removes of the base's own
                                   objects, ``{ "<level decoded path>" = { moves,
                                   removes } }`` as the ``scenery`` kind takes
@@ -106,6 +113,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -393,7 +401,15 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
 #: one-material ruin block (the `poi` kind's proven donor).
 _MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
 _MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
-_OBJECT_KEYS = {"entity", "model", "texture", "collision", "pos", "yaw", "quat", "scale", "name"}
+_OBJECT_KEYS = {"entity", "model", "collider", "texture", "collision", "pos", "yaw", "quat",
+                "scale", "name", "camp"}
+#: An enemy camp's spawn settings (``camp = {difficulty, power}``): the
+#: component that rolls its group, and the difficulty definitions it can name.
+_CAMP_SELECTOR = "Enemy camp entity selector to spawn"
+CAMP_DIFFICULTIES = ("Very_Easy", "Easy", "Medium", "Advanced", "Hard", "Very_Hard")
+#: What a collider (`collider = true`: collision boxes, nothing drawn) is
+#: cloned from: a shipped collision-only entity.
+_COLLIDER_DONOR = "DarkHills\\Objects_DarkHills\\Pontoon_8x7.entity.ot"
 _MAX_OBJECTS = 4000
 
 
@@ -405,8 +421,8 @@ class _Object:
     scale: tuple[float, float, float]
 
 
-def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
-             ) -> tuple[list[_Object], set[str]]:
+def _objects(map_id: str, objects, out_dir: Path, written: list[Path],
+             base_cache: list[str] = ()) -> tuple[list[_Object], set[str]]:
     """Validate `objects`, emit an entity per distinct own model, and return
     the placements plus the cache lines everything placed reaches."""
     from . import poi as P
@@ -418,12 +434,17 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
     seeds: set[str] = set()
     borrow: set[str] = set()
     own: dict[str, str] = {}                   # model key -> entity ref
+    camp_lines: list[str] = []                 # difficulty definitions a camp names
     for n, o in enumerate(objects):
         what = f"map {map_id}: objects[{n}]"
         if not isinstance(o, dict) or set(o) - _OBJECT_KEYS:
             raise ContentError(f"{what}: keys are {sorted(_OBJECT_KEYS)}")
-        if ("entity" in o) == ("model" in o):
-            raise ContentError(f"{what}: give exactly one of 'entity' or 'model'")
+        if [k in o for k in ("entity", "model", "collider")].count(True) != 1:
+            raise ContentError(f"{what}: give exactly one of 'entity', 'model' or 'collider'")
+        if "collider" in o and (o["collider"] is not True or not o.get("collision")
+                                or "texture" in o):
+            raise ContentError(f"{what}: a collider is `collider = true` with a non-empty "
+                               "'collision' list (and no texture)")
         if "yaw" in o and "quat" in o:
             raise ContentError(f"{what}: give 'yaw' or 'quat', not both")
         try:
@@ -443,6 +464,8 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
                 or not all(0.01 <= k <= 100 for k in scale):
             raise ContentError(f"{what}: pos = [x, y, z], quat a rotation, scale 0.01..100")
         quat = tuple(v / norm for v in quat)
+        if "camp" in o and "entity" not in o:
+            raise ContentError(f"{what}: 'camp' settings go on an enemy camp 'entity'")
         if "entity" in o:
             ref = str(o["entity"])
             if not ref.endswith(".entity.ot") or not corpus.exists(PC.entity_cooked_path(ref)):
@@ -450,6 +473,18 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
             if any(k in o for k in ("texture", "collision")):
                 raise ContentError(f"{what}: texture and collision belong to a 'model'")
             borrow.add(ref)
+            if o.get("camp"):
+                key = json.dumps(["camp", ref, o["camp"]], sort_keys=True)
+                if key not in own:
+                    own[key], lines_extra = _own_camp(map_id, len(own), ref, o["camp"], what,
+                                                      out_dir, written)
+                    camp_lines.extend(lines_extra)
+                ref = own[key]
+        elif "collider" in o:
+            key = json.dumps(["collider", o["collision"]], sort_keys=True)
+            ref = own.get(key)
+            if ref is None:
+                ref = own[key] = _own_collider(map_id, len(own), o, what, out_dir, written)
         else:
             key = json.dumps([o["model"], o.get("texture"), o.get("collision")], sort_keys=True)
             ref = own.get(key)
@@ -463,11 +498,16 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
     # Index lines for the walk: the caches of tiles that already place each
     # shipped entity (or the donor), plus this mod's own files.
     by_entity = P._tile_cache_by_placed_entity()
-    lines: list[str] = []
+    # The base map's own cache preloads what its levels place (the Gameplay
+    # level's wandering enemy camps, which no tile places); the clone keeps it.
+    lines: list[str] = list(base_cache)
+    in_base = {ln.split("|")[1] for ln in base_cache if ln.count("|") == 2}
     for ent in sorted(borrow):
         cache = by_entity.get(ent)
         blob = corpus.read(cache) if cache else None
         if blob is None:
+            if ent in in_base:
+                continue
             raise ContentError(f"map {map_id}: no shipped tile places {ent}, so its "
                                f"preload closure is unknown; pick a prop a tile uses")
         lines += RC.parse(blob)
@@ -478,7 +518,8 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path]
     missing = sorted(seeds - seen - {r for r in seeds if PC.entity_cooked_path(r) in extra})
     if missing:
         raise ContentError(f"map {map_id}: cannot preload {missing}")
-    return out, {index[p] for p in seen if p in index} | {RC.entry_for(c) for c in extra}
+    return out, ({index[p] for p in seen if p in index} | {RC.entry_for(c) for c in extra}
+                 | set(camp_lines))
 
 
 def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
@@ -528,6 +569,89 @@ def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
         except CV.CollisionError as e:
             raise ContentError(str(e)) from e
     write(PC.entity_cooked_path(ent_ref), ent)
+    return ent_ref
+
+
+def _own_camp(map_id: str, k: int, ref: str, camp, what: str, out_dir: Path,
+              written: list[Path]) -> tuple[str, list[str]]:
+    """A copy of enemy camp `ref` with its own spawn settings:
+    ``difficulty`` (one of :data:`CAMP_DIFFICULTIES`) and ``power = [min, max]``
+    (the selector's two power numbers; Dark Hills' wandering camps ship
+    100..200, a Ghouls camp 10..20). The copy is the camp's own file, or, for
+    a chapter camp that only names a shared parent, that parent's.
+    Returns the copy's ref and the cache lines its difficulty needs."""
+    from ...engine import entity_strings as ES
+    from ...engine.entity_graph_edit import EntityEditError, EntityFile
+
+    if not isinstance(camp, dict) or set(camp) - {"difficulty", "power"}:
+        raise ContentError(f"{what}.camp: keys are difficulty and power")
+    src = ref
+    for _ in range(4):
+        ef = EntityFile(_read(PC.entity_cooked_path(src), f"enemy camp {src}"), src)
+        if any(c.name == _CAMP_SELECTOR for c in ef.graph().components):
+            break
+        parents = [s for *_x, s in ES.list_strings(ef.to_bytes()) if s.endswith(".entity.ot")]
+        if len(ef.graph().components) or len(parents) != 1:
+            raise ContentError(f"{what}: {ref} is not an enemy camp whose spawn settings "
+                               "can be changed")
+        src = parents[0]
+    else:
+        raise ContentError(f"{what}: {ref} is not an enemy camp")
+    lines: list[str] = []
+    try:
+        if "power" in camp:
+            lo, hi = (float(v) for v in camp["power"])
+            if not 0 < lo <= hi <= 10000:
+                raise ContentError(f"{what}.camp.power: [min, max] with 0 < min <= max")
+            ef.set_value(_CAMP_SELECTOR, "value_4", lo)
+            ef.set_value(_CAMP_SELECTOR, "value_5", hi)
+        if "difficulty" in camp:
+            d = camp["difficulty"]
+            if d not in CAMP_DIFFICULTIES:
+                raise ContentError(f"{what}.camp.difficulty: one of {list(CAMP_DIFFICULTIES)}")
+            path = f"EnemyCampDifficulties\\{d}.enemycampdifficultydef.ot"
+            c, f, at = ef._field(_CAMP_SELECTOR, "bytes_3")
+            # A definition reference: u32 + "Definitions", u32 + path, u32 0.
+            new = b"".join(struct.pack("<I", len(x)) + x
+                           for x in (b"Definitions", path.encode())) + b"\0" * 4
+            ef._splice(c, at + f.offset, at + f.offset + f.size, new)
+            rel = f"Definitions/{path.replace(chr(92), '/')}.DtEnemyCampDifficultyDefinition.gen"
+            lines.append(RC.entry_for(rel))
+            cache = corpus.read(RC.cache_path_for(rel))
+            lines += RC.parse(cache) if cache else []
+        ent = ef.to_bytes()
+    except (EntityEditError, TypeError, ValueError) as e:
+        raise ContentError(f"{what}.camp: {e}") from e
+    tag = f"{map_id}_Camp{k}"
+    ent_ref = f"{src.rsplit(chr(92), 1)[0]}\\{tag}.entity.ot"
+    ent = PC.clone_prop_entity(ent, {}, ent_ref)
+    dest = out_dir / Path(*PC.entity_cooked_path(ent_ref).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(ent)
+    written.append(dest)
+    return ent_ref, lines
+
+
+def _own_collider(map_id: str, k: int, o: dict, what: str, out_dir: Path,
+                  written: list[Path]) -> str:
+    """A collision-only entity of the mod's: the collider donor with exactly
+    the object's boxes (walls block, ground can be stood on)."""
+    from ...engine import collision_volumes as CV
+    from . import poi as P
+
+    tag = f"{map_id}_Obj{k}"
+    donor = _read(PC.entity_cooked_path(_COLLIDER_DONOR), "the collider donor")
+    ent_ref = f"{P._asset_dir(_COLLIDER_DONOR)}/{tag}.entity.ot".replace("/", "\\")
+    ent = PC.clone_prop_entity(donor, {}, ent_ref)
+    try:
+        ent = CV.set_volumes(ent, CV.parse(o["collision"], f"{what}.collision"),
+                             name=tag, seed=tag)
+    except CV.CollisionError as e:
+        raise ContentError(str(e)) from e
+    dest = out_dir / Path(*PC.entity_cooked_path(ent_ref).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(ent)
+    written.append(dest)
     return ent_ref
 
 
@@ -905,7 +1029,9 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     base_bytes = _read(base_rel, f"base map {base!r}")
     root_ref = MC.read_mapdef(base_bytes)["level_ref"][1]
     blank = _blank_height(defn.id, defn.fields.get("blank"))
-    objects, object_lines = _objects(defn.id, defn.fields.get("objects") or [], out_dir, written)
+    objects, object_lines = _objects(
+        defn.id, defn.fields.get("objects") or [], out_dir, written,
+        RC.parse(_read(RC.cache_path_for(base_rel), f"{base!r}'s resource cache")))
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
                                            defn.fields.get("terrain"), blank, objects,

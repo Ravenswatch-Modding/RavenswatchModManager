@@ -60,6 +60,8 @@ pub struct Backend {
     waiters: Waiters,
     next: Arc<AtomicU64>,
     pub hello: Arc<serde_json::Value>,
+    /// How rsmm is run (for one-off commands beside the `--stdio` backend).
+    pub cmd: Vec<String>,
     pub log: Arc<Mutex<Vec<String>>>,
     _child: Arc<Mutex<Child>>,
 }
@@ -134,6 +136,7 @@ impl Backend {
             waiters,
             next: Arc::new(AtomicU64::new(1)),
             hello: Arc::new(hello),
+            cmd: cmd.to_vec(),
             log,
             _child: Arc::new(Mutex::new(child)),
         })

@@ -184,6 +184,8 @@ pub enum Mode {
     Paint(usize),
     Erase(usize),
     Tint,
+    /// Paint blocked ground (Ctrl: clear it): invisible walls on save.
+    Block,
 }
 
 #[derive(Clone, Debug)]
@@ -285,6 +287,7 @@ impl Brush {
                 (if up { "raise" } else { "lower" }, layer, Some(self.strength.clamp(0.01, 1.0)), None)
             }
             (Mode::Tint, _) => ("tint", color_layer?.to_owned(), Some(self.strength.clamp(0.01, 1.0)), Some(hex(self.color))),
+            (Mode::Block, _) => return None,
         };
         Some(Stroke {
             op: op.to_owned(),
