@@ -34,8 +34,8 @@ desktop app to use it. Installing the mod it gives you still takes one of those.
 | **Hero** | heroes written from scratch: rig and body, buttons, talents, ultimate cards, projectiles, effects, animations, slots and memoirs; *Check*; save (only the changed lines of the hero's block are rewritten). *Build check* works too, but runs slowly in a browser |
 | **Abilities** | everything: numbers, the graph, *Save to mod* (by default an in-place edit of the shipped hero, or a separate custom hero built on it, as you choose; saved changes load back when you pick the mod; *New mod…* asks for the same details as the other tabs and makes the mod and its block when you press *Create mod…*; *Open a mod folder…* brings a saved mod back), *Copy manifest code* |
 
-Maps are not edited here: the map editor is a native desktop app
-(`apps/map-editor`), built for chapters too big for a browser.
+Maps are not edited here: the [map editor](/guides/map-editor/) is a native
+desktop app (`apps/map-editor`), built for chapters too big for a browser.
 
 To keep working on a mod you saved earlier, press *Open a mod folder…* and
 pick that mod's folder. The editor reads its `manifest.toml`, its `init.lua` and
