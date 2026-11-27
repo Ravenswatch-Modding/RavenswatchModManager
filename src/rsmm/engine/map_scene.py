@@ -415,6 +415,57 @@ def _fx_sprite(mat_path: str, root: str) -> tuple[str | None, bool]:
     return None, False
 
 
+def _curve_ends(curve) -> tuple[float, float] | None:
+    """First and last value of an effect curve (``keys`` of ``[t, v, ...]``)."""
+    keys = [k for k in (curve or {}).get("keys") or [] if isinstance(k, list) and len(k) >= 2]
+    return (float(keys[0][1]), float(keys[-1][1])) if keys else None
+
+
+def _particle_params(emitter: dict, effectors: list, rend: dict):
+    """``(size m, colour, params)`` of one particle system, for the editor's
+    animated preview (`apps/map-editor` shader.wgsl ``vs_billboard``):
+
+    ``params`` = life s, speed m/s, share alive, end size x, start size x,
+    flipbook cells across, first frame, last frame, emission box x / y / z
+    (half extents, m), pivot v, turn range (rad, ``range_88``). Read from the
+    emitter (``range_80`` size, ``range_8`` lifetime, ``value_14`` rate,
+    ``value_d0`` speed, ``vec_d8`` box), the renderer's ``uv_4c`` pivot and
+    the effectors before it. A preview: forces, damping, and the game's own
+    curves are not simulated."""
+    def mid(key, lo, hi, default):
+        v = emitter.get(key)
+        x = sum(v) / len(v) if isinstance(v, list) and v else default
+        return min(hi, max(lo, float(x)))
+
+    size = mid("range_80", 0.02, 6.0, 0.5)
+    life = mid("range_8", 0.1, 8.0, 1.0)
+    rate = float(emitter.get("value_14") or 1.0)
+    alive = min(1.0, max(0.12, rate * life / VFX_PARTICLES))
+    speed = min(10.0, max(0.0, float(emitter.get("value_d0") or 0.0)))
+    box = [min(4.0, abs(float(b))) for b in (emitter.get("vec_d8") or [0.0, 0.0, 0.0])[:3]]
+    by = {o.cls.replace("oC3dParticleEffector", "").replace("Settings", ""): o.fields or {}
+          for o in effectors}
+    s0, s1 = 1.0, 1.0
+    if "SizeRamp" in by:
+        ends = _curve_ends(by["SizeRamp"].get("size"))
+        scale = float(by["SizeRamp"].get("scale") or 1.0)
+        if ends:
+            s0, s1 = max(0.05, ends[0] * scale), max(0.05, ends[1] * scale)
+    cells, f0, f1 = 1.0, 0.0, 0.0
+    grid = by.get("SubImageIndex", {}).get("grid_60")
+    if isinstance(grid, list) and len(grid) == 2 and grid[1] > 0:
+        f0, f1 = float(grid[0]), float(grid[1])
+        cells = float(math.ceil(math.sqrt(f1 + 1)))
+    color = _ramp_color(by.get("ColorRamp", {}).get("ramp"))
+    if color is None and emitter.get("color_kind") == 1:
+        c = emitter.get("color_start") or []
+        color = _ramp_color({"keys": [[0.0, *c[:3], 1.0]]}) if len(c) >= 3 else None
+    pivot = (rend.get("uv_4c") or [0.5, 0.5])[1]
+    turn = max(abs(float(x)) for x in (emitter.get("range_88") or [0.0]))
+    return size, color, [life, speed, alive, s1, s0, cells, f0, f1, *box, float(pivot),
+                         min(6.3, turn)]
+
+
 def _ramp_color(ramp) -> str | None:
     """An emitter's colour over life (keys ``[t, r, g, b, a]``, HDR) as one
     ``#rrggbb``: its first half averaged, brightest channel scaled to 1."""
@@ -456,39 +507,29 @@ def vfx_parts(path: str) -> tuple[tuple[Part, Matrix], ...]:
     except Exception:  # noqa: BLE001 — an effect the codec cannot read only draws nothing
         return ()
     out: list[tuple[Part, Matrix]] = []
-    # One emitter's objects run from it to the next emitter: its renderer and
-    # (usually) its colour ramp. ponytail: order-based pairing, good enough to
-    # tint a preview; the effect graph's own links would be exact.
-    groups: list[list] = []
+    # An effect lists each particle system as its effectors (colour, size,
+    # alpha, flipbook ...), then its emitter, then its renderer.
+    pending: list = []
+    emitter = None
     for o in objs:
         if o.cls == "oC3dParticleEmitterSettings":
-            groups.append([o])
-        elif groups:
-            groups[-1].append(o)
-    for g in groups:
-        emitter = g[0].fields or {}
-        rend = next((o.fields for o in g if o.cls == "oI3dBillboardParticleRendererSettings"), None)
-        if not rend:
+            emitter, effectors, pending = o.fields or {}, pending, []
             continue
+        if o.cls.startswith("oC3dParticleEffector"):
+            pending.append(o)
+            continue
+        if o.cls != "oI3dBillboardParticleRendererSettings" or emitter is None:
+            continue
+        rend = o.fields or {}
         tex, swap = _fx_sprite(rend.get("material", ""), rend.get("material_root") or "FX")
-        if not tex:
+        fx = _particle_params(emitter, effectors, rend) if tex else None
+        emitter = None
+        if fx is None:
             continue
-        ramp = next(((o.fields or {}).get("ramp") for o in g
-                     if o.cls == "oC3dParticleEffectorColorRampSettings"), None)
-        box = emitter.get("vec_d8") or [0.0, 0.0, 0.0]
-        life_rng = emitter.get("range_80") or [1.0, 1.0]
-        rate = float(emitter.get("value_14") or 1.0)
-        # A sprite as big as the emission box, never smaller than 0.3 m.
-        size = max(0.3, min(4.0, 2 * max(abs(b) for b in box) or 0.5 * max(life_rng)))
-        lift = 0.5 + max(0.0, box[1])
-        # The editor animates VFX_PARTICLES particles per sprite; their
-        # lifetime (s) and how many are alive ride on the matrix's
-        # y / z axis lengths (relative to x, so object scale cancels).
-        life = min(6.0, max(0.3, sum(life_rng) / 2))
-        alive = min(1.0, max(0.15, rate * life / VFX_PARTICLES))
-        m = (size, 0.0, 0.0, 0.0, 0.0, size * life, 0.0, 0.0,
-             0.0, 0.0, size * alive, 0.0, 0.0, lift, 0.0, 1.0)
-        out.append((Part(f"vfx:{tex}", tex, swap, _ramp_color(ramp), False, True), m))
+        size, color, params = fx
+        m = (size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, 0.0, 1.0)
+        mesh = f"vfx:{tex}?" + ",".join(f"{v:.4g}" for v in params)
+        out.append((Part(mesh, tex, swap, color, False, True), m))
         if len(out) >= MAX_VFX_SPRITES:
             break
     return tuple(out)

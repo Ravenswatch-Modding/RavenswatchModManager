@@ -48,7 +48,6 @@ impl MeshData {
         (c, r)
     }
 
-    /// The unit decal quad: a 1x1 square in XZ facing +Y.
     /// `VFX_PARTICLES` quads in one mesh, each one particle of an effect
     /// sprite: the shader (`vs_billboard`) reads the particle's slot 0..1
     /// from `nrm.x` and moves it over its life.
@@ -66,6 +65,22 @@ impl MeshData {
         MeshData { vertices, indices, center: Vec3::new(0.0, 1.0, 0.0), radius: 2.5 }
     }
 
+    /// A unit cube on the ground (y 0..1): what a click on an effect hits.
+    pub fn pick_box() -> MeshData {
+        let mut vertices = Vec::new();
+        for z in [-0.5f32, 0.5] {
+            for y in [0.0f32, 1.0] {
+                for x in [-0.5f32, 0.5] {
+                    vertices.push(Vertex { pos: [x, y, z], nrm: [0.0, 1.0, 0.0], uv: [0.0, 0.0] });
+                }
+            }
+        }
+        let indices = vec![0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3];
+        let (center, radius) = MeshData::bounds(&vertices);
+        MeshData { vertices, indices, center, radius }
+    }
+
+    /// The unit decal quad: a 1x1 square in XZ facing +Y.
     pub fn decal_quad() -> MeshData {
         let v = |x: f32, z: f32, u: f32, w: f32| Vertex { pos: [x, 0.0, z], nrm: [0.0, 1.0, 0.0], uv: [u, w] };
         let vertices = vec![v(-0.5, -0.5, 0.0, 1.0), v(0.5, -0.5, 1.0, 1.0), v(0.5, 0.5, 1.0, 0.0), v(-0.5, 0.5, 0.0, 0.0)];

@@ -39,6 +39,7 @@ fn main() -> eframe::Result<()> {
             "--tile-check" => opts.tile_check = true,
             "--open-tile" => opts.open_tile = args.next(),
             "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),
+            "--select" => opts.select = args.next(),
             "--ui-click" => {
                 if let Some([x, y]) = args.next().and_then(|v| v.split_once(',').and_then(|(a, b)| Some([a.trim().parse().ok()?, b.trim().parse().ok()?]))) {
                     opts.ui_clicks.push([x, y]);

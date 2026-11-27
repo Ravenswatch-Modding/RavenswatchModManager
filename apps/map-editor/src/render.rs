@@ -56,6 +56,19 @@ const SHADOW_SIZE: u32 = 4096;
 struct MaterialU {
     color: [f32; 4],
     flags: [f32; 4],
+    /// An effect sprite's particle parameters (`map_scene._particle_params`), else zero.
+    fx: [[f32; 4]; 4],
+}
+
+/// `vfx:<texture>?<16 numbers>` -> the particle parameters the shader reads.
+pub fn vfx_params(mesh: &str) -> [[f32; 4]; 4] {
+    let mut out = [[0.0f32; 4]; 4];
+    if let Some((_, q)) = mesh.split_once('?') {
+        for (i, v) in q.split(',').filter_map(|x| x.parse::<f32>().ok()).take(16).enumerate() {
+            out[i / 4][i % 4] = v;
+        }
+    }
+    out
 }
 
 #[repr(C)]
@@ -317,7 +330,7 @@ impl Renderer {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, // effect particles read it in vs_billboard
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -964,6 +977,7 @@ impl Renderer {
         let u = MaterialU {
             color,
             flags: [tex.is_some() as u8 as f32, tex.map(|t| t.has_alpha && !key.decal && !key.vfx).unwrap_or(false) as u8 as f32, 0.0, 0.0],
+            fx: if key.vfx { vfx_params(&key.mesh) } else { [[0.0; 4]; 4] },
         };
         let ub = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("material"),

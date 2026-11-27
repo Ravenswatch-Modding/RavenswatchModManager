@@ -51,6 +51,8 @@ pub struct Options {
     /// With `ui_snapshot`: click these window points (in order) once loaded,
     /// then take the screenshot. A test hook for the panels.
     pub ui_clicks: Vec<[f32; 2]>,
+    /// With `ui_snapshot`: select the first object whose name contains this.
+    pub select: Option<String>,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
     pub tile_check: bool,
     /// Open the first pool tile whose name contains this, once loaded.
@@ -405,6 +407,10 @@ pub struct MapEditor {
     locked: HashSet<Sel>,
     groups: Vec<(String, Vec<Sel>)>,
     clipboard: Vec<(String, String, Xf)>,
+    /// Inspector: a copied transform row (location 0, rotation 1, scale 2).
+    xf_clip: Option<(usize, Xf)>,
+    /// Inspector name field: one undo step per rename.
+    renaming_inspector: bool,
     tool: Tool,
     gizmo: GizmoMode,
     modal: Option<Modal>,
@@ -525,6 +531,8 @@ pub struct MapEditor {
 
     opts: Options,
     settled_frames: u32,
+    /// --ui-click: press / release steps sent so far.
+    ui_click_step: usize,
     self_check_sent: bool,
     ui_shot_sent: bool,
 }
@@ -589,6 +597,8 @@ impl MapEditor {
             locked: HashSet::new(),
             groups: Vec::new(),
             clipboard: Vec::new(),
+            xf_clip: None,
+            renaming_inspector: false,
             tool: Tool::Select,
             gizmo: GizmoMode::Move,
             modal: None,
@@ -673,6 +683,7 @@ impl MapEditor {
             saved_next: None,
             opts,
             settled_frames: 0,
+            ui_click_step: 0,
             self_check_sent: false,
             ui_shot_sent: false,
         };
@@ -815,6 +826,9 @@ impl MapEditor {
             if let Some(r) = &mut self.renderer {
                 if !r.has_mesh(&key.mesh) {
                     r.add_mesh(key.mesh.clone(), if key.vfx { MeshData::particle_quads() } else { MeshData::decal_quad() });
+                }
+                if key.vfx && !r.has_mesh(VFX_PICK) {
+                    r.add_mesh(VFX_PICK.to_owned(), MeshData::pick_box());
                 }
             }
         } else if self.requested.insert(key.mesh.clone()) {
@@ -1225,6 +1239,18 @@ impl MapEditor {
                 if let Some(t) = self.pool.iter().find(|t| t.name.contains(&want)).map(|t| t.path.clone()) {
                     self.opts.open_tile = None;
                     self.enter_tile(ctx, t, Vec3::ZERO);
+                }
+            }
+        }
+        if let (Some(want), Some(s)) = (self.opts.select.clone(), &self.scenery) {
+            let tile_ready = self.opts.open_tile.is_none() && self.tile.as_ref().is_none_or(|t| t.built);
+            if tile_ready {
+                let want = want.to_lowercase();
+                let hit = (0..s.obj_xf.len()).map(Sel::Obj).find(|x| self.name_of(*x).to_lowercase().contains(&want));
+                if let Some(h) = hit {
+                    self.opts.select = None;
+                    self.select_only([h]);
+                    self.scroll_to_sel = Some(h);
                 }
             }
         }
@@ -2601,6 +2627,9 @@ impl MapEditor {
                 v.push(Instance { m: m.to_cols_array_2d(), tint: tint_for(sel, tint) });
                 if !p.key.decal && !p.key.vfx && meshes_ready(&p.key.mesh) && !self.locked.contains(&sel) {
                     self.pickables.push((p.key.mesh.clone(), m, sel));
+                } else if p.key.vfx && meshes_ready(VFX_PICK) && !self.locked.contains(&sel) {
+                    // An effect is clicked through an invisible box around it.
+                    self.pickables.push((VFX_PICK.to_owned(), vfx_pick_mat(m), sel));
                 }
             }
             shipped.push(v);
@@ -2620,6 +2649,8 @@ impl MapEditor {
                     by_key.entry(key.clone()).or_default().push(Instance { m: m.to_cols_array_2d(), tint: tint_for(sel, ADDED_TINT) });
                     if !key.decal && !key.vfx && meshes_ready(&key.mesh) && !self.locked.contains(&sel) {
                         self.pickables.push((key.mesh.clone(), m, sel));
+                    } else if key.vfx && meshes_ready(VFX_PICK) && !self.locked.contains(&sel) {
+                        self.pickables.push((VFX_PICK.to_owned(), vfx_pick_mat(m), sel));
                     }
                 }
             }
@@ -3191,7 +3222,7 @@ impl MapEditor {
                     self.dirty = true;
                 }
             }
-            if self.settled_frames == 12 + 2 * self.opts.ui_clicks.len() as u32 && !self.ui_shot_sent {
+            if self.settled_frames >= 12 && self.ui_click_step >= 20 * self.opts.ui_clicks.len() + 4 && !self.ui_shot_sent {
                 self.ui_shot_sent = true;
                 let path = path.clone();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
@@ -4156,6 +4187,8 @@ impl MapEditor {
             if let Some(n) = count {
                 job.append(&format!("  {n}"), 0.0, egui::TextFormat::simple(egui::FontId::proportional(font.size - 1.5), vis.weak_text_color()));
             }
+            // Long names end in "…" rather than widening the panel.
+            job.wrap = egui::text::TextWrapping::truncate_at_width((ui.available_width() - 12.0).max(40.0));
             let rt = job;
             if let (Some((rs, buf)), [m]) = (self.renaming.as_mut(), members) {
                 if rs == m {
@@ -4511,7 +4544,13 @@ impl MapEditor {
         }
         let open_default = depth == 0 && !filter.is_empty();
         let state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), ui.make_persistent_id(id), open_default);
-        let state = if let Some(o) = self.tree_open.filter(|o| !o || depth == 0) {
+        // A row picked in the Scene opens the levels it sits in.
+        let reveal = self.scroll_to_sel.is_some_and(|x| node.leaf != Some(x) && node.members.contains(&x));
+        let state = if reveal {
+            let mut s = state;
+            s.set_open(true);
+            s
+        } else if let Some(o) = self.tree_open.filter(|o| !o || depth == 0) {
             // Collapse all closes every level; expand opens the top ones only.
             let mut s = state;
             s.set_open(o);
@@ -5055,7 +5094,7 @@ impl MapEditor {
         for e in &want {
             self.ensure_template(&ctx, e);
         }
-        self.thumb_want = want;
+        self.thumb_want.extend(want); // the Inspector asks for its own too
         if let Some(d) = open_dir {
             self.project_dir = d;
             self.prop_filter.clear();
@@ -5465,7 +5504,20 @@ impl MapEditor {
                 if let Some(a) = self.restore_offer.clone() {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.label(egui::RichText::new("Unsaved work from your last session").strong());
-                        ui.label(egui::RichText::new(format!("{} scenery edits", a.scenery.as_object().map(|o| o.len()).unwrap_or(0))).small());
+                        let n = |v: &Value| v.as_object().map(|o| o.len()).or(v.as_array().map(|a| a.len())).unwrap_or(0);
+                        let parts: Vec<String> = [
+                            (n(&a.scenery), "scenery edits"),
+                            (n(&a.strokes), "brush dabs"),
+                            (n(&a.recipe), "recipe changes"),
+                            (a.groups.len(), "groups"),
+                        ]
+                        .into_iter()
+                        .filter(|(k, _)| *k > 0)
+                        .map(|(k, w)| format!("{k} {w}"))
+                        .collect();
+                        let when = session::now().saturating_sub(a.saved_at);
+                        let ago = if when < 120 { format!("{when} s ago") } else if when < 7200 { format!("{} min ago", when / 60) } else { format!("{} h ago", when / 3600) };
+                        ui.label(egui::RichText::new(format!("{} · {ago}", if parts.is_empty() { "map settings".to_owned() } else { parts.join(", ") })).small());
                         ui.horizontal(|ui| {
                             if ui.button("Restore").clicked() {
                                 self.restore_offer = None;
@@ -5492,9 +5544,28 @@ impl MapEditor {
         ui.heading("Properties");
         let Some(s) = &self.scenery else { return };
         if self.sel.len() > 1 {
-            ui.label(format!("{} objects selected", self.sel.len()));
+            ui.label(egui::RichText::new(format!("{} objects selected", self.sel.len())).strong().size(15.0));
             if let Some(p) = self.pivot() {
-                ui.label(egui::RichText::new(format!("centre  {:.2}  {:.2}  {:.2}", p.x, p.y, p.z)).monospace());
+                // Their centre, editable: moving it moves them all.
+                let mut c = p;
+                let (mut started, mut changed) = (false, false);
+                ui.horizontal(|ui| {
+                    ui.label("Centre");
+                    for (k, col) in AXIS_COL.iter().enumerate() {
+                        let r = ui.add(egui::DragValue::new(&mut c[k]).speed(0.05).fixed_decimals(2).prefix(egui::RichText::new(["X ", "Y ", "Z "][k]).color(*col).text()));
+                        started |= r.drag_started() || r.gained_focus();
+                        changed |= r.changed();
+                    }
+                });
+                if started {
+                    self.history.push(&self.edits);
+                }
+                if changed {
+                    let d = c - p;
+                    let xfs: Vec<(Sel, Xf)> = self.sel.iter().filter_map(|x| self.edits.xf(s, *x).map(|xf| (*x, Xf { pos: xf.pos + d, ..xf }))).collect();
+                    self.set_live(&xfs);
+                    return;
+                }
             }
             ui.label(egui::RichText::new("G / R / S move, rotate and scale them together around their centre.").small().weak());
             ui.horizontal_wrapped(|ui| {
@@ -5524,6 +5595,10 @@ impl MapEditor {
             return;
         }
         let Some(xf) = self.edits.xf(s, sel) else { return };
+        let shipped_xf = match sel {
+            Sel::Obj(i) => s.obj_xf.get(i).copied(),
+            _ => None,
+        };
         let (entity, where_) = match sel {
             Sel::Obj(i) => (
                 s.entities.get(s.obj_entity[i] as usize).cloned().unwrap_or_default(),
@@ -5539,9 +5614,52 @@ impl MapEditor {
             }
             Sel::Spot(_) => return,
         };
-        ui.label(egui::RichText::new(self.name_of(sel)).strong().size(15.0));
-        ui.label(egui::RichText::new(entity).small().weak());
-        ui.label(egui::RichText::new(where_).small().weak());
+        ui.horizontal(|ui| {
+            // A picture of it (the Project panel's preview, made on demand).
+            let (r, _) = ui.allocate_exact_size(egui::vec2(56.0, 56.0), egui::Sense::hover());
+            ui.painter().rect_filled(r, 6.0, ui.visuals().extreme_bg_color);
+            match self.thumbs.get(&entity).copied() {
+                Some(t) if t != egui::TextureId::default() => {
+                    ui.painter().image(t, r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                }
+                Some(_) => {}
+                None => {
+                    self.thumb_want.push(entity.clone());
+                    self.ensure_template(&ui.ctx().clone(), &entity);
+                }
+            }
+            ui.vertical(|ui| {
+                if let Sel::Add(u) = sel {
+                    // Its name, typed in place.
+                    let mut name = self.edits.add(u).map(|a| a.name.clone()).unwrap_or_default();
+                    let r = ui.add(egui::TextEdit::singleline(&mut name).hint_text(self.name_of(sel)).font(egui::TextStyle::Heading).desired_width(f32::INFINITY));
+                    if r.changed() {
+                        if r.gained_focus() || !self.renaming_inspector {
+                            self.history.push(&self.edits);
+                            self.renaming_inspector = true;
+                        }
+                        if let Some(a) = self.edits.adds.iter_mut().find(|a| a.uid == u) {
+                            a.name = name;
+                        }
+                        self.touched();
+                    }
+                    if r.lost_focus() {
+                        self.renaming_inspector = false;
+                    }
+                } else {
+                    ui.label(egui::RichText::new(self.name_of(sel)).strong().size(15.0));
+                }
+                ui.label(egui::RichText::new(where_).small().weak());
+                ui.horizontal(|ui| {
+                    let short = entity.rsplit(['\\', '/']).next().unwrap_or(&entity).to_owned();
+                    ui.label(egui::RichText::new(short).small().weak()).on_hover_text(&entity);
+                    if ui.small_button("Copy path").clicked() {
+                        ui.ctx().copy_text(entity.clone());
+                        self.status = "Path copied".into();
+                    }
+                });
+            });
+        });
         ui.separator();
         let mut new = xf;
         let (yaw, pitch, roll) = xf.rot.to_euler(glam::EulerRot::YXZ);
@@ -5552,18 +5670,30 @@ impl MapEditor {
             started |= r.drag_started() || r.gained_focus();
             changed |= r.changed();
         };
+        let mut row_cmd: Option<(&'static str, usize)> = None; // (reset | copy | paste, row)
+        let row_menu = |r: egui::Response, row: usize, cmd: &mut Option<(&'static str, usize)>| {
+            r.on_hover_text("Right-click: reset, copy, paste").context_menu(|ui| {
+                for (label, what) in [("Reset", "reset"), ("Copy", "copy"), ("Paste", "paste")] {
+                    if ui.button(label).clicked() {
+                        *cmd = Some((what, row));
+                        ui.close();
+                    }
+                }
+            });
+        };
+        egui::CollapsingHeader::new(egui::RichText::new("Transform").strong()).id_salt("insp_xf").default_open(true).show(ui, |ui| {
         egui::Grid::new("xf").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
             ui.label("");
             for (a, c) in ["X", "Y", "Z"].iter().zip(AXIS_COL) {
                 ui.label(egui::RichText::new(*a).color(c).strong());
             }
             ui.end_row();
-            ui.label("Location");
+            row_menu(ui.add(egui::Label::new("Location").sense(egui::Sense::click())), 0, &mut row_cmd);
             for k in 0..3 {
                 track(ui.add(egui::DragValue::new(&mut new.pos[k]).speed(0.05).fixed_decimals(2).suffix(" m")));
             }
             ui.end_row();
-            ui.label("Rotation");
+            row_menu(ui.add(egui::Label::new("Rotation").sense(egui::Sense::click())), 1, &mut row_cmd);
             let yaw_only = matches!(sel, Sel::Add(_));
             // Euler YXZ: show as X (pitch), Y (yaw), Z (roll).
             for (k, idx) in [1usize, 0, 2].into_iter().enumerate() {
@@ -5575,7 +5705,7 @@ impl MapEditor {
                 track(ui.add(egui::DragValue::new(&mut ypr[idx]).speed(0.5).fixed_decimals(1).suffix("°")));
             }
             ui.end_row();
-            ui.label("Scale");
+            row_menu(ui.add(egui::Label::new("Scale").sense(egui::Sense::click())), 2, &mut row_cmd);
             match sel {
                 Sel::Add(_) => {
                     let mut k = new.scale.x;
@@ -5591,12 +5721,59 @@ impl MapEditor {
             }
             ui.end_row();
         });
+        });
+        if let Some((what, row)) = row_cmd {
+            match what {
+                "copy" => {
+                    self.xf_clip = Some((row, xf));
+                    self.status = format!("Copied the {}", ["location", "rotation", "scale"][row]);
+                }
+                _ => {
+                    let from = match what {
+                        "reset" => shipped_xf.or(Some(Xf { pos: xf.pos, rot: Quat::IDENTITY, scale: Vec3::ONE })),
+                        _ => self.xf_clip.map(|(_, x)| x),
+                    };
+                    if let Some(f) = from {
+                        let mut out = xf;
+                        match row {
+                            0 => out.pos = f.pos,
+                            1 => out.rot = f.rot,
+                            _ => out.scale = f.scale,
+                        }
+                        self.history.push(&self.edits);
+                        self.set_live(&[(sel, out)]);
+                        self.touched();
+                    }
+                }
+            }
+        }
         if started {
             self.history.push(&self.edits);
         }
         if changed {
             new.rot = Quat::from_euler(glam::EulerRot::YXZ, ypr[0].to_radians(), ypr[1].to_radians(), ypr[2].to_radians());
             self.set_live(&[(sel, new)]);
+        }
+        // What effects it plays (drawn as particles in the Scene).
+        let fx: Vec<(String, Option<String>)> = self
+            .templates
+            .get(&entity)
+            .and_then(|t| t.as_ref())
+            .map(|t| t.iter().filter(|(k, _)| k.vfx).map(|(k, _)| (k.texture.clone().unwrap_or_default(), k.color.clone())).collect())
+            .unwrap_or_default();
+        if !fx.is_empty() {
+            egui::CollapsingHeader::new(egui::RichText::new(format!("Effects  {}", fx.len())).strong()).id_salt("insp_fx").default_open(false).show(ui, |ui| {
+                for (tex, col) in &fx {
+                    ui.horizontal(|ui| {
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                        let c = col.as_deref().and_then(|h| u32::from_str_radix(h.trim_start_matches('#'), 16).ok()).map(|v| egui::Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)).unwrap_or(egui::Color32::LIGHT_GRAY);
+                        ui.painter().circle_filled(r.center(), 5.0, c);
+                        ui.label(egui::RichText::new(tex.rsplit('/').next().unwrap_or(tex).trim_end_matches(".png").replace('_', " ")).small());
+                    });
+                }
+                ui.checkbox(&mut self.animate_fx, "Play effects in the Scene");
+                ui.label(egui::RichText::new("A preview: the game simulates them in full.").small().weak());
+            });
         }
         if let Sel::Add(u) = sel {
             self.ui_collision(ui, u);
@@ -6119,11 +6296,18 @@ impl eframe::App for MapEditor {
         if self.opts.ui_snapshot.is_none() || self.settled_frames < 4 {
             return;
         }
-        let k = (self.settled_frames - 4) as usize;
-        if let Some([x, y]) = self.opts.ui_clicks.get(k / 2).copied() {
+        // Its own count: a click that starts a load resets `settled_frames`,
+        // and the clicks must not replay.
+        let k = self.ui_click_step;
+        self.ui_click_step += 1;
+        // Press, release, then wait out any open / close animation.
+        const STEPS: usize = 20;
+        if let Some([x, y]) = self.opts.ui_clicks.get(k / STEPS).copied() {
             let pos = egui::pos2(x, y);
             raw.events.push(egui::Event::PointerMoved(pos));
-            raw.events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: k % 2 == 0, modifiers: Default::default() });
+            if k % STEPS < 2 {
+                raw.events.push(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: k % STEPS == 0, modifiers: Default::default() });
+            }
         }
     }
 
@@ -6262,6 +6446,15 @@ fn view_name(c: &Camera) -> &'static str {
 /// The ground as the in-game minimap picture: `size` pixels across `rect`
 /// (x0, z0, width, depth), row 0 at z0 like the editor's own minimap.
 /// ponytail: height colours and water only (no props); in-game orientation unproven.
+/// The invisible box a click on an effect hits.
+const VFX_PICK: &str = "vfx:pick";
+
+/// An effect sprite's pick box: at its origin, as wide as the sprite (0.6 m at least).
+fn vfx_pick_mat(m: Mat4) -> Mat4 {
+    let s = m.x_axis.truncate().length().max(0.3) * 2.0;
+    Mat4::from_scale_rotation_translation(Vec3::splat(s), Quat::IDENTITY, m.transform_point3(Vec3::ZERO))
+}
+
 /// Where Save puts the drawn minimap in the mod.
 const MINIMAP_ART: &str = "art/minimap.png";
 

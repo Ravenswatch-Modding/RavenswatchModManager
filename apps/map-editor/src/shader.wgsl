@@ -257,6 +257,11 @@ fn fs_water(i: TOut) -> @location(0) vec4<f32> {
 struct Material {
     color: vec4<f32>,
     flags: vec4<f32>,     // x: has texture, y: alpha test
+    // Effect sprites only (map_scene._particle_params):
+    fx0: vec4<f32>,       // life s, speed m/s, share alive, end size x
+    fx1: vec4<f32>,       // start size x, flipbook cells across, first frame, last frame
+    fx2: vec4<f32>,       // emission box half extents x, y, z (m), pivot v
+    fx3: vec4<f32>,       // x: turn range (rad)
 };
 @group(1) @binding(0) var t_albedo: texture_2d<f32>;
 @group(1) @binding(1) var s_albedo: sampler;
@@ -316,44 +321,49 @@ fn hash1(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
 }
 
-// One particle of an effect sprite. The instance's x axis length is the
-// sprite size; y / x its lifetime (s); z / x how many of the particles are
-// alive. Each particle (slot nrm.x) starts somewhere in the emission area,
-// rises, grows and fades over its life; g.params.w is the time.
+// One particle of an effect sprite (slot nrm.x of VFX_PARTICLES). It is born
+// somewhere in the emitter's box, flies up a cone at the emitter's speed,
+// grows from the start to the end size, plays its flipbook and fades in and
+// out over its life; g.params.w is the time. The instance's x axis length is
+// the particle size (object scale included).
 @vertex
 fn vs_billboard(v: MIn) -> MOut {
     let m = mat4x4<f32>(v.m0, v.m1, v.m2, v.m3);
     let c = (m * vec4<f32>(0.0, 0.0, 0.0, 1.0)).xyz;
     let size = max(length(m[0].xyz), 1e-4);
-    let life = max(0.2, length(m[1].xyz) / size);
-    let alive = clamp(length(m[2].xyz) / size, 0.0, 1.0);
     let k = v.nrm.x;
+    let life = max(0.05, mat.fx0.x);
     let seed = hash1(c.xz + vec2<f32>(k * 17.0, k * 3.0));
     let phase = fract(g.params.w / life + k + seed);
-    // Where in the emission area this particle starts.
-    let ang = 6.2831 * (k * 1.618 + seed);
-    let rad = size * 0.35 * sqrt(hash1(vec2<f32>(seed, k)));
-    let start = vec3<f32>(cos(ang) * rad, 0.0, sin(ang) * rad);
-    let rise = vec3<f32>(0.0, phase * size * 0.9, 0.0);
-    let sway = vec3<f32>(sin(g.params.w * 1.3 + seed * 6.0), 0.0, cos(g.params.w * 1.1 + seed * 5.0)) * size * 0.08;
-    let centre = c + start + rise + sway * phase;
-    var grow = (0.55 + 0.6 * phase) * size * 0.75;
-    if (k >= alive) { grow = 0.0; }   // fewer particles for a sparse effect
-    let fwd = normalize(centre - g.eye.xyz);
+    let r3 = vec3<f32>(hash1(vec2<f32>(seed, 1.0)), hash1(vec2<f32>(seed, 2.0)), hash1(vec2<f32>(seed, 3.0))) * 2.0 - 1.0;
+    let dir = normalize(vec3<f32>(r3.x * 0.35, 1.0, r3.z * 0.35));
+    let centre0 = c + r3 * mat.fx2.xyz + dir * mat.fx0.y * phase * life;
+    var grow = size * mix(mat.fx1.x, mat.fx0.w, phase);
+    if (k >= mat.fx0.z) { grow = 0.0; }   // fewer particles for a sparse effect
+    let fwd = normalize(centre0 - g.eye.xyz);
     var right = cross(vec3<f32>(0.0, 1.0, 0.0), fwd);
     if (length(right) < 1e-3) { right = vec3<f32>(1.0, 0.0, 0.0); }
     right = normalize(right);
     let up = cross(fwd, right);
-    // A slow turn per particle so the sprites do not read as a stack of cards.
-    let spin = (seed - 0.5) * g.params.w * 0.8;
+    // The pivot (a texture row) sits on the particle: a flame stands on its base.
+    let centre = centre0 + up * (mat.fx2.w - 0.5) * grow;
+    let spin = (seed - 0.5) * 2.0 * mat.fx3.x;
     let q = vec2<f32>(v.pos.x * cos(spin) - v.pos.z * sin(spin), v.pos.x * sin(spin) + v.pos.z * cos(spin));
-    let wp = centre + (right * q.x - up * q.y) * grow;
+    // pos.z = +0.5 is the texture's top row (uv.y = 0).
+    let wp = centre + (right * q.x + up * q.y) * grow;
+    var uv = v.uv;
+    let cells = max(1.0, mat.fx1.y);
+    if (cells > 1.0) {
+        let frames = max(1.0, mat.fx1.w - mat.fx1.z + 1.0);
+        let f = min(mat.fx1.w, mat.fx1.z + floor(phase * frames));
+        uv = (uv + vec2<f32>(f % cells, floor(f / cells))) / cells;
+    }
     var o: MOut;
     o.clip = g.view_proj * vec4<f32>(wp, 1.0);
     o.wp = wp;
     // fs_vfx reads the fade from nrm.x: in at birth, out at death.
     o.nrm = vec3<f32>(sin(phase * 3.14159), 0.0, 0.0);
-    o.uv = v.uv;
+    o.uv = uv;
     o.tint = v.tint;
     return o;
 }
