@@ -6,7 +6,7 @@ Every `rsmm` subcommand, auto-generated from the dispatch table (`rsmm.cli._disp
 Do not edit by hand — run `rsmm docs-gen` after adding or renaming a subcommand. For task-oriented prose, see the [CLI guide](/reference/cli/).
 :::
 
-**64 commands.**
+**65 commands.**
 
 | Command | Module | Summary |
 |---|---|---|
@@ -70,6 +70,7 @@ Do not edit by hand — run `rsmm docs-gen` after adding or renaming a subcomman
 | `rsmm unify` | `rsmm.cli.unify` | rsmm unify — assemble one Blender-loadable GLB per hero. |
 | `rsmm update` | `rsmm.cli.update_cmd` | `rsmm update` — pull updates for installed mods from configured repos. |
 | `rsmm update-data` | `rsmm.cli.cmd_update_data` | `rsmm update-data` — pull the latest pattern DB without an app release. |
+| `rsmm update-editor` | `rsmm.cli.cmd_update_editor` | `rsmm update-editor` — update the native map editor in place. |
 | `rsmm update-loader` | `rsmm.cli.cmd_update_loader` | `rsmm update-loader` — pull the loader DLL + Lua SDK without an app release. |
 | `rsmm values` | `rsmm.cli.cmd_values` | `rsmm values` — back up a game patch's values and see what an update changed. |
 | `rsmm verify` | `rsmm.cli.repo_cmd` | `rsmm repo`, `rsmm sign`, `rsmm verify`, `rsmm keygen`. |

@@ -97,6 +97,7 @@ BUILTIN = {
     "symbols":           "rsmm.cli.cmd_symbols",
     "update-data":       "rsmm.cli.cmd_update_data",
     "update-loader":     "rsmm.cli.cmd_update_loader",
+    "update-editor":     "rsmm.cli.cmd_update_editor",
     "changelog":         "rsmm.cli.cmd_changelog",
     "completion":        "rsmm.cli.cmd_completion",
 }
@@ -203,6 +204,7 @@ COMMAND_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         ("rebuild-fn-patterns", "[--force] [--ghidra]", "rebuild the byte-pattern DB for this exe"),
         ("update-data", "",                        "fetch the rolling pattern DB"),
         ("update-loader", "",                      "fetch the loader DLL + Lua SDK"),
+        ("update-editor", "--dir D --current N",   "update the native map editor in place"),
     )),
     ("distribution", (
         ("repo",     "",                           "manage a mod repository"),

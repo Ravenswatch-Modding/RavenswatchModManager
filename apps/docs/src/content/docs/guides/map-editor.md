@@ -19,6 +19,10 @@ release download yet.
 - **Test build:** unzip and run `rsmm-map-editor`. The `rsmm` next to it is
   the CLI it reads the game through. Ravenswatch must be installed, or set
   `RSMM_GAME_DIR`.
+- **Updates:** a packaged editor checks for a newer build when it starts, and
+  on **Help > Check for updates**. An **Update** button then appears in the
+  menu bar. It downloads the signed build, swaps the files, and **Restart**
+  runs it. A build from a clone never updates itself.
 - **From a clone:** `cd apps/map-editor && cargo run --release`. It finds the
   repository's `./rsmm` on its own. `--rsmm <path>` or `RSMM_BIN` picks
   another CLI.

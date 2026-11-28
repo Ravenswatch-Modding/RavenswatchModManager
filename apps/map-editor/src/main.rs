@@ -19,6 +19,7 @@ mod bvh;
 mod recipe;
 mod session;
 mod theme;
+mod update;
 mod render;
 mod scene;
 

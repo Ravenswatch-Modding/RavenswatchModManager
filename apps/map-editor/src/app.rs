@@ -116,6 +116,10 @@ enum Event {
     Staged(String, u64, anyhow::Result<String>),
     /// Play in game finished launching (or failed): rsmm's last words.
     Played(Result<String, String>),
+    /// `rsmm update-editor --check` answered (`true`: asked from the Help menu).
+    UpdateChecked(Result<Value, String>, bool),
+    /// The new build is in place (or the install failed).
+    UpdateInstalled(Result<Value, String>),
     Error(String),
 }
 
@@ -351,6 +355,7 @@ enum Cmd {
     ToggleTheme,
     Palette,
     Shortcuts,
+    CheckUpdate,
     Play,
     ToolMove,
     ToolRotate,
@@ -424,6 +429,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Light / dark theme", "", Cmd::ToggleTheme),
     ("Command palette", "F3 / Ctrl+P", Cmd::Palette),
     ("Keyboard shortcuts", "F1", Cmd::Shortcuts),
+    ("Check for updates", "", Cmd::CheckUpdate),
     ("Play in game", "F5", Cmd::Play),
 ];
 
@@ -666,6 +672,11 @@ pub struct MapEditor {
     play_after_save: bool,
     /// Play in game: rsmm is applying / launching.
     playing: bool,
+    /// Self-update: the newer build on the channel (number, notes), while
+    /// installing, and once in place (restart to run it).
+    update_avail: Option<(u64, String)>,
+    update_busy: bool,
+    update_ready: bool,
     /// Every colour of the editor (View > Theme…).
     theme: crate::theme::Theme,
     show_theme: bool,
@@ -703,7 +714,7 @@ impl MapEditor {
         let prefs = session::load_prefs();
         let theme = prefs.theme.unwrap_or_else(|| legacy_theme(prefs.light_theme, prefs.accent.as_deref()));
         theme.apply(&cc.egui_ctx);
-        let me = MapEditor {
+        let mut me = MapEditor {
             backend,
             loader,
             events: rx,
@@ -869,6 +880,9 @@ impl MapEditor {
             show_save_as: false,
             play_after_save: false,
             playing: false,
+            update_avail: None,
+            update_busy: false,
+            update_ready: false,
             theme,
             show_theme: false,
             recent: prefs.recent,
@@ -890,7 +904,37 @@ impl MapEditor {
             ui_shot_sent: false,
         };
         me.refresh_state(&cc.egui_ctx);
+        if !me.headless() {
+            me.check_update(&cc.egui_ctx, false);
+        }
         me
+    }
+
+    /// Ask the channel for a newer build (a dev build or a source checkout's
+    /// rsmm never asks; `manual` reports "up to date" too).
+    fn check_update(&mut self, ctx: &egui::Context, manual: bool) {
+        let Some(dir) = crate::update::editor_dir(&self.backend.cmd).filter(|_| crate::update::build() > 0) else {
+            if manual {
+                self.status = "Updates come with the packaged editor; this is a developer build".into();
+            }
+            return;
+        };
+        let (cmd, tx, ctx) = (self.backend.cmd.clone(), self.events_tx.clone(), ctx.clone());
+        thread::spawn(move || {
+            let _ = tx.send(Event::UpdateChecked(crate::update::run(&cmd, &dir, true), manual));
+            ctx.request_repaint();
+        });
+    }
+
+    fn install_update(&mut self, ctx: &egui::Context) {
+        let Some(dir) = crate::update::editor_dir(&self.backend.cmd) else { return };
+        self.update_busy = true;
+        self.status = "Downloading the editor update…".into();
+        let (cmd, tx, ctx) = (self.backend.cmd.clone(), self.events_tx.clone(), ctx.clone());
+        thread::spawn(move || {
+            let _ = tx.send(Event::UpdateInstalled(crate::update::run(&cmd, &dir, false)));
+            ctx.request_repaint();
+        });
     }
 
     fn save_prefs(&self) {
@@ -1300,6 +1344,32 @@ impl MapEditor {
                         Ok(msg) => format!("Ravenswatch is starting with {}: {msg}", self.mod_id),
                         Err(e) => format!("Play in game failed: {e}"),
                     };
+                }
+                Event::UpdateChecked(r, manual) => match r {
+                    Ok(v) if v["status"] == "available" => {
+                        let n = v["latest"].as_u64().unwrap_or(0);
+                        self.status = format!("Map editor build {n} is out: click Update in the menu bar");
+                        self.update_avail = Some((n, v["notes"].as_str().unwrap_or("").to_owned()));
+                    }
+                    Ok(v) if manual => {
+                        self.status = match v["status"].as_str() {
+                            Some("not_published") => "No editor updates are published yet".into(),
+                            _ => format!("The map editor is up to date (build {})", crate::update::build()),
+                        }
+                    }
+                    Err(e) if manual => self.status = format!("Update check failed: {e}"),
+                    _ => {} // a check at start stays quiet when offline
+                },
+                Event::UpdateInstalled(r) => {
+                    self.update_busy = false;
+                    match r {
+                        Ok(_) => {
+                            self.update_avail = None;
+                            self.update_ready = true;
+                            self.status = "Update installed: click Restart in the menu bar to run it".into();
+                        }
+                        Err(e) => self.status = format!("Update failed (nothing changed): {e}"),
+                    }
                 }
                 Event::StampPicked(Some(f)) => match std::fs::read(&f).map_err(anyhow::Error::from).and_then(|b| crate::brush::Stamp::from_png(&crate::models::clean_stem(&f), &b)) {
                     Ok(st) => {
@@ -3193,6 +3263,7 @@ impl MapEditor {
                 self.palette_query.clear();
             }
             Cmd::Shortcuts => self.show_shortcuts = !self.show_shortcuts,
+            Cmd::CheckUpdate => self.check_update(ctx, true),
             Cmd::Play => {
                 if self.playing || self.headless() {
                     return;
@@ -5233,7 +5304,31 @@ let lights_now = self.lights_near(self.camera.target);
             ui.menu_button("Help", |ui| {
                 item(ui, "Keyboard shortcuts", "F1", Cmd::Shortcuts);
                 item(ui, "Command palette", "F3", Cmd::Palette);
+                ui.separator();
+                item(ui, "Check for updates", "", Cmd::CheckUpdate);
+                ui.label(egui::RichText::new(match crate::update::build() {
+                    0 => "Developer build".to_owned(),
+                    n => format!("Build {n}"),
+                }).weak());
             });
+            if let Some((n, notes)) = self.update_avail.clone() {
+                let tip = if notes.is_empty() { format!("Download build {n} and swap it in") } else { format!("Build {n}: {notes}") };
+                if ui.add_enabled(!self.update_busy, egui::Button::new(egui::RichText::new(if self.update_busy { "Updating…" } else { "Update" }).color(egui::Color32::BLACK)).fill(self.accent32())).on_hover_text(tip).clicked() {
+                    self.install_update(&ctx);
+                }
+            } else if self.update_ready {
+                let r = ui.add(egui::Button::new(egui::RichText::new("Restart").color(egui::Color32::BLACK)).fill(self.accent32())).on_hover_text("Close and start the new build");
+                if r.clicked() {
+                    if self.unsaved {
+                        self.status = "Save the map first, then restart".into();
+                    } else {
+                        match crate::update::relaunch() {
+                            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                            Err(e) => self.status = format!("Restart failed: {e} (start the editor again yourself)"),
+                        }
+                    }
+                }
+            }
             ui.separator();
             // Chapter + tools, right in the bar.
             let cur = self

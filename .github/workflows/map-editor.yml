@@ -1,8 +1,13 @@
 name: Map editor
 
-# Test builds of the native map editor (apps/map-editor): the editor binary
-# with the frozen rsmm CLI beside it (the editor finds `rsmm[.exe]` in its own
-# folder), zipped per OS as a workflow artifact. Not a release.
+# Builds of the native map editor (apps/map-editor): the editor binary with
+# the frozen rsmm CLI beside it (the editor finds `rsmm[.exe]` in its own
+# folder), zipped per OS as a workflow artifact. Each build carries the run
+# number as its build number (RSMM_EDITOR_BUILD), which its updater compares.
+#
+# Run by hand with `publish` ticked, it also signs the zips and puts them on
+# the rolling `map-editor` release, where every editor's updater finds them
+# (scripts/publish_map_editor.sh).
 on:
   push:
     branches: [feat/native-map-editor]
@@ -17,6 +22,15 @@ on:
       - 'apps/map-editor/**'
       - '.github/workflows/map-editor.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish this build to the editors'' updater (the rolling map-editor release)'
+        type: boolean
+        default: false
+      notes:
+        description: 'What changed (shown on the Update button)'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -47,6 +61,8 @@ jobs:
 
       - name: Build the editor
         working-directory: apps/map-editor
+        env:
+          RSMM_EDITOR_BUILD: ${{ github.run_number }}
         run: cargo build --release --locked
 
       - name: Set up Python 3.12
@@ -70,7 +86,7 @@ jobs:
           cp apps/desktop/src-tauri/binaries/rsmm-*"$ext" "pkg/rsmm$ext"
           [ -z "$ext" ] && chmod +x pkg/*
           {
-            echo "RSMM map editor test build (${GITHUB_SHA::8})"
+            echo "RSMM map editor build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::8})"
             echo
             echo "Run rsmm-map-editor$ext. rsmm$ext beside it is the CLI it reads game data through."
             echo "Ravenswatch must be installed (or set RSMM_GAME_DIR). Guide: https://docs.rsmm.me/guides/map-editor/"
@@ -82,3 +98,42 @@ jobs:
           name: rsmm-map-editor-${{ runner.os }}
           path: pkg/
           if-no-files-found: error
+
+  # Manual, ticked `publish` only: every editor that checks for updates gets
+  # this. The signing key is the loader channel's repo secret.
+  publish:
+    name: publish to the editor updater
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse other refs
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat/native-map-editor'
+        run: |
+          echo "::error::the map editor publishes from main or feat/native-map-editor only ($GITHUB_REF)"
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v7
+        with:
+          path: art
+      # Flat zips: the updater writes only the editor, rsmm and the readme.
+      - name: Zip per OS
+        run: |
+          mkdir out
+          (cd art/rsmm-map-editor-Linux && zip -X ../../out/rsmm-map-editor-linux.zip *)
+          (cd art/rsmm-map-editor-Windows && zip -X ../../out/rsmm-map-editor-windows.zip *)
+      - name: Sign and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NOTES: ${{ inputs.notes }}
+        run: scripts/publish_map_editor.sh out --build "$GITHUB_RUN_NUMBER" --notes "$NOTES"
