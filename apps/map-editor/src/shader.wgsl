@@ -6,7 +6,8 @@ struct Globals {
     eye: vec4<f32>,
     sun_dir: vec4<f32>,   // xyz: direction TOWARD the sun
     params: vec4<f32>,    // x: haze density, y: exposure, z: shadows on
-    light_vp: mat4x4<f32>,
+    light_vp: mat4x4<f32>,      // near shadow cascade (round the focus)
+    light_vp_far: mat4x4<f32>,  // far cascade (the whole view)
     sun_color: vec4<f32>,
     amb_top: vec4<f32>,       // w: horizon power
     amb_horizon: vec4<f32>,
@@ -21,23 +22,30 @@ struct Globals {
     lights: array<vec4<f32>, 32>,  // per light: pos + radius, colour x intensity
 };
 @group(0) @binding(0) var<uniform> g: Globals;
-@group(0) @binding(1) var t_shadow: texture_depth_2d;
+@group(0) @binding(1) var t_shadow: texture_depth_2d_array;
 @group(0) @binding(2) var s_shadow: sampler_comparison;
 
-// Fraction of sunlight reaching `wp` (3x3 PCF over the sun's depth map).
-fn sunlit(wp: vec3<f32>, n: vec3<f32>) -> f32 {
-    if (g.params.z < 0.5) { return 1.0; }
-    let p = g.light_vp * vec4<f32>(wp + n * 0.12, 1.0);
+// One cascade's 3x3 PCF at `wp`: x = 1 when the cascade covers the point, y = sunlight.
+fn cascade_lit(vp: mat4x4<f32>, layer: i32, wp: vec3<f32>, n: vec3<f32>, push: f32) -> vec2<f32> {
+    let p = vp * vec4<f32>(wp + n * push, 1.0);
     let uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
-    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || p.z > 1.0) { return 1.0; }
+    if (any(uv < vec2<f32>(0.01)) || any(uv > vec2<f32>(0.99)) || p.z > 1.0) { return vec2<f32>(0.0, 1.0); }
     let texel = 1.0 / 4096.0;
     var sum = 0.0;
     for (var y = -1; y <= 1; y++) {
         for (var x = -1; x <= 1; x++) {
-            sum += textureSampleCompareLevel(t_shadow, s_shadow, uv + vec2<f32>(f32(x), f32(y)) * texel, p.z - 0.0008);
+            sum += textureSampleCompareLevel(t_shadow, s_shadow, uv + vec2<f32>(f32(x), f32(y)) * texel, layer, p.z - 0.0008);
         }
     }
-    return sum / 9.0;
+    return vec2<f32>(1.0, sum / 9.0);
+}
+
+// Fraction of sunlight reaching `wp`: the near cascade where it reaches, else the far one.
+fn sunlit(wp: vec3<f32>, n: vec3<f32>) -> f32 {
+    if (g.params.z < 0.5) { return 1.0; }
+    let a = cascade_lit(g.light_vp, 0, wp, n, 0.05);
+    if (a.x > 0.5) { return a.y; }
+    return cascade_lit(g.light_vp_far, 1, wp, n, 0.12).y;
 }
 
 fn aces(x: vec3<f32>) -> vec3<f32> {
@@ -75,11 +83,17 @@ fn apply_fog(c: vec3<f32>, wp: vec3<f32>) -> vec3<f32> {
     return mix(c, fc.rgb * g.fog_params.y, clamp(fc.a * t * g.fog_params.x, 0.0, 1.0));
 }
 
-fn shade(albedo: vec3<f32>, n_in: vec3<f32>, wp: vec3<f32>) -> vec3<f32> {
+fn shade(albedo_in: vec3<f32>, n_in: vec3<f32>, wp: vec3<f32>) -> vec3<f32> {
     let to_eye = g.eye.xyz - wp;
     var n = normalize(n_in);
     // Meshes are drawn double-sided with unknown winding: light the side we see.
     if (dot(n, to_eye) < 0.0) { n = -n; }
+    // View modes (render::ViewMode): 1 unshaded, 2 lighting only, 3 normals.
+    let mode = i32(g.light_info.y);
+    if (mode == 1) { return albedo_in; }
+    if (mode == 3) { return n * 0.5 + 0.5; }
+    var albedo = albedo_in;
+    if (mode == 2) { albedo = vec3<f32>(0.6); }
     let l = normalize(g.sun_dir.xyz);
     // Lambert: albedo / pi per unit of sun intensity, as a PBR light is.
     var direct = g.sun_color.rgb * (max(dot(n, l), 0.0) * sunlit(wp, n) / 3.14159);
@@ -269,7 +283,7 @@ fn fs_water(i: TOut) -> @location(0) vec4<f32> {
 
 struct Material {
     color: vec4<f32>,
-    flags: vec4<f32>,     // x: has texture, y: alpha test
+    flags: vec4<f32>,     // x: has texture, y: alpha test, z: has normal map
     // Effect sprites only (map_scene._particle_params):
     fx0: vec4<f32>,       // life s, speed m/s, share alive, end size x
     fx1: vec4<f32>,       // start size x, flipbook cells across, first frame, last frame
@@ -279,6 +293,7 @@ struct Material {
 @group(1) @binding(0) var t_albedo: texture_2d<f32>;
 @group(1) @binding(1) var s_albedo: sampler;
 @group(1) @binding(2) var<uniform> mat: Material;
+@group(1) @binding(3) var t_normal: texture_2d<f32>;
 
 struct MIn {
     @location(0) pos: vec3<f32>,
@@ -319,11 +334,35 @@ fn albedo(i: MOut) -> vec4<f32> {
     return c;
 }
 
+// The normal map's bend of `n`, with the tangent frame taken from screen-space
+// derivatives (Schüler, "Normal mapping without precomputed tangents"), so the
+// meshes need no tangent attribute. The map holds x, y (BC5); z is rebuilt.
+fn bent_normal(n_in: vec3<f32>, wp: vec3<f32>, uv: vec2<f32>, tex: vec4<f32>) -> vec3<f32> {
+    let n = normalize(n_in);
+    let xy = tex.xy * 2.0 - 1.0;
+    let t = vec3<f32>(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+    let dp1 = dpdx(wp);
+    let dp2 = dpdy(wp);
+    let du1 = dpdx(uv);
+    let du2 = dpdy(uv);
+    let p2 = cross(dp2, n);
+    let p1 = cross(n, dp1);
+    let tan = p2 * du1.x + p1 * du2.x;
+    let bit = p2 * du1.y + p1 * du2.y;
+    let k = inverseSqrt(max(max(dot(tan, tan), dot(bit, bit)), 1e-20));
+    return normalize(tan * k * t.x + bit * k * t.y + n * t.z);
+}
+
 @fragment
 fn fs_mesh(i: MOut) -> @location(0) vec4<f32> {
     let a = albedo(i);
     if (mat.flags.y > 0.5 && a.a < 0.5) { discard; }
-    var rgb = shade(a.rgb, i.nrm, i.wp);
+    // Sampled outside the branch: derivatives need uniform control flow.
+    let nt = textureSample(t_normal, s_albedo, i.uv);
+    let bent = bent_normal(i.nrm, i.wp, i.uv, nt);
+    var n = i.nrm;
+    if (mat.flags.z > 0.5) { n = bent; }
+    var rgb = shade(a.rgb, n, i.wp);
     rgb = mix(rgb, i.tint.rgb, i.tint.a);
     return vec4<f32>(rgb, 1.0);
 }

@@ -13,7 +13,9 @@ mod icons;
 mod models;
 mod project;
 mod outliner;
+mod path;
 mod brush;
+mod bvh;
 mod recipe;
 mod session;
 mod theme;
@@ -46,6 +48,7 @@ fn main() -> eframe::Result<()> {
             "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),
             "--select" => opts.select = args.next(),
             "--icon-sheet" => opts.icon_sheet = true,
+            "--split" => opts.split = true,
             "--gizmo" => opts.gizmo = args.next(),
             "--ui-click" => {
                 if let Some([x, y]) = args.next().and_then(|v| v.split_once(',').and_then(|(a, b)| Some([a.trim().parse().ok()?, b.trim().parse().ok()?]))) {
@@ -85,6 +88,13 @@ fn main() -> eframe::Result<()> {
             let mut cfg = egui_wgpu::WgpuConfiguration::default();
             if let egui_wgpu::WgpuSetup::CreateNew(c) = &mut cfg.wgpu_setup {
                 c.power_preference = wgpu::PowerPreference::HighPerformance;
+                // The Wireframe view, where the GPU has it.
+                let base = c.device_descriptor.clone();
+                c.device_descriptor = std::sync::Arc::new(move |a| {
+                    let mut d = base(a);
+                    d.required_features |= a.features() & wgpu::Features::POLYGON_MODE_LINE;
+                    d
+                });
             }
             cfg
         },

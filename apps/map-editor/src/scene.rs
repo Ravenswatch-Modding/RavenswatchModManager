@@ -248,6 +248,25 @@ pub struct PartKey {
     pub decal: bool,
     /// An effect's sprite: a camera-facing glowing quad (`map_scene.vfx_parts`).
     pub vfx: bool,
+    /// The material's normal map (`map_scene.material_normal`) and its R/B swap.
+    pub normal: Option<String>,
+    pub normal_swap: bool,
+}
+
+impl PartKey {
+    /// A part as `map_scene.part_json` writes it.
+    pub fn from_json(p: &serde_json::Value) -> PartKey {
+        PartKey {
+            mesh: p["mesh"].as_str().unwrap_or_default().to_owned(),
+            texture: p["texture"].as_str().map(str::to_owned),
+            swap_rb: p["swap_rb"].as_bool().unwrap_or(false),
+            color: p["color"].as_str().map(str::to_owned),
+            decal: p["decal"].as_bool().unwrap_or(false),
+            vfx: p["vfx"].as_bool().unwrap_or(false),
+            normal: p["normal"].as_str().map(str::to_owned),
+            normal_swap: p["normal_swap"].as_bool().unwrap_or(false),
+        }
+    }
 }
 
 pub struct ScPart {
@@ -313,14 +332,7 @@ impl Scenery {
         let mut parts = Vec::with_capacity(parts_v.len());
         let mut obj_instances = vec![Vec::new(); count];
         for (pi, p) in parts_v.iter().enumerate() {
-            let key = PartKey {
-                mesh: p["mesh"].as_str().unwrap_or_default().to_owned(),
-                texture: p["texture"].as_str().map(str::to_owned),
-                swap_rb: p["swap_rb"].as_bool().unwrap_or(false),
-                color: p["color"].as_str().map(str::to_owned),
-                decal: p["decal"].as_bool().unwrap_or(false),
-                vfx: p["vfx"].as_bool().unwrap_or(false),
-            };
+            let key = PartKey::from_json(p);
             let m = f32s(&mats_v[pi])?;
             let owners = u32s(&owners_v[pi])?;
             let base: Vec<Mat4> = m.chunks_exact(16).map(Mat4::from_cols_slice).collect();

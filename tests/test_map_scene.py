@@ -140,13 +140,21 @@ def no_mirror(install_only, monkeypatch, tmp_path):
 
     monkeypatch.setattr(MS, "DATA_DIR", tmp_path)
     monkeypatch.setattr(ME, "DATA_DIR", tmp_path)
-    cached = (MS.entity_parts, MS.level_parts, MS.material_albedo, MS.asset_bytes,
-              ME.scene_json, ME.tile_json, ME.tile_pool_json)
+    cached = (MS.entity_parts, MS.level_parts, MS.material_albedo, MS.material_normal,
+              MS.asset_bytes, ME.scene_json, ME.tile_json, ME.tile_pool_json)
     for f in cached:
         f.cache_clear()
     yield ME
     for f in cached:
         f.cache_clear()
+
+
+def test_scenery_parts_carry_their_normal_maps(no_mirror):
+    scene = no_mirror.scene_json(no_mirror.find_chapter("DarkHills"))
+    normals = sorted({p["normal"] for p in scene["parts"] if p.get("normal")})
+    assert len(normals) > 20
+    assert all(n.lower().endswith(("_nrm.png", "_normal.png")) for n in normals)
+    assert MS.asset_bytes(normals[0])[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_models_and_textures_come_from_the_install_alone(no_mirror):
@@ -194,3 +202,13 @@ def test_a_torch_shows_its_flame():
     for _p, m in parts:
         size, life, alive = m[0], m[5] / m[0], m[10] / m[0]
         assert size > 0 and 0.3 <= life <= 6.0 and 0.15 <= alive <= 1.0
+
+
+def test_bc5_normal_blocks_decode_red_and_green():
+    from rsmm.engine import icon_decode as ID
+
+    # Red: endpoints 255 / 0, every index 0 -> 255. Green: 0 / 128, every index 1 -> 128.
+    idx1 = int("001" * 16, 2).to_bytes(6, "little")  # 3-bit index 1 for all 16 texels
+    block = bytes([255, 0]) + bytes(6) + bytes([0, 128]) + idx1
+    rgba = ID.decode_to_rgba(block, 4, 4, "BC5U")
+    assert {tuple(rgba[i:i + 4]) for i in range(0, 64, 4)} == {(255, 128, 255, 255)}

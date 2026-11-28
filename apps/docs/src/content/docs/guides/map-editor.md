@@ -67,19 +67,29 @@ release download yet.
 
 | Do | How |
 |---|---|
-| Look around / fly | Hold right mouse, move; add WASD, Q / E |
-| Orbit, pan, zoom | Alt + left drag, middle drag, wheel |
+| Look around / fly | Hold right mouse, move; add WASD, Q / E. Flying is slower when you are zoomed in |
+| Orbit, pan, zoom | Alt + left drag, middle drag, wheel (zooms toward the pointer) |
+| Pick what is behind | Click the same spot again for the next object behind; Alt + right-click lists everything under the pointer |
+| Game camera | Numpad 0 or View › Game camera: the in-run camera, with the 16:9 screen a player sees. Orbit or zoom to leave it |
+| Split view | Ctrl+2 or View › Split view: a live top view beside the Scene. Click it to look there, wheel to zoom it |
+| Display | View › Display: Lit, Unshaded, Lighting only, Normals, Wireframe (where the GPU can draw lines) |
 | Move / rotate / scale tool | W / E / T, then drag an arrow, ring or handle |
 | Move along a plane | Drag a coloured square between two arrows |
 | Uniform scale | Drag the centre cube |
 | Blender-style keys | G / R / S, then X / Y / Z to lock an axis (Shift = a plane), type a number, Enter |
-| Snap | Ctrl while dragging (grid, 15°, 0.1×) |
+| Snap | Ctrl while dragging. View sets the move, rotate and scale steps (1 m, 15°, 0.1× to start) |
 | World / Local axes | The axes button by the gizmo tools: Local moves and rotates along the object's own axes (scale always does) |
 | Snap to surfaces | Toolbar: a dragged object lands on whatever is under the pointer (a roof, a rock, the ground) |
 | Snap to objects | Toolbar (on by default): box edges and centres line up with nearby objects, shown by blue guides |
 | Repeat in a row | Object › Array…: copies, step, turn per copy (fences, walls, paths) |
+| Edit many at once | With several selected, the Inspector's Turn and Size change them all (each about its own origin) |
+| Paint props | Right-click a prop in Project › Scatter paint: drag to scatter copies with a spacing, random turn and size; Ctrl + drag erases them; [ / ] resize the brush |
+| Along a path | Right-click a prop › Place along a path: click points, Enter places copies every few metres, turned along the curve; Backspace removes a point |
+| On a grid | Right-click a prop › Paint on a grid: drag fills cells (one piece each), R turns the next piece, Ctrl + drag empties cells |
+| Replace | Select objects, right-click a prop › Replace selected with this: same place, turn and size |
 | Lights | Create › Light: the chapter's lanterns and the plain point light. Inspector › Light sets a copy's radius and intensity (its colour stays the game's). View › Prop lights previews the 16 nearest |
-| Prefabs | Select objects, Object › Save as prefab…; place it from Create › Prefab on any map (models of another mod are skipped) |
+| Prefabs | Select objects, Object › Save as prefab…; place it from Create › Prefab on any map (models of another mod are skipped). Placements stay linked: change one, select it and use Object › Update prefab from selection, and every other placement is rebuilt where it stands |
+| Undo history | The History tab under the Scene names every step; click one to go back (or forward) to it |
 | Measure | Toolbar ruler: click two points for the distance, flat distance and height difference; Esc ends |
 | Frame selection / whole map | F / Home |
 | Every command | F3 or Ctrl+P. F1 lists the shortcuts |
@@ -96,7 +106,10 @@ only that.
   `collider = true` with its `collision` boxes.
 - Moves and removals of the base chapter's own objects go to the clone's
   copy of its levels. The shipped chapter is never edited.
-- Art you imported is copied into `mods/<id>/art/`.
+- Art you imported is copied into `mods/<id>/art/`. Saving a model or
+  texture again in Blender reloads it in the editor within a second.
+- An object placed from a prefab also saves `prefab = { name, instance }`,
+  so its placement stays linked. The game never sees it.
 
 The editor autosaves to `~/.config/rsmm-map-editor` and offers to recover
 after a crash.

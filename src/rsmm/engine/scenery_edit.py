@@ -109,8 +109,7 @@ def scenery_json(chapter) -> dict:
         "entities": list(entities),
         "objects": {"count": len(o_id), "level": _b64(o_level), "id": _b64(o_id),
                     "entity": _b64(o_ent), "xf": _b64(o_xf)},
-        "parts": [{"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
-                   "color": p.color, "decal": p.decal, "vfx": p.vfx} for p in order],
+        "parts": [MS.part_json(p) for p in order],
         "matrices": [_b64(m) for m in mats],
         "owners": [_b64(o) for o in owners],
     }

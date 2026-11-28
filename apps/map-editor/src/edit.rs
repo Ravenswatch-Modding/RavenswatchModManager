@@ -34,6 +34,22 @@ pub struct Add {
     pub camp: Option<Camp>,
     /// A light prop's own `[radius m, intensity]` (`map.objects[].light`).
     pub light: Option<[f32; 2]>,
+    /// Godot's linked scene: the prefab this copy was placed from, and which
+    /// placement (all of one placement's objects share `inst`).
+    pub prefab: Option<PrefabLink>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrefabLink {
+    pub name: String,
+    pub inst: u64,
+}
+
+impl PrefabLink {
+    /// `prefab = {name, instance}` back from a document.
+    pub fn parse(v: &Value) -> Option<PrefabLink> {
+        Some(PrefabLink { name: v["name"].as_str()?.to_owned(), inst: v["instance"].as_u64()? })
+    }
 }
 
 /// `light = {radius, intensity}` back from a document.
@@ -209,6 +225,9 @@ impl Add {
         }
         if let Some([r, i]) = self.light {
             o["light"] = json!({"radius": r, "intensity": i});
+        }
+        if let Some(p) = &self.prefab {
+            o["prefab"] = json!({"name": p.name, "instance": p.inst});
         }
         o
     }
@@ -638,6 +657,7 @@ impl Edits {
                 col: (o["model"].is_string() || o["collider"].as_bool() == Some(true)).then(|| ColBox::parse(&o["collision"])),
                 camp: Camp::parse(&o["camp"]),
                 light: parse_light(&o["light"]),
+                prefab: PrefabLink::parse(&o["prefab"]),
             });
         }
     }
@@ -751,6 +771,7 @@ impl Edits {
                     col: a.get("collision").map(ColBox::parse),
                     camp: Camp::parse(&a["camp"]),
                     light: parse_light(&a["light"]),
+                    prefab: PrefabLink::parse(&a["prefab"]),
                 });
             }
         }
@@ -825,6 +846,22 @@ impl History {
         self.undo.iter_mut().chain(self.redo.iter_mut()).for_each(&mut f);
     }
 
+    /// Every state from the oldest to the newest, with `cur` (the present)
+    /// at index `undo.len()`.
+    pub fn timeline<'a>(&'a self, cur: &'a Edits) -> (Vec<&'a Edits>, usize) {
+        let mut v: Vec<&Edits> = self.undo.iter().collect();
+        let at = v.len();
+        v.push(cur);
+        v.extend(self.redo.iter().rev());
+        (v, at)
+    }
+
+    /// Undo or redo until the present is `timeline()` entry `k`.
+    pub fn jump(&mut self, cur: &mut Edits, k: usize) {
+        while self.undo.len() > k && self.undo(cur) {}
+        while self.undo.len() < k && self.redo(cur) {}
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -851,8 +888,10 @@ mod add_xf_tests {
             col: Some(vec![ColBox::wall(Vec3::ONE, Vec3::ZERO)]),
             camp: None,
             light: None,
+            prefab: Some(PrefabLink { name: "Stall".into(), inst: 3 }),
         };
         let o = a.xf_json(a.pos);
+        assert_eq!(PrefabLink::parse(&o["prefab"]), a.prefab);
         assert!(o.get("quat").is_some() && o.get("yaw").is_none());
         assert!(read_rot(&o).dot(a.rot).abs() > 0.9999);
         assert_eq!(read_scale(&o["scale"]), a.scale);
@@ -876,5 +915,68 @@ mod add_xf_tests {
         let r = block_rects(&strip);
         assert_eq!(r.iter().map(|r| r.2 - r.0 + 1).sum::<i32>(), 130);
         assert!(r.iter().all(|r| r.2 - r.0 < 60));
+    }
+}
+
+/// What changed from `a` to `b`, in words (the History panel's rows).
+pub fn describe(a: &Edits, b: &Edits) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let (na, nb) = (a.adds.len(), b.adds.len());
+    if nb > na {
+        out.push(format!("added {}", nb - na));
+    } else if nb < na {
+        out.push(format!("deleted {}", na - nb));
+    } else {
+        let n = a.adds.iter().zip(&b.adds).filter(|(x, y)| x != y).count();
+        if n > 0 {
+            out.push(format!("changed {n}"));
+        }
+    }
+    let moved = b.moves.iter().filter(|(k, v)| a.moves.get(k) != Some(v)).count() + a.moves.keys().filter(|k| !b.moves.contains_key(k)).count();
+    if moved > 0 {
+        out.push(format!("moved {moved} shipped"));
+    }
+    if a.removed != b.removed {
+        out.push(format!("removed {} shipped", b.removed.len().abs_diff(a.removed.len()).max(1)));
+    }
+    if a.strokes.len() != b.strokes.len() {
+        out.push(format!("{} brush dab(s)", b.strokes.len().abs_diff(a.strokes.len())));
+    }
+    if a.blocked != b.blocked {
+        out.push("blocked ground".into());
+    }
+    if a.spot_moves != b.spot_moves || a.spot_adds != b.spot_adds || a.spot_removed != b.spot_removed || a.spot_allow != b.spot_allow {
+        out.push("tile spots".into());
+    }
+    if a.kinds != b.kinds {
+        out.push("recipe counts".into());
+    }
+    if out.is_empty() {
+        return "No change".into();
+    }
+    let mut s = out.join(", ");
+    s[..1].make_ascii_uppercase();
+    s
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn jump_reaches_any_step_and_describe_names_it() {
+        let mut h = History::default();
+        let mut cur = Edits::default();
+        for k in 0..3 {
+            h.push(&cur);
+            cur.blocked.insert((k, 0));
+        }
+        let (tl, at) = h.timeline(&cur);
+        assert_eq!((tl.len(), at), (4, 3));
+        assert_eq!(describe(tl[0], tl[1]), "Blocked ground");
+        h.jump(&mut cur, 1);
+        assert_eq!(cur.blocked.len(), 1);
+        h.jump(&mut cur, 3);
+        assert_eq!(cur.blocked.len(), 3);
     }
 }

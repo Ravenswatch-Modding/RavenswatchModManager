@@ -402,7 +402,7 @@ def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
 _MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
 _MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
 _OBJECT_KEYS = {"entity", "model", "collider", "texture", "collision", "pos", "yaw", "quat",
-                "scale", "name", "camp", "light"}
+                "scale", "name", "camp", "light", "prefab"}
 #: A light prop's tunable numbers (``light = {radius, intensity}``): value
 #: components on the entity, or the ancestor, that carries its omni light.
 #: ``intensity`` is the omni light's intensity factor (the point light ships
@@ -471,6 +471,13 @@ def _objects(map_id: str, objects, out_dir: Path, written: list[Path],
                 or not all(0.01 <= k <= 100 for k in scale):
             raise ContentError(f"{what}: pos = [x, y, z], quat a rotation, scale 0.01..100")
         quat = tuple(v / norm for v in quat)
+        # The map editor's link to the prefab this object was placed from
+        # (`prefab = {name, instance}`): editor bookkeeping, never cooked.
+        pf = o.get("prefab")
+        if pf is not None and not (isinstance(pf, dict) and isinstance(pf.get("name"), str)
+                                   and isinstance(pf.get("instance"), int)
+                                   and not isinstance(pf.get("instance"), bool)):
+            raise ContentError(f"{what}: prefab = {{name = \"...\", instance = <int>}}")
         if ("camp" in o or "light" in o) and "entity" not in o:
             raise ContentError(f"{what}: 'camp' / 'light' settings go on a shipped 'entity'")
         if "entity" in o:

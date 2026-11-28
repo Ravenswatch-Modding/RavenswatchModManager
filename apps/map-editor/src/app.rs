@@ -4,7 +4,7 @@
 //! Every action (menu item, shortcut, context menu, command palette) goes
 //! through [`Cmd`] and [`MapEditor::run`], so they all behave the same.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -57,6 +57,8 @@ pub struct Options {
     pub select: Option<String>,
     /// Show every icon in a window (with `ui_snapshot`, to check them).
     pub icon_sheet: bool,
+    /// Start in the split view (with `ui_snapshot`, to check it).
+    pub split: bool,
     /// Start with this gizmo: move, rotate or scale.
     pub gizmo: Option<String>,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
@@ -171,6 +173,39 @@ enum Tool {
     Brush,
     /// The ruler: click two points.
     Measure,
+    /// Paint copies of this prop onto the ground (Ctrl: erase them).
+    Scatter(String),
+    /// Click points of a curve, Enter places copies of this prop along it.
+    Path(String),
+    /// Godot's GridMap: paint this piece into grid cells (Ctrl: erase), R turns it.
+    Grid(String),
+}
+
+/// The scatter brush (Godot's Scatter add-on, as a paint brush).
+#[derive(Clone)]
+struct ScatterOpts {
+    radius: f32,
+    /// Copies of the same prop keep at least this far apart.
+    spacing: f32,
+    scale_lo: f32,
+    scale_hi: f32,
+    rng: u64,
+}
+
+impl Default for ScatterOpts {
+    fn default() -> Self {
+        ScatterOpts { radius: 6.0, spacing: 2.5, scale_lo: 0.85, scale_hi: 1.15, rng: 0x9e37_79b9_7f4a_7c15 }
+    }
+}
+
+impl ScatterOpts {
+    /// 0..1 (xorshift64*).
+    fn next(&mut self) -> f32 {
+        self.rng ^= self.rng >> 12;
+        self.rng ^= self.rng << 25;
+        self.rng ^= self.rng >> 27;
+        (self.rng.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 40) as f32 / (1u64 << 24) as f32
+    }
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -195,6 +230,7 @@ enum LeftTab {
 enum BottomTab {
     Project,
     Console,
+    History,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -288,6 +324,7 @@ enum Cmd {
     Group,
     Array,
     SavePrefab,
+    UpdatePrefab,
     Grab,
     Rotate,
     Scale,
@@ -300,6 +337,8 @@ enum Cmd {
     ViewFront,
     ViewSide,
     ViewTop,
+    ViewGame,
+    ToggleSplit,
     ToggleOrtho,
     ToggleGrid,
     ToggleSnap,
@@ -348,6 +387,7 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Group selected", "Ctrl+G", Cmd::Group),
     ("Array: repeat the selection…", "", Cmd::Array),
     ("Save selection as prefab…", "", Cmd::SavePrefab),
+    ("Update prefab from selection", "", Cmd::UpdatePrefab),
     ("Move (grab)", "G  then X/Y/Z, a number, Enter", Cmd::Grab),
     ("Rotate", "R  then X/Y/Z, a number, Enter", Cmd::Rotate),
     ("Scale", "S  then X/Y/Z, a number, Enter", Cmd::Scale),
@@ -367,6 +407,8 @@ const COMMANDS: &[(&str, &str, Cmd)] = &[
     ("Front view", "1", Cmd::ViewFront),
     ("Side view", "3", Cmd::ViewSide),
     ("Top view", "7", Cmd::ViewTop),
+    ("Game camera view", "0", Cmd::ViewGame),
+    ("Split view: Scene + top", "Ctrl+2", Cmd::ToggleSplit),
     ("Perspective / orthographic", "5", Cmd::ToggleOrtho),
     ("Move tool (gizmo)", "W", Cmd::ToolMove),
     ("Rotate tool (gizmo)", "E", Cmd::ToolRotate),
@@ -408,6 +450,10 @@ pub struct MapEditor {
     /// Bumped by each mod open and chapter switch; an older open's answer is stale.
     open_seq: u64,
     requested: HashSet<String>,
+    /// Imported art files' last change, and when they were last looked at:
+    /// a file saved again (in Blender) is reloaded, as Godot reimports.
+    art_mtimes: HashMap<std::path::PathBuf, std::time::SystemTime>,
+    art_poll: Instant,
     pending_assets: usize,
     failed_assets: Vec<String>,
     look_pending: bool,
@@ -438,6 +484,17 @@ pub struct MapEditor {
     weights_now: Vec<u8>,
     color_now: Option<Vec<u8>>,
     brush: Brush,
+    scatter: ScatterOpts,
+    /// The Path tool's clicked points, its spacing (m) and whether copies
+    /// turn a quarter more than the curve (props long along Z).
+    path_pts: Vec<Vec3>,
+    path_spacing: f32,
+    path_turn: bool,
+    /// The Grid tool's cell (m), quarter turns of the next piece, and the
+    /// last cell a drag filled (one piece per cell per drag).
+    grid_cell: f32,
+    grid_turns: u8,
+    grid_last: Option<(i32, i32)>,
     last_dab: Option<Vec3>,
 
     // edits and view state
@@ -502,6 +559,11 @@ pub struct MapEditor {
     zoom_shown: Option<Instant>,
     /// Metres per second while flying (right button + WASD); the wheel sets it.
     fly_speed: f32,
+    /// Where the last Select click landed: clicking there again picks the
+    /// next object behind (Godot / Blender click cycling).
+    last_click: Option<egui::Pos2>,
+    /// Alt + right-click: everything under the pointer, to choose from.
+    pick_list: Option<(egui::Pos2, Vec<Sel>)>,
     /// Ground height the File > New blank map menu starts from.
     new_blank_height: f32,
     /// File > New chapter: keep the run's tile kinds and the fill pass, and
@@ -574,6 +636,14 @@ pub struct MapEditor {
     show_grid: bool,
     snap: bool,
     grid_size: f32,
+    /// Ctrl-snap steps for rotate (degrees) and scale (factor), Godot's Configure Snap.
+    rot_step: f32,
+    scale_step: f32,
+    view_mode: crate::render::ViewMode,
+    /// Godot's 2-viewport layout: a live top view beside the Scene, and how
+    /// far out it looks (times the Scene camera's distance).
+    split: bool,
+    side_zoom: f32,
     snap_ground: bool,
     show_minimap: bool,
     min_px: f32,
@@ -647,6 +717,8 @@ impl MapEditor {
             stage_seq: 0,
             open_seq: 0,
             requested: HashSet::new(),
+            art_mtimes: HashMap::new(),
+            art_poll: Instant::now(),
             pending_assets: 0,
             failed_assets: Vec::new(),
             look_pending: false,
@@ -672,6 +744,13 @@ impl MapEditor {
             weights_now: Vec::new(),
             color_now: None,
             brush: Brush::default(),
+            scatter: ScatterOpts::default(),
+            path_pts: Vec::new(),
+            path_spacing: 4.0,
+            path_turn: false,
+            grid_cell: 4.0,
+            grid_turns: 0,
+            grid_last: None,
             last_dab: None,
             edits: Edits::default(),
             history: History::default(),
@@ -714,6 +793,8 @@ impl MapEditor {
             array_step: Vec3::new(4.0, 0.0, 0.0),
             array_yaw: 0.0,
             fly_speed: 25.0,
+            last_click: None,
+            pick_list: None,
             project_dir: opts.project.clone().unwrap_or_else(|| crate::project::ASSETS.to_owned()),
             tile_size: 92.0,
             thumbs: HashMap::new(),
@@ -761,6 +842,11 @@ impl MapEditor {
             show_grid: true,
             snap: false,
             grid_size: prefs.grid_size.unwrap_or(1.0),
+            rot_step: prefs.rot_step.unwrap_or(15.0),
+            scale_step: prefs.scale_step.unwrap_or(0.1),
+            view_mode: Default::default(),
+            split: opts.split,
+            side_zoom: 2.5,
             snap_ground: true,
             show_minimap: true,
             min_px: 1.5,
@@ -804,7 +890,7 @@ impl MapEditor {
         if self.headless() {
             return;
         }
-        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.theme.light, grid_size: Some(self.grid_size), accent: None, theme: Some(self.theme) });
+        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.theme.light, grid_size: Some(self.grid_size), rot_step: Some(self.rot_step), scale_step: Some(self.scale_step), accent: None, theme: Some(self.theme) });
     }
 
     fn refresh_state(&self, ctx: &egui::Context) {
@@ -946,9 +1032,9 @@ impl MapEditor {
             self.loader.request(Job::Mesh(key.mesh.clone()));
             self.pending_assets += 1;
         }
-        if let Some(t) = &key.texture {
-            if self.requested.insert(format!("{t}|{}", key.swap_rb)) {
-                self.loader.request(Job::Texture(t.clone(), key.swap_rb));
+        for (t, swap) in key.texture.iter().map(|t| (t, key.swap_rb)).chain(key.normal.iter().map(|t| (t, key.normal_swap))) {
+            if self.requested.insert(format!("{t}|{swap}")) {
+                self.loader.request(Job::Texture(t.clone(), swap));
                 self.pending_assets += 1;
             }
         }
@@ -1499,6 +1585,29 @@ impl MapEditor {
             let level = self.edits.adds[0].level.clone();
             let n = self.place_prefab_doc(ctx, "check", &doc, &level, a.pos + Vec3::new(-20.0, 0.0, -20.0));
             assert_eq!(n, 3, "a prefab stands every object it holds");
+            // Linked: a second placement, then an edit of the first carried to it.
+            let inst_of = |e: &Edits, u: u64| e.add(u).and_then(|a| a.prefab.as_ref()).map(|p| p.inst);
+            let a_members: Vec<u64> = self.sel.iter().filter_map(|s| if let Sel::Add(u) = s { Some(*u) } else { None }).collect();
+            let a_inst = inst_of(&self.edits, a_members[0]).expect("a placed prefab is linked");
+            self.place_prefab_doc(ctx, "check", &doc, &level, a.pos + Vec3::new(-60.0, 0.0, -20.0));
+            let b_inst = self.sel.iter().find_map(|s| if let Sel::Add(u) = s { inst_of(&self.edits, *u) } else { None }).unwrap();
+            assert_ne!(a_inst, b_inst, "each placement is its own");
+            let moved = a_members[0];
+            if let Some(m) = self.edits.adds.iter_mut().find(|x| x.uid == moved) {
+                m.pos.x += 2.0;
+            }
+            self.select_only(a_members.iter().map(|u| Sel::Add(*u)));
+            assert_eq!(self.update_prefab(ctx, false), Some(1), "update rebuilds the other placement");
+            let shape = |inst: u64, e: &Edits| {
+                let ps: Vec<Vec3> = e.adds.iter().filter(|x| x.prefab.as_ref().is_some_and(|p| p.name == "check" && p.inst == inst)).map(|x| x.pos).collect();
+                let c = ps.iter().copied().sum::<Vec3>() / ps.len().max(1) as f32;
+                let mut rel: Vec<(i32, i32)> = ps.iter().map(|p| (((p.x - c.x) * 100.0).round() as i32, ((p.z - c.z) * 100.0).round() as i32)).collect();
+                rel.sort();
+                rel
+            };
+            let (sa, sb) = (shape(a_inst, &self.edits), shape(b_inst, &self.edits));
+            assert_eq!(sb.len(), 3, "the other placement keeps its objects");
+            assert_eq!(sa, sb, "the other placement now has the edited layout");
             self.sel = keep;
         }
         // A point light with its own radius / intensity, and a pond.
@@ -1513,6 +1622,69 @@ impl MapEditor {
         self.brush.level = a.pos.y + 1.0;
         self.dab(a.pos + Vec3::new(-10.0, 0.0, -10.0), false, false);
         (self.brush.mode, self.brush.level) = (mode, level);
+        // Scatter: a stroke keeps its spacing, Ctrl erases only that prop.
+        if let Some(p) = self.props.iter().find(|p| p.scenery).map(|p| p.entity.clone()) {
+            let at = a.pos + Vec3::new(30.0, 0.0, 30.0);
+            let before = self.edits.adds.len();
+            for k in 0..4 {
+                self.scatter_dab(ctx, &p, at + Vec3::new(k as f32, 0.0, 0.0), false);
+            }
+            let made: Vec<Vec3> = self.edits.adds[before..].iter().map(|a| a.pos).collect();
+            assert!(!made.is_empty(), "scatter places copies");
+            let sp = self.scatter.spacing;
+            for (i, x) in made.iter().enumerate() {
+                for y in &made[i + 1..] {
+                    assert!((*x - *y).with_y(0.0).length() >= sp, "scatter keeps its spacing");
+                }
+            }
+            self.scatter_dab(ctx, &p, at, true);
+            let left = self.edits.adds[before..].iter().filter(|x| (x.pos - at).with_y(0.0).length() < self.scatter.radius).count();
+            assert_eq!(left, 0, "scatter erase clears the brush");
+        }
+        // Replace: a shipped object and an added one become another prop, in place.
+        if let (Some(p), Some(u)) = (self.props.iter().filter(|p| p.scenery).nth(1).map(|p| p.entity.clone()), self.edits.adds.first().map(|a| a.uid)) {
+            let s = self.scenery.as_ref().unwrap();
+            let x2 = self.edits.xf(s, Sel::Obj(2));
+            let (adds, removed) = (self.edits.adds.len(), self.edits.removed.len());
+            self.select_only([Sel::Add(u), Sel::Obj(2)]);
+            self.replace_selection(ctx, &p);
+            assert_eq!(self.edits.adds.len(), adds + 1, "replace adds a copy for the shipped object");
+            assert_eq!(self.edits.removed.len(), removed + 1, "replace removes the shipped object");
+            let last = self.edits.adds.last().unwrap();
+            assert!(last.entity == p && x2.is_some_and(|x| (x.pos - last.pos).length() < 1e-4), "replace keeps the place");
+            assert!(self.edits.adds.iter().any(|a| a.uid == u && a.entity == p), "replace swaps an added object's prop");
+        }
+        // Path: copies every 4 m along a curve, turned along it, on the ground.
+        if let Some(p) = self.props.iter().find(|p| p.scenery).map(|p| p.entity.clone()) {
+            let o = a.pos + Vec3::new(-30.0, 0.0, 30.0);
+            self.path_pts = vec![o, o + Vec3::new(12.0, 0.0, 0.0), o + Vec3::new(12.0, 0.0, 12.0)];
+            self.path_spacing = 4.0;
+            let before = self.edits.adds.len();
+            let n = self.path_commit(ctx, &p);
+            assert!(n >= 6 && self.edits.adds.len() == before + n, "path places its copies ({n})");
+            let first = &self.edits.adds[before];
+            assert!((first.rot * Vec3::X - Vec3::X).length() < 0.05, "path copies face along it");
+            assert!(self.path_pts.is_empty(), "placing clears the path");
+        }
+        // Grid: one piece per cell at the cell's centre, turned; Ctrl empties a cell.
+        if let Some(p) = self.props.iter().find(|p| p.scenery).map(|p| p.entity.clone()) {
+            let o = a.pos + Vec3::new(40.0, 0.0, -40.0);
+            let before = self.edits.adds.len();
+            self.grid_cell = 4.0;
+            self.grid_turns = 1;
+            for k in 0..3 {
+                assert!(self.grid_paint(ctx, &p, o + Vec3::new(4.0 * k as f32, 0.0, 0.0), false), "grid fills a free cell");
+            }
+            assert!(!self.grid_paint(ctx, &p, o + Vec3::new(0.3, 0.0, 0.3), false), "a filled cell stays as it is");
+            assert_eq!(self.edits.adds.len(), before + 3);
+            let (_, mid) = self.grid_cell_at(o);
+            let first = &self.edits.adds[before];
+            assert!((first.pos - mid).with_y(0.0).length() < 1e-4, "a piece sits at its cell's centre");
+            assert!((first.rot * Vec3::X - Vec3::NEG_Z).length() < 1e-4 || (first.rot * Vec3::X - Vec3::Z).length() < 1e-4, "R turns a piece a quarter");
+            assert!(self.grid_paint(ctx, &p, o, true), "Ctrl empties a cell");
+            assert_eq!(self.edits.adds.len(), before + 2);
+            self.grid_turns = 0;
+        }
         // Painted blocked ground and edge walls.
         self.edits.blocked.extend((0..6).flat_map(|x| (0..3).map(move |z| (x + 20, z + 20))));
         self.add_edge_walls();
@@ -1866,18 +2038,36 @@ impl MapEditor {
             self.ensure_template(ctx, e);
         }
         let mut new = Vec::new();
+        // A pasted (or placed) placement of a prefab becomes a new placement.
+        let mut next_inst = self.edits.adds.iter().filter_map(|a| a.prefab.as_ref().map(|p| p.inst)).max().unwrap_or(0) + 1;
+        let mut insts: HashMap<u64, u64> = HashMap::new();
+        let ok: Vec<_> = ok
+            .into_iter()
+            .map(|(e, l, x, src)| {
+                let src = src.map(|mut a| {
+                    if let Some(p) = a.prefab.as_mut() {
+                        p.inst = *insts.entry(p.inst).or_insert_with(|| {
+                            next_inst += 1;
+                            next_inst - 1
+                        });
+                    }
+                    a
+                });
+                (e, l, x, src)
+            })
+            .collect();
         let snap_ground = self.snap_ground;
         let ground: Vec<Option<f32>> = ok.iter().map(|(_, _, x, _)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
         self.change(|e, _| {
             for ((entity, level, x, src), gy) in ok.into_iter().zip(ground) {
-                let (col, camp, name, light) = src.map(|a| (a.col, a.camp, a.name, a.light)).unwrap_or_default();
+                let (col, camp, name, light, prefab) = src.map(|a| (a.col, a.camp, a.name, a.light, a.prefab)).unwrap_or_default();
                 let mut pos = at + x.pos;
                 if snap_ground {
                     if let Some(g) = gy {
                         pos.y = g + x.pos.y;
                     }
                 }
-                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name, col, camp, light }));
+                new.push(e.push_add(Add { uid: 0, entity, level, pos, rot: x.rot, scale: x.scale.clamp(Vec3::splat(0.05), Vec3::splat(20.0)), name, col, camp, light, prefab }));
             }
         });
         let n = new.len();
@@ -1914,16 +2104,163 @@ impl MapEditor {
         self.status = format!("Copied {} object(s)", self.clipboard.len());
     }
 
-    fn place(&mut self, ctx: &egui::Context, entity: String, at: Vec3) {
-        let Some(s) = &self.scenery else { return };
-        // The level of the nearest shipped object, as the browser editor does.
-        let best = (0..s.obj_xf.len())
+    /// The level of the shipped object nearest `at`, where a new one goes
+    /// (as the browser editor did).
+    fn level_near(&self, at: Vec3) -> Option<String> {
+        let s = self.scenery.as_ref()?;
+        (0..s.obj_xf.len())
             .min_by(|&a, &b| {
                 let d = |i: usize| (s.obj_xf[i].pos - at).length_squared();
                 d(a).total_cmp(&d(b))
             })
-            .map(|i| s.levels[s.obj_level[i] as usize].clone());
-        let Some(level) = best else { return };
+            .map(|i| s.levels[s.obj_level[i] as usize].clone())
+    }
+
+    /// One scatter dab: a few copies of `entity` at random spots under the
+    /// brush, none closer than `spacing` to another copy; `erase` removes the
+    /// copies under it instead. The stroke's undo step is pushed by the caller.
+    /// ponytail: the spacing check scans every add, a grid hash if maps reach 10k+ adds.
+    fn scatter_dab(&mut self, ctx: &egui::Context, entity: &str, at: Vec3, erase: bool) {
+        let r = self.scatter.radius;
+        let near = |a: &Add, p: Vec3, d: f32| a.entity == entity && (a.pos - p).with_y(0.0).length() < d;
+        if erase {
+            let gone: Vec<u64> = self.edits.adds.iter().filter(|a| near(a, at, r)).map(|a| a.uid).collect();
+            if gone.is_empty() {
+                return;
+            }
+            for u in gone {
+                self.edits.delete(Sel::Add(u));
+            }
+            self.prune_selection();
+            self.touched();
+            return;
+        }
+        let Some(level) = self.level_near(at) else { return };
+        self.ensure_template(ctx, entity);
+        let sp = self.scatter.spacing.max(0.1);
+        // Enough tries to fill the circle at this spacing, a few per dab.
+        let tries = ((r * r) / (sp * sp)).clamp(1.0, 12.0) as usize;
+        let mut n = 0;
+        for _ in 0..tries {
+            let (a, d) = (self.scatter.next() * std::f32::consts::TAU, self.scatter.next().sqrt() * r);
+            let (x, z) = (at.x + a.cos() * d, at.z + a.sin() * d);
+            let p = Vec3::new(x, self.ground_y(x, z).unwrap_or(at.y), z);
+            if self.edits.adds.iter().any(|a| near(a, p, sp)) {
+                continue;
+            }
+            let yaw = self.scatter.next() * std::f32::consts::TAU;
+            let (lo, hi) = (self.scatter.scale_lo.min(self.scatter.scale_hi), self.scatter.scale_lo.max(self.scatter.scale_hi));
+            let k = lo + (hi - lo) * self.scatter.next();
+            let col = crate::edit::default_cols(entity);
+            self.edits.push_add(Add { uid: 0, entity: entity.to_owned(), level: level.clone(), pos: p, rot: Quat::from_rotation_y(yaw), scale: Vec3::splat(k), name: String::new(), col, camp: None, light: None, prefab: None });
+            n += 1;
+        }
+        if n > 0 {
+            self.touched();
+        }
+    }
+
+    /// Godot's Replace: every selected object becomes `entity`, keeping its
+    /// place, turn and size (one undo step). A shipped object is removed and
+    /// a copy added in its level.
+    fn replace_selection(&mut self, ctx: &egui::Context, entity: &str) {
+        if entity.starts_with(PREFAB) {
+            self.status = "Replace takes a prop or model, not a prefab".into();
+            return;
+        }
+        self.ensure_template(ctx, entity);
+        let sel: Vec<Sel> = self.sel.iter().copied().filter(|s| !matches!(s, Sel::Spot(_))).collect();
+        let col = crate::edit::default_cols(entity);
+        let mut new_sel = Vec::new();
+        self.change(|e, s| {
+            for x in &sel {
+                let Some(xf) = e.xf(s, *x) else { continue };
+                match *x {
+                    Sel::Add(u) => {
+                        if let Some(a) = e.adds.iter_mut().find(|a| a.uid == u) {
+                            a.entity = entity.to_owned();
+                            a.col = col.clone();
+                            new_sel.push(*x);
+                        }
+                    }
+                    Sel::Obj(i) => {
+                        let level = s.levels[s.obj_level[i] as usize].clone();
+                        e.delete(*x);
+                        new_sel.push(e.push_add(Add { uid: 0, entity: entity.to_owned(), level, pos: xf.pos, rot: xf.rot, scale: xf.scale, name: String::new(), col: col.clone(), camp: None, light: None, prefab: None }));
+                    }
+                    Sel::Spot(_) => {}
+                }
+            }
+        });
+        let n = new_sel.len();
+        self.select_only(new_sel);
+        self.status = format!("Replaced {n} object(s)");
+    }
+
+    /// Copies of `entity` every `path_spacing` m along the clicked curve, each
+    /// on the ground and turned along it (one undo step).
+    fn path_commit(&mut self, ctx: &egui::Context, entity: &str) -> usize {
+        let spots = crate::path::along(&self.path_pts, self.path_spacing);
+        let Some(level) = self.path_pts.first().and_then(|p| self.level_near(*p)) else { return 0 };
+        self.ensure_template(ctx, entity);
+        let col = crate::edit::default_cols(entity);
+        let turn = if self.path_turn { Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) } else { Quat::IDENTITY };
+        let placed: Vec<Add> = spots
+            .iter()
+            .map(|(p, dir)| {
+                let pos = Vec3::new(p.x, self.ground_y(p.x, p.z).unwrap_or(p.y), p.z);
+                let rot = Quat::from_rotation_arc(Vec3::X, *dir) * turn;
+                Add { uid: 0, entity: entity.to_owned(), level: level.clone(), pos, rot, scale: Vec3::ONE, name: String::new(), col: col.clone(), camp: None, light: None, prefab: None }
+            })
+            .collect();
+        let n = placed.len();
+        let mut sel = Vec::new();
+        self.change(|e, _| sel = placed.into_iter().map(|a| e.push_add(a)).collect());
+        self.select_only(sel);
+        self.path_pts.clear();
+        n
+    }
+
+    /// The grid cell under `at` and its centre on the ground.
+    fn grid_cell_at(&self, at: Vec3) -> ((i32, i32), Vec3) {
+        let c = self.grid_cell.max(0.25);
+        let k = ((at.x / c).floor() as i32, (at.z / c).floor() as i32);
+        let (x, z) = ((k.0 as f32 + 0.5) * c, (k.1 as f32 + 0.5) * c);
+        (k, Vec3::new(x, self.ground_y(x, z).unwrap_or(at.y), z))
+    }
+
+    /// Fill (or with `erase`, empty) the cell under `at` with `entity`. The
+    /// caller pushes the drag's undo step. True when something changed.
+    fn grid_paint(&mut self, ctx: &egui::Context, entity: &str, at: Vec3, erase: bool) -> bool {
+        let (_, mid) = self.grid_cell_at(at);
+        let half = self.grid_cell.max(0.25) * 0.5;
+        let inside = |a: &Add| a.entity == entity && (a.pos.x - mid.x).abs() < half && (a.pos.z - mid.z).abs() < half;
+        let here: Vec<u64> = self.edits.adds.iter().filter(|a| inside(a)).map(|a| a.uid).collect();
+        if erase {
+            if here.is_empty() {
+                return false;
+            }
+            for u in here {
+                self.edits.delete(Sel::Add(u));
+            }
+            self.prune_selection();
+            self.touched();
+            return true;
+        }
+        if !here.is_empty() {
+            return false; // a filled cell stays as it is
+        }
+        let Some(level) = self.level_near(mid) else { return false };
+        self.ensure_template(ctx, entity);
+        let rot = Quat::from_rotation_y(self.grid_turns as f32 * std::f32::consts::FRAC_PI_2);
+        let col = crate::edit::default_cols(entity);
+        self.edits.push_add(Add { uid: 0, entity: entity.to_owned(), level, pos: mid, rot, scale: Vec3::ONE, name: String::new(), col, camp: None, light: None, prefab: None });
+        self.touched();
+        true
+    }
+
+    fn place(&mut self, ctx: &egui::Context, entity: String, at: Vec3) {
+        let Some(level) = self.level_near(at) else { return };
         if let Some(name) = entity.strip_prefix(PREFAB) {
             self.place_prefab(ctx, name, &level, at);
             return;
@@ -1931,7 +2268,7 @@ impl MapEditor {
         self.ensure_template(ctx, &entity);
         let mut sel = None;
         let col = crate::edit::default_cols(&entity);
-        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col, camp: None, light: None })));
+        self.change(|e, _| sel = Some(e.push_add(Add { uid: 0, entity, level, pos: at, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col, camp: None, light: None, prefab: None })));
         if let Some(s) = sel {
             self.select_only([s]);
         }
@@ -2642,6 +2979,9 @@ impl MapEditor {
                 self.select_only([]);
             }
             Cmd::UnlockAll => self.locked.clear(),
+            Cmd::UpdatePrefab => {
+                self.update_prefab(ctx, true);
+            }
             Cmd::SavePrefab => {
                 if self.sel.iter().any(|s| !matches!(s, Sel::Spot(_))) {
                     self.prefab_name = Some(String::new());
@@ -2749,7 +3089,13 @@ impl MapEditor {
             Cmd::ViewFront => self.camera.view_front(),
             Cmd::ViewSide => self.camera.view_side(),
             Cmd::ViewTop => self.camera.view_top(),
+            Cmd::ViewGame => {
+                // Godot's camera preview: the map as the player sees it, round what is under the view.
+                self.camera.view_game();
+                self.status = "Game camera: what a player sees round this spot (pan to move; orbit or zoom leaves it)".into();
+            }
             Cmd::ToggleOrtho => self.camera.ortho = !self.camera.ortho,
+            Cmd::ToggleSplit => self.split = !self.split,
             Cmd::ToggleGrid => self.show_grid = !self.show_grid,
             Cmd::ToggleSnap => self.snap = !self.snap,
             Cmd::ToggleShadows => self.shadows = !self.shadows,
@@ -2836,7 +3182,7 @@ impl MapEditor {
     /// The live scale factor: typed, else along the handle grabbed (a gizmo
     /// drag, `GIZMO_PX` further = twice the size), else (S key) the pointer's
     /// distance from the pivot against where it began.
-    fn scale_factor(m: &Modal, pointer: egui::Pos2, pivot_scr: Option<egui::Pos2>, axis_px: [egui::Vec2; 3], snap: bool) -> f32 {
+    fn scale_factor(m: &Modal, pointer: egui::Pos2, pivot_scr: Option<egui::Pos2>, axis_px: [egui::Vec2; 3], snap: Option<f32>) -> f32 {
         if let Ok(v) = m.typed.parse::<f32>() {
             return v;
         }
@@ -2858,8 +3204,8 @@ impl MapEditor {
                 None => 1.0,
             }
         };
-        if snap {
-            k = (k * 10.0).round() / 10.0;
+        if let Some(st) = snap.filter(|s| *s > 0.0) {
+            k = (k / st).round() * st;
         }
         k.max(0.01)
     }
@@ -2892,7 +3238,7 @@ impl MapEditor {
             a
         };
         if snap {
-            let st = 15f32.to_radians();
+            let st = self.rot_step.max(0.1).to_radians();
             a = (a / st).round() * st;
         }
         a
@@ -2919,6 +3265,10 @@ impl MapEditor {
         rays: [(Vec3, Vec3); 2],
         snap: bool,
     ) -> Vec<(Sel, Xf)> {
+        // A drag that has not left a few pixels is a shaky click, not a move.
+        if m.by_drag && m.typed.is_empty() && pointer.distance(m.p0) < 4.0 {
+            return m.starts.clone();
+        }
         let typed: Option<f32> = m.typed.parse().ok();
         let mask = m.lock.mask();
         let drag = pointer - m.p0;
@@ -3021,7 +3371,7 @@ impl MapEditor {
                     .collect()
             }
             Kind::Scale => {
-                let k = Self::scale_factor(m, pointer, pivot_scr, axis_px, snap && typed.is_none());
+                let k = Self::scale_factor(m, pointer, pivot_scr, axis_px, (snap && typed.is_none()).then_some(self.scale_step));
                 // Per axis of `basis` (the active object's own axes).
                 let kv = Vec3::ONE + (Vec3::splat(k) - Vec3::ONE) * mask;
                 let inv = m.basis.inverse();
@@ -3144,6 +3494,18 @@ impl MapEditor {
 
     /// The selectable thing under a screen ray: bounding spheres first, then
     /// the triangles of each candidate, nearest first.
+    /// Every object under a view ray, nearest first (at most 16).
+    fn pick_all(&self, o: Vec3, d: Vec3) -> Vec<Sel> {
+        let mut skip = BTreeSet::new();
+        let mut out = Vec::new();
+        while out.len() < 16 {
+            let Some((s, _)) = self.pick_hit(o, d, &skip, false) else { break };
+            skip.insert(s);
+            out.push(s);
+        }
+        out
+    }
+
     fn pick(&self, o: Vec3, d: Vec3) -> Option<Sel> {
         self.pick_hit(o, d, &BTreeSet::new(), false).map(|(s, _)| s)
     }
@@ -3189,7 +3551,8 @@ impl MapEditor {
             let g = &r.meshes[mesh];
             let inv = m.inverse();
             let (lo, ld) = (inv.transform_point3(o), inv.transform_vector3(d));
-            if let Some(tl) = ray_mesh(lo, ld, &g.cpu.vertices, &g.cpu.indices) {
+            let bvh = g.bvh.get_or_init(|| crate::bvh::Bvh::build(&g.cpu.vertices, &g.cpu.indices));
+            if let Some(tl) = bvh.ray(lo, ld, &g.cpu.vertices, &g.cpu.indices) {
                 let t = (m.transform_point3(lo + ld * tl) - o).length();
                 if best.is_none_or(|(_, bt)| t < bt) {
                     best = Some((*sel, t));
@@ -3330,8 +3693,16 @@ impl MapEditor {
 
     fn ui_viewport(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        let rect = ui.available_rect_before_wrap();
+        let full = ui.available_rect_before_wrap();
+        // Split view: the Scene on the left, a live top view on the right.
+        let (rect, side) = if self.split && self.tile.is_none() {
+            let mid = full.center().x;
+            (egui::Rect::from_min_max(full.min, egui::pos2(mid - 1.0, full.max.y)), Some(egui::Rect::from_min_max(egui::pos2(mid + 1.0, full.min.y), full.max)))
+        } else {
+            (full, None)
+        };
         let resp = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let side_cam = side.map(|sr| self.ui_side_input(ui, sr));
         let ppp = ctx.pixels_per_point();
         let size = ((rect.width() * ppp).round() as u32, (rect.height() * ppp).round() as u32);
         let aspect = rect.width() / rect.height().max(1.0);
@@ -3408,9 +3779,16 @@ impl MapEditor {
                 if ctx.input(|i| i.pointer.secondary_down()) {
                     // Unity: the wheel while flying sets the fly speed.
                     self.fly_speed = (self.fly_speed * (1.0 + amount * 0.002)).clamp(1.0, 500.0);
-                    self.status = format!("Fly speed {:.0} m/s", self.fly_speed);
+                    self.status = format!("Fly speed {:.0} m/s here ({:.0} at 50 m out)", self.fly_speed * (self.camera.dist / 50.0).clamp(0.1, 10.0), self.fly_speed);
                 } else {
+                    // Godot / Blender: zoom toward what is under the pointer.
+                    let (d0, t0) = (self.camera.dist, self.camera.target);
                     self.camera.zoom(amount);
+                    if let Some(g) = hover_ground {
+                        // A point near the horizon is kilometres out: cap the pull.
+                        let to = (g - t0).clamp_length_max(d0 * 2.0);
+                        self.camera.target = t0 + to * (1.0 - self.camera.dist / d0);
+                    }
                     self.zoom_shown = Some(Instant::now() + Duration::from_millis(1200));
                 }
             }
@@ -3423,7 +3801,9 @@ impl MapEditor {
             // Q / E go down / up, Shift is faster. Arrows move on the ground
             // plane at any time.
             let fly = rmb && !alt;
-            let speed = if fly { self.fly_speed } else { self.camera.dist * 1.2 } * dt * if shift { 3.0 } else { 1.0 };
+            // Godot's freelook_speed_zoom_link: closer in, slower flight
+            // (fly_speed is the speed at 50 m out).
+            let speed = if fly { self.fly_speed * (self.camera.dist / 50.0).clamp(0.1, 10.0) } else { self.camera.dist * 1.2 } * dt * if shift { 3.0 } else { 1.0 };
             let ground_f = Vec3::new(self.camera.forward().x, 0.0, self.camera.forward().z).normalize_or(Vec3::Z);
             let f = if fly { self.camera.forward() } else { ground_f };
             let rgt = self.camera.right();
@@ -3552,6 +3932,101 @@ impl MapEditor {
                 }
             }
         }
+        // Grid tool: drag fills cells (Ctrl empties them), one undo step per drag.
+        if let (Tool::Grid(entity), None) = (self.tool.clone(), &self.modal) {
+            let down = !alt && (ctx.input(|i| i.pointer.primary_down()) && resp.hovered() || resp.dragged_by(egui::PointerButton::Primary));
+            if down && !ctx.input(|i| i.pointer.secondary_down()) {
+                if let Some(g) = hover_ground {
+                    let (cell, _) = self.grid_cell_at(g);
+                    if self.grid_last != Some(cell) {
+                        if self.grid_last.is_none() {
+                            self.history.push(&self.edits);
+                        }
+                        self.grid_paint(&ctx, &entity, g, cmd_key);
+                        self.grid_last = Some(cell);
+                    }
+                }
+                ctx.request_repaint();
+            } else {
+                self.grid_last = None;
+            }
+            let name = entity.rsplit(['/', '\\', ':']).next().unwrap_or(&entity).to_owned();
+            egui::Window::new("Grid")
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .resizable(false)
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new(name).strong());
+                    ui.add(egui::Slider::new(&mut self.grid_cell, 0.5..=40.0).logarithmic(true).text("cell m"));
+                    ui.label(format!("Turn {}° (R)", self.grid_turns as u32 * 90));
+                    ui.label(egui::RichText::new("Click or drag to fill cells · Ctrl+drag empties them · Esc stops").weak());
+                });
+        }
+        // Path tool: points so far, Enter places the copies, Backspace takes a point back.
+        if let Tool::Path(entity) = self.tool.clone() {
+            if !typing && ctx.input(|i| i.key_pressed(egui::Key::Backspace)) {
+                self.path_pts.pop();
+            }
+            let mut place = !typing && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+            let n = crate::path::along(&self.path_pts, self.path_spacing).len();
+            let name = entity.rsplit(['/', '\\', ':']).next().unwrap_or(&entity).to_owned();
+            egui::Window::new("Path")
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .resizable(false)
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new(name).strong());
+                    ui.add(egui::Slider::new(&mut self.path_spacing, 0.5..=40.0).logarithmic(true).text("spacing m"));
+                    ui.checkbox(&mut self.path_turn, "Turn 90° (prop is long along Z)");
+                    place |= ui.add_enabled(self.path_pts.len() >= 2, egui::Button::new(format!("Place {n} copies (Enter)"))).clicked();
+                    ui.label(egui::RichText::new("Click points on the ground · Backspace removes the last · Esc stops").weak());
+                });
+            if place && self.path_pts.len() >= 2 {
+                let n = self.path_commit(&ctx, &entity);
+                self.status = format!("Placed {n} along the path");
+            }
+        } else if !self.path_pts.is_empty() {
+            self.path_pts.clear();
+        }
+        // Scatter brush: drop copies while the left button is held.
+        if let (Tool::Scatter(entity), None) = (self.tool.clone(), &self.modal) {
+            let down = !alt && (ctx.input(|i| i.pointer.primary_down()) && resp.hovered() || resp.dragged_by(egui::PointerButton::Primary));
+            if down && !ctx.input(|i| i.pointer.secondary_down()) {
+                if let Some(g) = hover_ground {
+                    if self.last_dab.is_none() {
+                        self.history.push(&self.edits); // one undo step per stroke
+                    }
+                    if self.last_dab.is_none_or(|l| (l - g).with_y(0.0).length() >= (self.scatter.radius * 0.5).max(0.5)) {
+                        self.scatter_dab(&ctx, &entity, g, cmd_key);
+                        self.last_dab = Some(g);
+                    }
+                }
+                ctx.request_repaint();
+            } else {
+                self.last_dab = None;
+            }
+            if !typing {
+                if ctx.input(|i| i.key_pressed(egui::Key::OpenBracket)) {
+                    self.scatter.radius = (self.scatter.radius / 1.25).max(1.0);
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::CloseBracket)) {
+                    self.scatter.radius = (self.scatter.radius * 1.25).min(60.0);
+                }
+            }
+            let name = entity.rsplit(['/', '\\', ':']).next().unwrap_or(&entity).to_owned();
+            egui::Window::new("Scatter")
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .resizable(false)
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.label(egui::RichText::new(name).strong());
+                    ui.add(egui::Slider::new(&mut self.scatter.radius, 1.0..=60.0).text("radius  [ ]"));
+                    ui.add(egui::Slider::new(&mut self.scatter.spacing, 0.3..=20.0).text("spacing"));
+                    ui.add(egui::Slider::new(&mut self.scatter.scale_lo, 0.1..=4.0).text("scale min"));
+                    ui.add(egui::Slider::new(&mut self.scatter.scale_hi, 0.1..=4.0).text("scale max"));
+                    ui.label(egui::RichText::new("Drag to paint, Ctrl+drag to erase, Esc to stop").weak());
+                });
+        }
         // Box select.
         if let Some(b0) = self.box_start {
             if let Some(p) = pointer {
@@ -3645,13 +4120,16 @@ impl MapEditor {
                 match self.tool.clone() {
                     Tool::Place(entity) => {
                         if let Some(g) = ground_at(self.terrain.as_ref(), p) {
+                            // Stays armed until Esc, so a row of props is one click each.
                             self.place(&ctx, entity, g);
-                            if !shift {
-                                self.tool = Tool::Select;
-                            }
                         }
                     }
-                    Tool::Brush => {}
+                    Tool::Brush | Tool::Scatter(_) | Tool::Grid(_) => {}
+                    Tool::Path(_) => {
+                        if let Some(g) = ground_at(self.terrain.as_ref(), p) {
+                            self.path_pts.push(g);
+                        }
+                    }
                     Tool::Measure => {
                         let (o, d) = ray_at(p);
                         if let Some(h) = self.ray_hit(o, d, &BTreeSet::new()) {
@@ -3674,14 +4152,23 @@ impl MapEditor {
                             if let Some(s) = sel {
                                 self.select_only([s]);
                             }
-                            if !shift {
-                                self.tool = Tool::Select;
-                            }
                         }
                     }
                     Tool::Select => {
                         let (o, d) = ray_at(p);
-                        let hit = self.pick_any(o, d);
+                        let again = self.last_click.is_some_and(|l| l.distance(p) < 5.0);
+                        self.last_click = Some(p);
+                        let hit = match (self.left_tab == LeftTab::Spots, again, self.sel.iter().next().copied()) {
+                            // The same spot again: the next object behind the selected one.
+                            (false, true, Some(cur)) if self.sel.len() == 1 && !shift => {
+                                let all = self.pick_all(o, d);
+                                match all.iter().position(|s| *s == cur) {
+                                    Some(i) => Some(all[(i + 1) % all.len()]),
+                                    None => all.first().copied().or_else(|| self.pick_spot(o, d)),
+                                }
+                            }
+                            _ => self.pick_any(o, d),
+                        };
                         // A click just off a gizmo handle keeps the selection.
                         let near_miss = in_gizmo_zone(p) && hit.is_none_or(|h| !self.sel.contains(&h));
                         match hit {
@@ -3701,8 +4188,34 @@ impl MapEditor {
                 }
             }
         }
-        if self.modal.is_none() {
+        if alt && resp.secondary_clicked() && self.modal.is_none() {
+            if let Some(p) = resp.interact_pointer_pos() {
+                let (o, d) = ray_at(p);
+                let all = self.pick_all(o, d);
+                self.pick_list = (!all.is_empty()).then_some((p, all));
+            }
+        } else if self.modal.is_none() {
             resp.context_menu(|ui| self.ui_context_menu(ui));
+        }
+        if let Some((at, all)) = self.pick_list.clone() {
+            let mut chosen = None;
+            let area = egui::Area::new(egui::Id::unique("pick_list")).fixed_pos(at).order(egui::Order::Foreground).show(&ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Under the pointer").weak());
+                    for s in &all {
+                        if ui.selectable_label(self.sel.contains(s), self.name_of(*s)).clicked() {
+                            chosen = Some(*s);
+                        }
+                    }
+                });
+            });
+            let away = ctx.input(|i| i.pointer.primary_clicked()) && !area.response.contains_pointer();
+            if let Some(s) = chosen {
+                self.select_only([s]);
+                self.pick_list = None;
+            } else if away {
+                self.pick_list = None;
+            }
         }
 
         // ---- draw ----
@@ -3805,6 +4318,39 @@ impl MapEditor {
                 ring(&mut top, g, self.brush.radius, [1.0, 0.85, 0.4, 1.0], |x, z| self.ground_y(x, z));
                 ring(&mut top, g, self.brush.radius * 0.5, [1.0, 0.85, 0.4, 0.35], |x, z| self.ground_y(x, z));
             }
+            (Tool::Grid(_), Some(g)) => {
+                // The cell under the pointer, and an arrow for the piece's facing.
+                let (_, mid) = self.grid_cell_at(g);
+                let h = self.grid_cell.max(0.25) * 0.5;
+                let col = [0.5, 1.0, 0.6, 1.0];
+                let y = mid.y + 0.2;
+                let c = [Vec3::new(-h, 0.0, -h), Vec3::new(h, 0.0, -h), Vec3::new(h, 0.0, h), Vec3::new(-h, 0.0, h)];
+                for k in 0..4 {
+                    top.push(LineVertex { pos: (mid + c[k]).with_y(y).into(), col });
+                    top.push(LineVertex { pos: (mid + c[(k + 1) % 4]).with_y(y).into(), col });
+                }
+                let dir = Quat::from_rotation_y(self.grid_turns as f32 * std::f32::consts::FRAC_PI_2) * Vec3::X * h * 0.8;
+                top.push(LineVertex { pos: mid.with_y(y).into(), col });
+                top.push(LineVertex { pos: (mid + dir).with_y(y).into(), col });
+            }
+            (Tool::Path(_), _) => {
+                // The curve so far (to the pointer), its points and where copies land.
+                let mut pts = self.path_pts.clone();
+                pts.extend(hover_ground);
+                let line = crate::path::polyline(&pts);
+                let lift = |p: Vec3| Vec3::new(p.x, self.ground_y(p.x, p.z).unwrap_or(p.y) + 0.2, p.z);
+                for w in line.windows(2) {
+                    top.push(LineVertex { pos: lift(w[0]).into(), col: [0.5, 1.0, 0.6, 1.0] });
+                    top.push(LineVertex { pos: lift(w[1]).into(), col: [0.5, 1.0, 0.6, 1.0] });
+                }
+                for p in &self.path_pts {
+                    ring(&mut top, *p, 0.6, [1.0, 1.0, 1.0, 1.0], |x, z| self.ground_y(x, z));
+                }
+                for (p, _) in crate::path::along(&pts, self.path_spacing) {
+                    ring(&mut top, p, 0.3, [0.5, 1.0, 0.6, 0.7], |x, z| self.ground_y(x, z));
+                }
+            }
+            (Tool::Scatter(_), Some(g)) => ring(&mut top, g, self.scatter.radius, [0.5, 1.0, 0.6, 1.0], |x, z| self.ground_y(x, z)),
             (Tool::AddSpot(grp), Some(g)) => {
                 let h = recipe::group_size(grp) * 0.5;
                 ring(&mut top, g, h * 1.41, [0.4, 1.0, 0.6, 0.8], |x, z| self.ground_y(x, z));
@@ -3829,6 +4375,34 @@ let lights_now = self.lights_near(self.camera.target);
         // Snapshots render at a fixed size, whatever the window got.
         let size = if self.opts.snapshot.is_some() { (1600, 1000) } else { size };
         let t0 = Instant::now();
+        // The top view first, so the status bar keeps the Scene's numbers.
+        let side_tex = match (side, side_cam) {
+            (Some(sr), Some(sc)) => Some((
+                sr,
+                renderer.render_side(
+                    rs,
+                    ((sr.width() * ppp).round() as u32, (sr.height() * ppp).round() as u32),
+                    &Frame {
+                        camera: &sc,
+                        parts: parts.clone(),
+                        lines: &lines,
+                        top_lines: &[],
+                        min_px: self.min_px,
+                        haze: 0.0,
+                        exposure: self.exposure,
+                        shadows: false,
+                        env: &self.env,
+                        draw_water: self.tile.is_none(),
+                        no_terrain: false,
+                        sky: self.theme.scene_linear(),
+                        time: 1.0,
+                        lights: &lights_now,
+                        view_mode: self.view_mode,
+                    },
+                ),
+            )),
+            _ => None,
+        };
         let tex = renderer.render(
             rs,
             size,
@@ -3847,6 +4421,7 @@ let lights_now = self.lights_near(self.camera.target);
                 sky: self.theme.scene_linear(),
                 time: if play_fx { self.started.elapsed().as_secs_f32() } else { 1.0 },
                 lights: &lights_now,
+                view_mode: self.view_mode,
             },
         );
         if play_fx && renderer.stats.vfx > 0 {
@@ -3854,6 +4429,45 @@ let lights_now = self.lights_near(self.camera.target);
         }
         self.frame_ms = self.frame_ms * 0.9 + t0.elapsed().as_secs_f32() * 1000.0 * 0.1;
         ui.painter().image(tex, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+        if let (Some((sr, st)), Some(sc)) = (side_tex, side_cam) {
+            let p = ui.painter_at(sr);
+            p.image(st, sr, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            // Where the Scene camera looks, and what it sees on the ground.
+            let svp = sc.proj(sr.width() / sr.height().max(1.0)) * sc.view();
+            let on = |w: Vec3| {
+                let c = svp * w.extend(1.0);
+                egui::pos2(sr.left() + (c.x / c.w * 0.5 + 0.5) * sr.width(), sr.top() + (0.5 - c.y / c.w * 0.5) * sr.height())
+            };
+            let corners: Vec<egui::Pos2> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .iter()
+                .filter_map(|&(x, y)| ground_at(self.terrain.as_ref(), egui::pos2(rect.left() + (x * 0.5 + 0.5) * rect.width(), rect.top() + (0.5 - y * 0.5) * rect.height())))
+                .map(on)
+                .collect();
+            let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(255, 214, 102));
+            if corners.len() == 4 {
+                p.add(egui::Shape::closed_line(corners, stroke));
+            }
+            p.circle_filled(on(self.camera.target), 3.5, stroke.color);
+            p.text(sr.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, "Top · click to look there · wheel zooms", egui::FontId::proportional(12.0), egui::Color32::from_white_alpha(200));
+        }
+        if self.camera.is_game() {
+            // A 16:9 screen inside the view; outside it is dimmed.
+            // ponytail: the game's FOV aspect correction is unknown, so the frame keeps the view's height.
+            let w = (rect.height() * 16.0 / 9.0).min(rect.width());
+            let screen = egui::Rect::from_center_size(rect.center(), egui::vec2(w, w * 9.0 / 16.0));
+            let dim = egui::Color32::from_black_alpha(140);
+            for r in [
+                egui::Rect::from_min_max(rect.min, egui::pos2(screen.min.x, rect.max.y)),
+                egui::Rect::from_min_max(egui::pos2(screen.max.x, rect.min.y), rect.max),
+                egui::Rect::from_min_max(egui::pos2(screen.min.x, rect.min.y), egui::pos2(screen.max.x, screen.min.y)),
+                egui::Rect::from_min_max(egui::pos2(screen.min.x, screen.max.y), egui::pos2(screen.max.x, rect.max.y)),
+            ] {
+                ui.painter().rect_filled(r, 0.0, dim);
+            }
+            ui.painter().rect_stroke(screen, 0.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(90)), egui::StrokeKind::Inside);
+        } else if (self.camera.fov_y - Camera::default().fov_y).abs() > 1e-4 {
+            self.camera.leave_game();
+        }
 
         if let Some(path) = self.opts.ui_snapshot.clone() {
             let tile_ok = self.opts.open_tile.is_none() && self.tile.as_ref().is_none_or(|t| t.built);
@@ -3934,11 +4548,11 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Icon::Orbit)
         } else if zooming {
             Some(Icon::Search)
-        } else if resp.hovered() && self.tool == Tool::Brush {
+        } else if resp.hovered() && matches!(self.tool, Tool::Brush | Tool::Scatter(_) | Tool::Grid(_)) {
             Some(Icon::Brush)
         } else if resp.hovered() && self.tool == Tool::Measure {
             Some(Icon::Ruler)
-        } else if resp.hovered() && matches!(self.tool, Tool::Place(_) | Tool::AddSpot(_)) {
+        } else if resp.hovered() && matches!(self.tool, Tool::Place(_) | Tool::AddSpot(_) | Tool::Path(_)) {
             Some(Icon::Pin)
         } else {
             None
@@ -3961,7 +4575,7 @@ let lights_now = self.lights_near(self.camera.target);
                 }
             });
             let snap = snap_now && m.typed.is_empty();
-            (Self::scale_factor(m, ptr, ps, axis_px, snap), self.rotate_angle(m, ptr, ps, snap))
+            (Self::scale_factor(m, ptr, ps, axis_px, snap.then_some(self.scale_step)), self.rotate_angle(m, ptr, ps, snap))
         });
         if let (Some(p), Some(c), Tool::Select) = (pivot, pivot_scr, &self.tool) {
             // Kept on screen while dragging, the handle in use lit up.
@@ -4101,6 +4715,31 @@ let lights_now = self.lights_near(self.camera.target);
         }
     }
 
+    /// The split view's top camera, after its clicks and wheel: a click or
+    /// drag there moves the Scene camera's focus to that spot.
+    fn ui_side_input(&mut self, ui: &mut egui::Ui, sr: egui::Rect) -> Camera {
+        let r = ui.allocate_rect(sr, egui::Sense::click_and_drag());
+        if r.hovered() {
+            let s = ui.input(|i| i.smooth_scroll_delta.y);
+            if s != 0.0 {
+                self.side_zoom = (self.side_zoom * (1.0 - s * 0.0015)).clamp(0.5, 40.0);
+            }
+        }
+        let mut c = Camera { ortho: true, dist: (self.camera.dist * self.side_zoom).max(20.0), ..self.camera };
+        c.view_top();
+        if let Some(p) = r.interact_pointer_pos().filter(|_| r.clicked() || r.dragged_by(egui::PointerButton::Primary)) {
+            let x = (p.x - sr.left()) / sr.width() * 2.0 - 1.0;
+            let y = 1.0 - (p.y - sr.top()) / sr.height() * 2.0;
+            let (o, d) = c.ray(x, y, sr.width() / sr.height().max(1.0));
+            let hit = self.terrain.as_ref().and_then(|t| t.raycast(o, d, 9000.0)).or_else(|| (d.y < -1e-4).then(|| o + d * ((self.camera.target.y - o.y) / d.y)));
+            if let Some(h) = hit {
+                self.camera.target = h;
+                c.target = h;
+            }
+        }
+        c
+    }
+
     fn draw_minimap(&mut self, ui: &mut egui::Ui, rect: egui::Rect, aspect: f32) {
         if std::mem::take(&mut self.minimap_stale) && self.tile.is_none() {
             self.minimap_tex = self.terrain.as_ref().map(|t| minimap_texture(ui.ctx(), t));
@@ -4192,6 +4831,10 @@ let lights_now = self.lights_near(self.camera.target);
             return;
         }
         let rmb = ctx.input(|i| i.pointer.secondary_down());
+        if self.pick_list.is_some() && p(egui::Key::Escape) {
+            self.pick_list = None; // Esc closes the Alt+right-click list, nothing else
+            return;
+        }
         let c = if p(egui::Key::F1) {
             Some(Cmd::Shortcuts)
         } else if p(egui::Key::F5) {
@@ -4222,6 +4865,8 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Cmd::Duplicate)
         } else if cmd && p(egui::Key::I) {
             Some(Cmd::Invert)
+        } else if cmd && p(egui::Key::Num2) {
+            Some(Cmd::ToggleSplit)
         } else if cmd && p(egui::Key::G) {
             Some(Cmd::Group)
         } else if p(egui::Key::B) && !cmd && self.tile.is_none() {
@@ -4254,6 +4899,9 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Cmd::ResetTransform)
         } else if p(egui::Key::G) && !self.sel.is_empty() {
             Some(Cmd::Grab)
+        } else if p(egui::Key::R) && matches!(self.tool, Tool::Grid(_)) {
+            self.grid_turns = (self.grid_turns + 1) % 4;
+            None
         } else if p(egui::Key::R) && !self.sel.is_empty() {
             Some(Cmd::Rotate)
         } else if p(egui::Key::S) && !self.sel.is_empty() && !cmd {
@@ -4274,6 +4922,8 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Cmd::ViewTop)
         } else if p(egui::Key::Num5) {
             Some(Cmd::ToggleOrtho)
+        } else if p(egui::Key::Num0) {
+            Some(Cmd::ViewGame)
         } else if p(egui::Key::M) {
             Some(Cmd::ToggleMinimap)
         } else if p(egui::Key::W) && !self.sel.is_empty() {
@@ -4427,6 +5077,7 @@ let lights_now = self.lights_near(self.camera.target);
                 item(ui, "Drop to ground", "End", Cmd::DropToGround);
                 item(ui, "Array…", "", Cmd::Array);
                 item(ui, "Save as prefab…", "", Cmd::SavePrefab);
+                item(ui, "Update prefab from selection", "", Cmd::UpdatePrefab);
                 ui.menu_button("Align", |ui| {
                     for (label, _, c) in COMMANDS.iter().filter(|(_, _, c)| matches!(c, Cmd::Align(..))) {
                         if ui.button(label.trim_start_matches("Align ")).clicked() {
@@ -4460,13 +5111,28 @@ let lights_now = self.lights_near(self.camera.target);
                 item(ui, "Front", "1", Cmd::ViewFront);
                 item(ui, "Side", "3", Cmd::ViewSide);
                 item(ui, "Top", "7", Cmd::ViewTop);
+                item(ui, "Game camera", "0", Cmd::ViewGame);
+                item(ui, "Split view: Scene + top", "Ctrl+2", Cmd::ToggleSplit);
                 item(ui, "Perspective / Orthographic", "5", Cmd::ToggleOrtho);
                 ui.separator();
                 ui.checkbox(&mut self.show_grid, "Grid");
                 ui.checkbox(&mut self.show_lights, "Prop lights").on_hover_text("Lanterns and point lights light the Scene (the 16 nearest; their colour is a guess)");
                 ui.checkbox(&mut self.show_walk, "Walkability").on_hover_text("Blocked ground in red, every wall (orange) and walkable box (green)");
                 ui.checkbox(&mut self.snap, "Snap to grid");
-                ui.add(egui::Slider::new(&mut self.grid_size, 0.25..=16.0).logarithmic(true).text("grid m"));
+                ui.add(egui::Slider::new(&mut self.grid_size, 0.25..=16.0).logarithmic(true).text("move step m"));
+                ui.add(egui::Slider::new(&mut self.rot_step, 1.0..=90.0).logarithmic(true).text("rotate step °"));
+                ui.add(egui::Slider::new(&mut self.scale_step, 0.01..=1.0).logarithmic(true).text("scale step"));
+                ui.separator();
+                ui.label("Display");
+                let wire_ok = self.renderer.as_ref().is_some_and(|r| r.can_wireframe());
+                for m in crate::render::ViewMode::ALL {
+                    let ok = m != crate::render::ViewMode::Wireframe || wire_ok;
+                    let r = ui.add_enabled(ok, egui::RadioButton::new(self.view_mode == m, m.label()));
+                    let r = if ok { r } else { r.on_disabled_hover_text("This GPU cannot draw lines for triangles") };
+                    if r.clicked() {
+                        self.view_mode = m;
+                    }
+                }
                 ui.checkbox(&mut self.snap_ground, "Objects follow the ground");
                 ui.checkbox(&mut self.shadows, "Shadows");
                 ui.checkbox(&mut self.show_minimap, "Minimap");
@@ -4672,10 +5338,34 @@ let lights_now = self.lights_near(self.camera.target);
             ui.selectable_value(&mut self.bottom_tab, BottomTab::Project, "Project");
             let errs = self.failed_assets.len();
             ui.selectable_value(&mut self.bottom_tab, BottomTab::Console, if errs > 0 { format!("Console ({errs})") } else { "Console".into() });
+            ui.selectable_value(&mut self.bottom_tab, BottomTab::History, "History");
         });
         ui.separator();
         match self.bottom_tab {
             BottomTab::Project => self.ui_assets(ui),
+            BottomTab::History => {
+                // Godot's History dock: every step, click one to go back (or forward) to it.
+                let mut go = None;
+                {
+                    let (tl, at) = self.history.timeline(&self.edits);
+                    egui::ScrollArea::vertical().id_salt("history").auto_shrink(false).show(ui, |ui| {
+                        if ui.selectable_label(at == 0, "Opened").clicked() {
+                            go = Some(0);
+                        }
+                        for k in 1..tl.len() {
+                            let text = egui::RichText::new(crate::edit::describe(tl[k - 1], tl[k]));
+                            let text = if k > at { text.weak().italics() } else { text };
+                            if ui.selectable_label(k == at, text).clicked() {
+                                go = Some(k);
+                            }
+                        }
+                    });
+                }
+                if let Some(k) = go {
+                    self.history.jump(&mut self.edits, k);
+                    self.after_history();
+                }
+            }
             BottomTab::Console => {
                 ui.horizontal(|ui| {
                     if icons::text_button(ui, Icon::Copy, "Copy all").on_hover_text("Or select any text and press Ctrl+C").clicked() {
@@ -4724,7 +5414,7 @@ let lights_now = self.lights_near(self.camera.target);
                 for (e, name) in &camps {
                     if ui.button(name).clicked() {
                         self.tool = Tool::Place(e.clone());
-                        self.status = format!("Click the ground to place {name} (Shift keeps placing)");
+                        self.status = format!("Click the ground to place {name} (Esc to stop)");
                         ui.close();
                     }
                 }
@@ -4739,7 +5429,7 @@ let lights_now = self.lights_near(self.camera.target);
                 for (e, name) in &lights {
                     if ui.button(name).clicked() {
                         self.tool = Tool::Place(e.clone());
-                        self.status = format!("Click the ground to place {name} (Shift keeps placing)");
+                        self.status = format!("Click the ground to place {name} (Esc to stop)");
                         ui.close();
                     }
                 }
@@ -4753,7 +5443,7 @@ let lights_now = self.lights_near(self.camera.target);
             let r = ui.add_enabled(ok, egui::Button::new(label)).on_hover_text(tip).on_disabled_hover_text("Only on a map of your own: File > New chapter or New map from chapter");
             if r.clicked() {
                 self.tool = Tool::Place(format!("{}{k}", crate::edit::COLLIDER));
-                self.status = format!("Click the ground to place: {label} (Shift keeps placing)");
+                self.status = format!("Click the ground to place: {label} (Esc to stop)");
                 ui.close();
             }
         }
@@ -4764,7 +5454,7 @@ let lights_now = self.lights_near(self.camera.target);
                 let mut drop = None;
                 for n in &prefabs {
                     ui.horizontal(|ui| {
-                        if ui.button(n.replace('_', " ")).on_hover_text("Click, then click the ground (Shift keeps placing)").clicked() {
+                        if ui.button(n.replace('_', " ")).on_hover_text("Click, then click the ground (Esc to stop)").clicked() {
                             self.tool = Tool::Place(format!("{PREFAB}{n}"));
                             self.status = format!("Click the ground to place prefab {n}");
                             ui.close();
@@ -4797,7 +5487,7 @@ let lights_now = self.lights_near(self.camera.target);
                     for g in &r.groups {
                         if ui.button(format!("{g} spot")).clicked() {
                             self.tool = Tool::AddSpot(g.clone());
-                            self.status = format!("Click the ground to place a {g} spot (Shift keeps placing)");
+                            self.status = format!("Click the ground to place a {g} spot (Esc to stop)");
                             ui.close();
                         }
                     }
@@ -4834,7 +5524,7 @@ let lights_now = self.lights_near(self.camera.target);
         self.change(|e, _| {
             for (pos, rot, len) in walls {
                 let col = Some(vec![crate::edit::ColBox::wall(Vec3::new(len, 12.0, 1.0), Vec3::new(0.0, 5.0, 0.0))]);
-                new.push(e.push_add(Add { uid: 0, entity: format!("{}wall", crate::edit::COLLIDER), level: level.clone(), pos, rot, scale: Vec3::ONE, name: "Edge wall".into(), col, camp: None, light: None }));
+                new.push(e.push_add(Add { uid: 0, entity: format!("{}wall", crate::edit::COLLIDER), level: level.clone(), pos, rot, scale: Vec3::ONE, name: "Edge wall".into(), col, camp: None, light: None, prefab: None }));
             }
         });
         let n = new.len();
@@ -5132,6 +5822,7 @@ let lights_now = self.lights_near(self.camera.target);
             no_terrain: true,
             sky: None,
             lights: &[],
+            view_mode: Default::default(),
             // The preview window plays the effects; thumbnails hold them still.
             time: if preview { self.started.elapsed().as_secs_f32() } else { 1.0 },
         };
@@ -5150,6 +5841,62 @@ let lights_now = self.lights_near(self.camera.target);
 
     /// Add `.glb` models and `.png` textures to the mod. A texture goes on
     /// the model with the same file name, else on the last model imported.
+    /// Once a second: reload any imported model or texture whose file changed.
+    /// ponytail: polls mtimes (a few stats a second); a notify watcher if mods hold hundreds of models.
+    fn watch_art(&mut self, ctx: &egui::Context) {
+        if self.headless() || self.art_poll.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        self.art_poll = Instant::now();
+        ctx.request_repaint_after(Duration::from_secs(1));
+        let files: Vec<std::path::PathBuf> = self.models.iter().flat_map(|m| std::iter::once(m.mesh.file.clone()).chain(m.texture.as_ref().map(|t| t.file.clone()))).collect();
+        for f in files {
+            let Ok(t) = std::fs::metadata(&f).and_then(|m| m.modified()) else { continue };
+            match self.art_mtimes.insert(f.clone(), t) {
+                Some(old) if old != t => self.reload_art(ctx, &f),
+                _ => {}
+            }
+        }
+    }
+
+    fn reload_art(&mut self, ctx: &egui::Context, file: &std::path::Path) {
+        let key = format!("file:{}", file.display());
+        let glb = file.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb"));
+        let read = if glb { crate::models::read_glb(file).map(|(b, lo, hi)| (b, Some((lo, hi)))) } else { std::fs::read(file).map(|b| (b, None)).map_err(Into::into) };
+        let (bytes, bounds) = match read {
+            Ok(x) => x,
+            // Mid-save in Blender: the next poll sees the finished file.
+            Err(e) => return self.status = format!("Reload {}: {e:#}", file.display()),
+        };
+        let mut hit = Vec::new();
+        for m in &mut self.models {
+            if m.mesh.file == file {
+                if let Some((lo, hi)) = bounds {
+                    (m.lo, m.hi) = (lo, hi);
+                }
+                hit.push((m.entity(), m.mesh.rel.clone()));
+            } else if let Some(t) = m.texture.as_ref().filter(|t| t.file == file) {
+                hit.push((m.entity(), t.rel.clone()));
+            }
+        }
+        if let Some(r) = &mut self.renderer {
+            r.forget(&key);
+        }
+        self.requested.remove(&key);
+        self.requested.remove(&format!("{key}|false"));
+        for (e, rel) in &hit {
+            self.templates.remove(e);
+            self.thumbs.remove(e);
+            self.stage(ctx, rel.clone(), bytes.clone());
+        }
+        for (e, _) in &hit {
+            self.ensure_template(ctx, e);
+        }
+        self.dirty = true;
+        self.unsaved |= !hit.is_empty();
+        self.status = format!("Reloaded {} (changed on disk)", file.display());
+    }
+
     fn import_files(&mut self, ctx: &egui::Context, paths: Vec<std::path::PathBuf>) {
         use crate::models::{clean_stem, read_glb, Art, Model};
         let (mut glbs, mut pngs): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("glb")));
@@ -5214,8 +5961,8 @@ let lights_now = self.lights_near(self.camera.target);
         let docs: Vec<Value> = items
             .into_iter()
             .map(|(e, _l, x, src)| {
-                let a = src.unwrap_or_else(|| Add { uid: 0, entity: e, level: String::new(), pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None, light: None });
-                let a = Add { pos: x.pos, rot: x.rot, scale: x.scale, ..a };
+                let a = src.unwrap_or_else(|| Add { uid: 0, entity: e, level: String::new(), pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None, light: None, prefab: None });
+                let a = Add { pos: x.pos, rot: x.rot, scale: x.scale, prefab: None, ..a };
                 let mut o = a.xf_json(a.pos);
                 if !a.name.is_empty() {
                     o["name"] = json!(a.name);
@@ -5259,6 +6006,71 @@ let lights_now = self.lights_near(self.camera.target);
     }
 
     fn place_prefab_doc(&mut self, ctx: &egui::Context, name: &str, doc: &Value, level: &str, at: Vec3) -> usize {
+        let (items, skipped) = self.prefab_items(name, doc, level);
+        let n = self.paste_items(ctx, items, at);
+        self.status = format!("Placed prefab {name}: {n} objects{}", if skipped > 0 { format!(" ({skipped} models of another mod skipped)") } else { String::new() });
+        n
+    }
+
+    /// Object > Update prefab: the selection becomes prefab `name` (saved
+    /// unless `save` is off), and every other placement of it is rebuilt where
+    /// it stands, as one undo step (Godot's linked scenes). Returns the
+    /// placements rebuilt.
+    fn update_prefab(&mut self, ctx: &egui::Context, save: bool) -> Option<usize> {
+        let link = self.sel.iter().find_map(|s| match s {
+            Sel::Add(u) => self.edits.add(*u).and_then(|a| a.prefab.clone()),
+            _ => None,
+        });
+        let Some(link) = link else {
+            self.status = "Select objects placed from a prefab (Create > Prefab) first".into();
+            return None;
+        };
+        let doc = self.prefab_doc();
+        if save {
+            if let Err(e) = session::save_prefab(&link.name, &doc) {
+                self.status = format!("Prefab not saved: {e}");
+                return None;
+            }
+        }
+        // Everything selected now belongs to this placement.
+        let sel_adds: Vec<u64> = self.sel.iter().filter_map(|s| if let Sel::Add(u) = s { Some(*u) } else { None }).collect();
+        self.history.push(&self.edits);
+        for a in self.edits.adds.iter_mut().filter(|a| sel_adds.contains(&a.uid)) {
+            a.prefab = Some(link.clone());
+        }
+        // The other placements: where each stands, then rebuilt from the new doc.
+        let mut others: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
+        for a in &self.edits.adds {
+            if let Some(p) = a.prefab.as_ref().filter(|p| p.name == link.name && p.inst != link.inst) {
+                others.entry(p.inst).or_default().push(a.uid);
+            }
+        }
+        for (inst, members) in &others {
+            let adds: Vec<&Add> = members.iter().filter_map(|u| self.edits.add(*u)).collect();
+            let at = adds.iter().map(|a| a.pos).sum::<Vec3>() / adds.len() as f32;
+            let level = adds[0].level.clone();
+            let (items, _) = self.prefab_items(&link.name, &doc, &level);
+            let grounds: Vec<Option<f32>> = items.iter().map(|(_, _, x, _)| self.ground_y(at.x + x.pos.x, at.z + x.pos.z)).collect();
+            for u in members {
+                self.edits.delete(Sel::Add(*u));
+            }
+            for ((e, l, x, src), g) in items.into_iter().zip(grounds) {
+                self.ensure_template(ctx, &e);
+                let mut a = src.unwrap_or(Add { uid: 0, entity: e.clone(), level: l, pos: x.pos, rot: x.rot, scale: x.scale, name: String::new(), col: None, camp: None, light: None, prefab: None });
+                a.pos = Vec3::new(at.x + x.pos.x, g.map_or(at.y + x.pos.y, |g| g + x.pos.y), at.z + x.pos.z);
+                a.prefab = Some(crate::edit::PrefabLink { name: link.name.clone(), inst: *inst });
+                self.edits.push_add(a);
+            }
+        }
+        self.prune_selection();
+        self.touched();
+        self.status = format!("Prefab {} updated: {} other placement(s) rebuilt", link.name, others.len());
+        Some(others.len())
+    }
+
+    /// A prefab document's objects as paste items in `level` (linked to
+    /// `name`), and how many were models of another mod (left out).
+    fn prefab_items(&self, name: &str, doc: &Value, level: &str) -> (Vec<(String, String, Xf, Option<Add>)>, usize) {
         let mut skipped = 0;
         let items: Vec<(String, String, Xf, Option<Add>)> = doc["items"]
             .as_array()
@@ -5286,13 +6098,13 @@ let lights_now = self.lights_near(self.camera.target);
                     col: o.get("collision").map(crate::edit::ColBox::parse),
                     camp: crate::edit::Camp::parse(&o["camp"]),
                     light: crate::edit::parse_light(&o["light"]),
+                    // Linked: Object > Update prefab rebuilds every placement.
+                    prefab: Some(crate::edit::PrefabLink { name: name.to_owned(), inst: 0 }),
                 };
                 Some((e, level.to_owned(), xf, Some(src)))
             })
             .collect();
-        let n = self.paste_items(ctx, items, at);
-        self.status = format!("Placed prefab {name}: {n} objects{}", if skipped > 0 { format!(" ({skipped} models of another mod skipped)") } else { String::new() });
-        n
+        (items, skipped)
     }
 
     /// Object > Array…: copies of the selection in a row (fences, walls,
@@ -5944,7 +6756,7 @@ let lights_now = self.lights_near(self.camera.target);
         ui.horizontal_wrapped(|ui| {
             for g in &r.groups {
                 let on = self.tool == Tool::AddSpot(g.clone());
-                if ui.selectable_label(on, g).on_hover_text("Click the ground to place (Shift keeps placing)").clicked() {
+                if ui.selectable_label(on, g).on_hover_text("Click the ground to place (Esc to stop)").clicked() {
                     self.tool = if on { Tool::Select } else { Tool::AddSpot(g.clone()) };
                 }
             }
@@ -6324,6 +7136,10 @@ let lights_now = self.lights_near(self.camera.target);
             self.project_dir = P::ASSETS.to_owned();
         }
         let mut open_dir: Option<String> = None;
+        let mut scatter: Option<String> = None;
+        let mut replace: Option<String> = None;
+        let mut path: Option<String> = None;
+        let mut grid: Option<String> = None;
         // (model entity, folder) dropped onto a folder; folder actions from menus.
         let mut move_to: Option<(String, String)> = None;
         let mut new_in: Option<String> = None;
@@ -6449,6 +7265,22 @@ let lights_now = self.lights_near(self.camera.target);
                                     pick = Some((entity.clone(), r.double_clicked()));
                                 }
                                 r.context_menu(|ui| {
+                                    if ui.button("Scatter paint").clicked() {
+                                        scatter = Some(entity.clone());
+                                        ui.close();
+                                    }
+                                    if ui.add_enabled(!self.sel.is_empty(), egui::Button::new("Replace selected with this")).clicked() {
+                                        replace = Some(entity.clone());
+                                        ui.close();
+                                    }
+                                    if ui.button("Place along a path").clicked() {
+                                        path = Some(entity.clone());
+                                        ui.close();
+                                    }
+                                    if ui.button("Paint on a grid").clicked() {
+                                        grid = Some(entity.clone());
+                                        ui.close();
+                                    }
                                     if ui.button("Copy path").clicked() {
                                         ui.ctx().copy_text(m.mesh.rel.clone());
                                         ui.close();
@@ -6488,6 +7320,22 @@ let lights_now = self.lights_near(self.camera.target);
                                 pick = Some((p.entity.clone(), r.double_clicked()));
                             }
                             r.context_menu(|ui| {
+                                if ui.button("Scatter paint").clicked() {
+                                    scatter = Some(p.entity.clone());
+                                    ui.close();
+                                }
+                                if ui.add_enabled(!self.sel.is_empty(), egui::Button::new("Replace selected with this")).clicked() {
+                                    replace = Some(p.entity.clone());
+                                    ui.close();
+                                }
+                                if ui.button("Place along a path").clicked() {
+                                    path = Some(p.entity.clone());
+                                    ui.close();
+                                }
+                                if ui.button("Paint on a grid").clicked() {
+                                    grid = Some(p.entity.clone());
+                                    ui.close();
+                                }
                                 if ui.button("Copy path").clicked() {
                                     ui.ctx().copy_text(p.entity.clone());
                                     ui.close();
@@ -6524,6 +7372,21 @@ let lights_now = self.lights_near(self.camera.target);
             self.ensure_template(&ctx, e);
         }
         self.thumb_want.extend(want); // the Inspector asks for its own too
+        if let Some(e) = grid {
+            self.ensure_template(&ctx, &e);
+            self.tool = Tool::Grid(e);
+        }
+        if let Some(e) = path {
+            self.ensure_template(&ctx, &e);
+            self.tool = Tool::Path(e);
+        }
+        if let Some(e) = replace {
+            self.replace_selection(&ctx, &e);
+        }
+        if let Some(e) = scatter {
+            self.ensure_template(&ctx, &e);
+            self.tool = Tool::Scatter(e);
+        }
         if let Some(d) = open_dir {
             self.project_dir = d;
             self.prop_filter.clear();
@@ -7009,6 +7872,45 @@ let lights_now = self.lights_near(self.camera.target);
                     let d = c - p;
                     let xfs: Vec<(Sel, Xf)> = self.sel.iter().filter_map(|x| self.edits.xf(s, *x).map(|xf| (*x, Xf { pos: xf.pos + d, ..xf }))).collect();
                     self.set_live(&xfs);
+                    return;
+                }
+            }
+            // Godot's multi-edit: turn and size every selected object at once,
+            // each about its own origin (the first one's value is shown).
+            let xfs: Vec<(Sel, Xf)> = self.sel.iter().filter_map(|x| self.edits.xf(s, *x).map(|xf| (*x, xf))).collect();
+            if let Some(&(_, x0)) = xfs.first() {
+                let yaw_of = |q: Quat| q.to_euler(glam::EulerRot::YXZ).0.to_degrees();
+                let (yaw0, k0) = (yaw_of(x0.rot), x0.scale.x);
+                let mixed_yaw = xfs.iter().any(|(_, x)| (yaw_of(x.rot) - yaw0).abs() > 0.01);
+                let mixed_k = xfs.iter().any(|(_, x)| (x.scale.x - k0).abs() > 1e-4);
+                let (mut yaw, mut k) = (yaw0, k0);
+                let (mut started, mut changed) = (false, false);
+                ui.horizontal(|ui| {
+                    ui.label("Turn");
+                    let r = ui.add(egui::DragValue::new(&mut yaw).speed(1.0).suffix("°").fixed_decimals(1));
+                    started |= r.drag_started() || r.gained_focus();
+                    changed |= r.changed();
+                    if mixed_yaw {
+                        ui.label(egui::RichText::new("mixed: turns them all by the change").small().weak());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Size");
+                    let r = ui.add(egui::DragValue::new(&mut k).speed(0.01).range(0.01..=100.0).fixed_decimals(2));
+                    started |= r.drag_started() || r.gained_focus();
+                    changed |= r.changed();
+                    if mixed_k {
+                        ui.label(egui::RichText::new("mixed: scales them all by the ratio").small().weak());
+                    }
+                });
+                if started {
+                    self.history.push(&self.edits);
+                }
+                if changed {
+                    let turn = Quat::from_rotation_y((yaw - yaw0).to_radians());
+                    let ratio = if k0.abs() > 1e-6 { k / k0 } else { 1.0 };
+                    let out: Vec<(Sel, Xf)> = xfs.iter().map(|&(x, xf)| (x, Xf { rot: turn * xf.rot, scale: xf.scale * ratio, ..xf })).collect();
+                    self.set_live(&out);
                     return;
                 }
             }
@@ -7658,7 +8560,7 @@ let lights_now = self.lights_near(self.camera.target);
                 ui.strong("Editing");
                 egui::Grid::new("keys").num_columns(2).striped(true).show(ui, |ui| {
                     ui.label("Select");
-                    ui.label("Click · Shift+click add/remove · drag a box on empty ground");
+                    ui.label("Click · click again for the one behind · Alt+right-click lists all · Shift+click add/remove · drag a box on empty ground");
                     ui.end_row();
                     ui.label("Move by dragging");
                     ui.label("Drag an object, or a gizmo arrow / ring / handle");
@@ -7801,6 +8703,7 @@ impl eframe::App for MapEditor {
             self.title = title;
         }
         self.handle_events(&ctx);
+        self.watch_art(&ctx);
         let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         if !dropped.is_empty() {
             self.import_files(&ctx, dropped);
@@ -7931,7 +8834,9 @@ impl MapEditor {
 }
 
 fn view_name(c: &Camera) -> &'static str {
-    if c.pitch > 1.5 {
+    if c.is_game() {
+        "Game camera"
+    } else if c.pitch > 1.5 {
         "Top"
     } else if c.pitch.abs() < 0.01 && c.yaw.abs() < 0.01 {
         "Front"
@@ -8322,53 +9227,13 @@ fn ring(out: &mut Vec<LineVertex>, c: Vec3, r: f32, col: [f32; 4], ground: impl 
     }
 }
 
-/// Nearest hit of a ray with a triangle mesh (Möller–Trumbore), in ray units.
-fn ray_mesh(o: Vec3, d: Vec3, v: &[crate::assets::Vertex], idx: &[u32]) -> Option<f32> {
-    let mut best: Option<f32> = None;
-    for tri in idx.chunks_exact(3) {
-        let (Some(a), Some(b), Some(c)) = (v.get(tri[0] as usize), v.get(tri[1] as usize), v.get(tri[2] as usize)) else {
-            continue;
-        };
-        let (a, b, c) = (Vec3::from(a.pos), Vec3::from(b.pos), Vec3::from(c.pos));
-        let (e1, e2) = (b - a, c - a);
-        let p = d.cross(e2);
-        let det = e1.dot(p);
-        if det.abs() < 1e-12 {
-            continue;
-        }
-        let inv = 1.0 / det;
-        let s = o - a;
-        let u = s.dot(p) * inv;
-        if !(0.0..=1.0).contains(&u) {
-            continue;
-        }
-        let qv = s.cross(e1);
-        let w = d.dot(qv) * inv;
-        if w < 0.0 || u + w > 1.0 {
-            continue;
-        }
-        let t = e2.dot(qv) * inv;
-        if t > 0.0 && best.is_none_or(|b| t < b) {
-            best = Some(t);
-        }
-    }
-    best
-}
-
 /// `{parts, matrices}` (map_scene.to_json) as draw-ready parts.
 fn parse_template(v: &Value) -> anyhow::Result<Template> {
     let parts = v["parts"].as_array().cloned().unwrap_or_default();
     let mats = v["matrices"].as_array().cloned().unwrap_or_default();
     let mut out = Vec::new();
     for (p, m) in parts.iter().zip(&mats) {
-        let key = PartKey {
-            mesh: p["mesh"].as_str().unwrap_or_default().to_owned(),
-            texture: p["texture"].as_str().map(str::to_owned),
-            swap_rb: p["swap_rb"].as_bool().unwrap_or(false),
-            color: p["color"].as_str().map(str::to_owned),
-            decal: p["decal"].as_bool().unwrap_or(false),
-            vfx: p["vfx"].as_bool().unwrap_or(false),
-        };
+        let key = PartKey::from_json(p);
         let f = crate::scene::f32s_pub(m)?;
         out.push((key, f.chunks_exact(16).map(Mat4::from_cols_slice).collect()));
     }

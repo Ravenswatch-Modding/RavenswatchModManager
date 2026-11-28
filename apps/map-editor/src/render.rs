@@ -30,7 +30,10 @@ struct Globals {
     eye: [f32; 4],
     sun_dir: [f32; 4],
     params: [f32; 4],
+    /// The sun's view of the near cascade (round the focus) ...
     light_vp: [[f32; 4]; 4],
+    /// ... and of the far one (the whole view).
+    light_vp_far: [[f32; 4]; 4],
     /// rgb: sun colour x intensity
     sun_color: [f32; 4],
     /// rgb x ambient multiplier; top.w = horizon power
@@ -57,6 +60,10 @@ pub const MAX_LIGHTS: usize = 16;
 
 /// Shadow map edge in texels.
 const SHADOW_SIZE: u32 = 4096;
+/// Shadow cascades (Bevy's cascaded shadow maps, cut to two): a sharp one round
+/// the focus and one over the whole view. ponytail: both draw every caster in
+/// the far box; cull per cascade if the shadow pass shows up in frame times.
+const CASCADES: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -132,6 +139,8 @@ pub struct GpuMesh {
     pub hi: Vec3,
     /// CPU copy for picking.
     pub cpu: Arc<MeshData>,
+    /// Built on the first pick.
+    pub bvh: std::sync::OnceLock<crate::bvh::Bvh>,
 }
 
 struct GpuTexture {
@@ -140,6 +149,7 @@ struct GpuTexture {
 }
 
 /// What the renderer needs per part from the scene, every frame it changes.
+#[derive(Clone, Copy)]
 pub struct DrawPart<'a> {
     pub key: &'a PartKey,
     /// World matrix + tint of every instance that should be drawn (before culling).
@@ -169,6 +179,8 @@ pub struct Renderer {
     white: wgpu::TextureView,
     terrain_pipe: wgpu::RenderPipeline,
     mesh_pipe: wgpu::RenderPipeline,
+    /// Terrain and mesh drawn as lines (`None`: the GPU cannot).
+    wire: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
     decal_pipe: wgpu::RenderPipeline,
     vfx_pipe: wgpu::RenderPipeline,
     line_pipe: wgpu::RenderPipeline,
@@ -179,8 +191,10 @@ pub struct Renderer {
     /// What the terrain uniform holds, so the material can be switched off
     /// (a tile edited alone stands on plain ground) and back on.
     terrain_u_cpu: TerrainU,
-    shadow_bg: wgpu::BindGroup,
-    shadow_view: wgpu::TextureView,
+    /// Per cascade: the uniform copy its pass reads, its bind group and its layer.
+    shadow_bufs: Vec<wgpu::Buffer>,
+    shadow_bgs: Vec<wgpu::BindGroup>,
+    shadow_layers: Vec<wgpu::TextureView>,
     shadow_terrain_pipe: wgpu::RenderPipeline,
     shadow_mesh_pipe: wgpu::RenderPipeline,
     terrain_bgl: wgpu::BindGroupLayout,
@@ -204,6 +218,8 @@ pub struct Renderer {
     thumbs: Vec<Target>,
     /// The Project preview window's target, redrawn in place.
     preview: Option<Target>,
+    /// The split view's own target (View > Split view).
+    side: Option<Target>,
     pub stats: Stats,
 }
 
@@ -237,6 +253,34 @@ pub struct Frame<'a> {
     pub sky: Option<[f32; 4]>,
     /// Point lights: `(position, radius m, linear colour x intensity)`.
     pub lights: &'a [(Vec3, f32, [f32; 3])],
+    pub view_mode: ViewMode,
+}
+
+/// Godot's viewport display modes.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ViewMode {
+    #[default]
+    Lit,
+    /// Textures only, no light or fog.
+    Unshaded,
+    /// Light and shadow on grey: what the lighting does.
+    Lighting,
+    Normals,
+    Wireframe,
+}
+
+impl ViewMode {
+    pub const ALL: [ViewMode; 5] = [ViewMode::Lit, ViewMode::Unshaded, ViewMode::Lighting, ViewMode::Normals, ViewMode::Wireframe];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewMode::Lit => "Lit",
+            ViewMode::Unshaded => "Unshaded",
+            ViewMode::Lighting => "Lighting only",
+            ViewMode::Normals => "Normals",
+            ViewMode::Wireframe => "Wireframe",
+        }
+    }
 }
 
 impl Renderer {
@@ -273,7 +317,7 @@ impl Renderer {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -293,7 +337,7 @@ impl Renderer {
         });
         let shadow_tex = d.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow map"),
-            size: wgpu::Extent3d { width: SHADOW_SIZE, height: SHADOW_SIZE, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d { width: SHADOW_SIZE, height: SHADOW_SIZE, depth_or_array_layers: CASCADES },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -301,7 +345,17 @@ impl Renderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let shadow_view = shadow_tex.create_view(&Default::default());
+        let shadow_view = shadow_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        let shadow_layers: Vec<wgpu::TextureView> = (0..CASCADES)
+            .map(|k| {
+                shadow_tex.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: k,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
         let shadow_sampler = d.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -318,11 +372,26 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&shadow_sampler) },
             ],
         });
-        let shadow_bg = d.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow globals"),
-            layout: &shadow_bgl,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
-        });
+        let shadow_bufs: Vec<wgpu::Buffer> = (0..CASCADES)
+            .map(|_| {
+                d.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("shadow globals"),
+                    size: std::mem::size_of::<Globals>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
+        let shadow_bgs: Vec<wgpu::BindGroup> = shadow_bufs
+            .iter()
+            .map(|b| {
+                d.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("shadow globals"),
+                    layout: &shadow_bgl,
+                    entries: &[wgpu::BindGroupEntry { binding: 0, resource: b.as_entire_binding() }],
+                })
+            })
+            .collect();
         let mat_bgl = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("material"),
             entries: &[
@@ -340,6 +409,16 @@ impl Renderer {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -471,7 +550,7 @@ impl Renderer {
         };
 
         let terrain_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x2];
-        let terrain_pipe = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let terrain_pipeline = |polygon_mode: wgpu::PolygonMode| d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("terrain"),
             layout: Some(&terrain_layout),
             vertex: wgpu::VertexState {
@@ -490,12 +569,13 @@ impl Renderer {
                 compilation_options: Default::default(),
                 targets: &color(None),
             }),
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            primitive: wgpu::PrimitiveState { cull_mode: None, polygon_mode, ..Default::default() },
             depth_stencil: Some(depth(true, true)),
             multisample: ms,
             multiview_mask: None,
             cache: None,
         });
+        let terrain_pipe = terrain_pipeline(wgpu::PolygonMode::Fill);
 
         let water_pipe = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("water"),
@@ -536,7 +616,7 @@ impl Renderer {
                 attributes: &iattrs,
             }),
         ];
-        let mesh_pipeline_vs = |label: &str, vs: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| {
+        let mesh_pipeline_poly = |label: &str, vs: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool, polygon_mode: wgpu::PolygonMode| {
             d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&mesh_layout),
@@ -552,7 +632,7 @@ impl Renderer {
                     compilation_options: Default::default(),
                     targets: &color(blend),
                 }),
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState { cull_mode: None, polygon_mode, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     // Decals sit on the ground: nudge them toward the camera.
                     bias: if write {
@@ -567,6 +647,11 @@ impl Renderer {
                 cache: None,
             })
         };
+        let mesh_pipeline_vs = |label: &str, vs: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| mesh_pipeline_poly(label, vs, fs, blend, write, wgpu::PolygonMode::Fill);
+        // Wireframe view: only where the GPU draws polygons as lines (not GL).
+        let wire = d.features().contains(wgpu::Features::POLYGON_MODE_LINE).then(|| {
+            (terrain_pipeline(wgpu::PolygonMode::Line), mesh_pipeline_poly("mesh wire", "vs_mesh", "fs_mesh", None, true, wgpu::PolygonMode::Line))
+        });
         let mesh_pipeline = |label: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| mesh_pipeline_vs(label, "vs_mesh", fs, blend, write);
         let mesh_pipe = mesh_pipeline("mesh", "fs_mesh", None, true);
         // Effects glow: added onto what is behind them, never hiding it.
@@ -655,8 +740,9 @@ impl Renderer {
             water: None,
             water_pipe,
             terrain_u_cpu: TerrainU::default(),
-            shadow_bg,
-            shadow_view,
+            shadow_bufs,
+            shadow_bgs,
+            shadow_layers,
             shadow_terrain_pipe,
             shadow_mesh_pipe,
             terrain_bgl,
@@ -675,6 +761,7 @@ impl Renderer {
             white,
             terrain_pipe,
             mesh_pipe,
+            wire,
             decal_pipe,
             vfx_pipe,
             line_pipe,
@@ -690,8 +777,19 @@ impl Renderer {
             target: None,
             thumbs: Vec::new(),
             preview: None,
+            side: None,
             stats: Stats::default(),
         }
+    }
+
+    /// Drop a mesh / texture so the next request loads it again (a file changed).
+    pub fn forget(&mut self, key: &str) {
+        self.meshes.remove(key);
+        self.textures.retain(|(p, _), _| p != key);
+    }
+
+    pub fn can_wireframe(&self) -> bool {
+        self.wire.is_some()
     }
 
     pub fn clear_scene(&mut self) {
@@ -927,6 +1025,14 @@ impl Renderer {
         id
     }
 
+    /// The split view: like `render_preview`, with a target of its own.
+    pub fn render_side(&mut self, rs: &egui_wgpu::RenderState, size: (u32, u32), f: &Frame) -> egui::TextureId {
+        let main = std::mem::replace(&mut self.target, self.side.take());
+        let id = self.render(rs, size, f);
+        self.side = std::mem::replace(&mut self.target, main);
+        id
+    }
+
     pub fn add_mesh(&mut self, path: String, m: MeshData) {
         let vb = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh vb"),
@@ -947,7 +1053,7 @@ impl Renderer {
         if m.vertices.is_empty() {
             (lo, hi) = (Vec3::ZERO, Vec3::ZERO);
         }
-        self.meshes.insert(path, GpuMesh { vb, ib, count, center, radius, lo, hi, cpu: Arc::new(m) });
+        self.meshes.insert(path, GpuMesh { vb, ib, count, center, radius, lo, hi, cpu: Arc::new(m), bvh: Default::default() });
     }
 
     pub fn texture_known(&self, path: &str, swap: bool) -> bool {
@@ -999,6 +1105,14 @@ impl Renderer {
             },
             None => None,
         };
+        // A normal map that failed to load just leaves the part smooth.
+        let nrm = match &key.normal {
+            Some(p) => match self.textures.get(&(p.clone(), key.normal_swap)) {
+                None => return false,
+                Some(t) => t.as_ref(),
+            },
+            None => None,
+        };
         let color = key
             .color
             .as_deref()
@@ -1007,7 +1121,7 @@ impl Renderer {
             .unwrap_or(if tex.is_some() { [1.0; 4] } else { [0.55, 0.55, 0.52, 1.0] });
         let u = MaterialU {
             color,
-            flags: [tex.is_some() as u8 as f32, tex.map(|t| t.has_alpha && !key.decal && !key.vfx).unwrap_or(false) as u8 as f32, 0.0, 0.0],
+            flags: [tex.is_some() as u8 as f32, tex.map(|t| t.has_alpha && !key.decal && !key.vfx).unwrap_or(false) as u8 as f32, nrm.is_some() as u8 as f32, 0.0],
             fx: if key.vfx { vfx_params(&key.mesh) } else { [[0.0; 4]; 4] },
         };
         let ub = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1023,6 +1137,7 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 wgpu::BindGroupEntry { binding: 2, resource: ub.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(nrm.map(|t| &t.view).unwrap_or(&self.flat_normal)) },
             ],
         });
         self.mats.insert(key.clone(), PartMat { bind });
@@ -1082,34 +1197,41 @@ impl Renderer {
         let env = f.env;
         let sun = env.sun_dir();
         // The sun's view: an orthographic box around what the camera looks at,
-        // its centre snapped to whole shadow texels so edges don't crawl.
+        // its centre snapped to whole shadow texels so edges don't crawl. The
+        // far cascade covers the view; the near one a third of it, 3x sharper.
         let shadow_r = (cam.dist * 1.1).clamp(30.0, 700.0);
+        let near_r = (cam.dist * 0.35).clamp(10.0, shadow_r);
         let (lf, lr) = (-sun, Vec3::Y.cross(-sun).normalize_or(Vec3::X));
         let lu = lf.cross(lr);
-        let texel = 2.0 * shadow_r / SHADOW_SIZE as f32;
-        let snap = |v: f32| (v / texel).round() * texel;
         let c = cam.target;
-        let cl = Vec3::new(snap(c.dot(lr)), snap(c.dot(lu)), c.dot(lf));
-        let (near, far) = (-2000.0f32, 2000.0f32);
-        let light_view = Mat4::from_cols(
-            Vec4::new(lr.x, lu.x, lf.x, 0.0),
-            Vec4::new(lr.y, lu.y, lf.y, 0.0),
-            Vec4::new(lr.z, lu.z, lf.z, 0.0),
-            Vec4::new(-cl.x, -cl.y, -cl.z, 1.0),
-        );
-        let light_proj = Mat4::from_cols(
-            Vec4::new(1.0 / shadow_r, 0.0, 0.0, 0.0),
-            Vec4::new(0.0, 1.0 / shadow_r, 0.0, 0.0),
-            Vec4::new(0.0, 0.0, 1.0 / (far - near), 0.0),
-            Vec4::new(0.0, 0.0, -near / (far - near), 1.0),
-        );
-        let light_vp = light_proj * light_view;
+        let sun_box = |r: f32| -> (Mat4, Mat4) {
+            let texel = 2.0 * r / SHADOW_SIZE as f32;
+            let snap = |v: f32| (v / texel).round() * texel;
+            let cl = Vec3::new(snap(c.dot(lr)), snap(c.dot(lu)), c.dot(lf));
+            let (near, far) = (-2000.0f32, 2000.0f32);
+            let view = Mat4::from_cols(
+                Vec4::new(lr.x, lu.x, lf.x, 0.0),
+                Vec4::new(lr.y, lu.y, lf.y, 0.0),
+                Vec4::new(lr.z, lu.z, lf.z, 0.0),
+                Vec4::new(-cl.x, -cl.y, -cl.z, 1.0),
+            );
+            let proj = Mat4::from_cols(
+                Vec4::new(1.0 / r, 0.0, 0.0, 0.0),
+                Vec4::new(0.0, 1.0 / r, 0.0, 0.0),
+                Vec4::new(0.0, 0.0, 1.0 / (far - near), 0.0),
+                Vec4::new(0.0, 0.0, -near / (far - near), 1.0),
+            );
+            (view, proj * view)
+        };
+        let (light_view, light_vp_far) = sun_box(shadow_r);
+        let light_vp = sun_box(near_r).1;
         let g = Globals {
             view_proj: vp.to_cols_array_2d(),
             eye: cam.eye().extend(1.0).into(),
             sun_dir: sun.extend(0.0).into(),
             params: [f.haze, f.exposure, f.shadows as u8 as f32, f.time],
             light_vp: light_vp.to_cols_array_2d(),
+            light_vp_far: light_vp_far.to_cols_array_2d(),
             sun_color: [env.sun_color[0] * env.sun_intensity, env.sun_color[1] * env.sun_intensity, env.sun_color[2] * env.sun_intensity, 0.0],
             amb_top: [env.amb_top[0] * env.amb_mul, env.amb_top[1] * env.amb_mul, env.amb_top[2] * env.amb_mul, env.amb_pow],
             amb_horizon: [env.amb_horizon[0] * env.amb_mul, env.amb_horizon[1] * env.amb_mul, env.amb_horizon[2] * env.amb_mul, 0.0],
@@ -1120,7 +1242,7 @@ impl Renderer {
             fog_heights: [env.fog_heights[0], env.fog_heights[1], env.fog_heights[2], env.fog_on as u8 as f32],
             fog_dist: [env.fog_distances[0], env.fog_distances[1], env.fog_distances[2], (cam.eye() - cam.target).length()],
             fog_params: [env.fog_intensity, env.fog_brightness, 0.0, 0.0],
-            light_info: [f.lights.len().min(MAX_LIGHTS) as f32, 0.0, 0.0, 0.0],
+            light_info: [f.lights.len().min(MAX_LIGHTS) as f32, f.view_mode as u8 as f32, 0.0, 0.0],
             lights: {
                 let mut l = [[0.0; 4]; 2 * MAX_LIGHTS];
                 for (k, (p, r, c)) in f.lights.iter().take(MAX_LIGHTS).enumerate() {
@@ -1131,6 +1253,11 @@ impl Renderer {
             },
         };
         self.queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&g));
+        // Each cascade's pass reads its own sun view through `light_vp`.
+        for (k, vp) in [light_vp, light_vp_far].iter().enumerate() {
+            let gk = Globals { light_vp: vp.to_cols_array_2d(), ..g };
+            self.queue.write_buffer(&self.shadow_bufs[k], 0, bytemuck::bytes_of(&gk));
+        }
 
         // ---- cull ------------------------------------------------------------
         let th = (cam.fov_y * 0.5).tan();
@@ -1249,12 +1376,12 @@ impl Renderer {
         // ---- encode ----------------------------------------------------------
         let t = self.target.as_ref().unwrap();
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("map frame") });
-        {
+        for k in 0..CASCADES as usize {
             let mut sp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view: &self.shadow_layers[k],
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
@@ -1263,7 +1390,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             if f.shadows {
-                sp.set_bind_group(0, &self.shadow_bg, &[]);
+                sp.set_bind_group(0, &self.shadow_bgs[k], &[]);
                 if let (Some((vb, ib, n)), false) = (&self.terrain, f.no_terrain) {
                     sp.set_pipeline(&self.shadow_terrain_pipe);
                     sp.set_vertex_buffer(0, vb.slice(..));
@@ -1309,7 +1436,10 @@ impl Renderer {
             });
             rp.set_bind_group(0, &self.globals_bg, &[]);
             if let (Some((vb, ib, n)), false) = (&self.terrain, f.no_terrain) {
-                rp.set_pipeline(&self.terrain_pipe);
+                rp.set_pipeline(match (&self.wire, f.view_mode) {
+                    (Some((t, _)), ViewMode::Wireframe) => t,
+                    _ => &self.terrain_pipe,
+                });
                 rp.set_bind_group(1, &self.terrain_bg, &[]);
                 rp.set_vertex_buffer(0, vb.slice(..));
                 rp.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
@@ -1318,7 +1448,10 @@ impl Renderer {
             if let Some(ibuf) = &self.instance_buf {
                 for pass in [0u8, 1, 2] {
                     rp.set_pipeline(match pass {
-                        0 => &self.mesh_pipe,
+                        0 => match (&self.wire, f.view_mode) {
+                            (Some((_, m)), ViewMode::Wireframe) => m,
+                            _ => &self.mesh_pipe,
+                        },
                         1 => &self.decal_pipe,
                         _ => &self.vfx_pipe,
                     });

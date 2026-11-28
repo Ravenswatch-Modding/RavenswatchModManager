@@ -57,6 +57,8 @@ impl Model {
             color: self.texture.is_none().then(|| "#b8b2a8".to_owned()),
             decal: false,
             vfx: false,
+            normal: None,
+            normal_swap: false,
         }
     }
 

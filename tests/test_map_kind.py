@@ -661,10 +661,26 @@ def test_objects_are_validated(tmp_path):
                 [{"collider": True, "pos": [0, 0, 0]}],
                 [{"entity": _RUIN, "pos": [0, 0, 0], "camp": {"difficulty": "Hard"}}],
                 [{"collider": True, "entity": _RUIN, "pos": [0, 0, 0],
-                  "collision": [{"kind": "wall", "size": [1, 1, 1], "at": [0, 0, 0]}]}]):
+                  "collision": [{"kind": "wall", "size": [1, 1, 1], "at": [0, 0, 0]}]}],
+                [{"entity": _RUIN, "pos": [0, 0, 0], "prefab": {"name": "Stall"}}],
+                [{"entity": _RUIN, "pos": [0, 0, 0],
+                  "prefab": {"name": "Stall", "instance": True}}]):
         with pytest.raises(ContentError):
             maps.emit("m", ContentDef(kind="map", id="Bad_Obj", fields={
                 "base": "Dark_Hills", "objects": bad}), tmp_path / "assets")
+
+
+@needs_corpus
+def test_an_objects_prefab_link_is_kept_out_of_the_game(tmp_path):
+    # The map editor's link to a prefab placement is accepted and changes nothing cooked.
+    plain = {"entity": _RUIN, "pos": [1, 0, 1]}
+    outs = []
+    for k, o in enumerate((plain, {**plain, "prefab": {"name": "Stall", "instance": 2}})):
+        out = tmp_path / f"a{k}"
+        maps.emit("m", ContentDef(kind="map", id="Linked", fields={
+            "base": "Dark_Hills", "objects": [o]}), out)
+        outs.append({p.relative_to(out): p.read_bytes() for p in out.rglob("*") if p.is_file()})
+    assert outs[0] == outs[1]
 
 
 @needs_corpus

@@ -22,7 +22,7 @@ from typing import Final
 __all__ = ["decode_to_rgba", "rgba_to_png", "resize_to_max", "texture_to_png"]
 
 #: ``TextureSchema.format_name`` values this module can decode.
-SUPPORTED: Final = ("BC1", "BC3", "RGBA8", "RGBA")
+SUPPORTED: Final = ("BC1", "BC3", "BC5", "BC5U", "RGBA8", "RGBA")
 
 
 def _color_table(c0: int, c1: int, *, punchthrough: bool) -> list[tuple[int, int, int, int]]:
@@ -144,6 +144,31 @@ def _decode_bc3(px: bytes, width: int, height: int) -> bytearray:
     return out
 
 
+def _decode_bc5(px: bytes, width: int, height: int) -> bytearray:
+    """Two BC4 blocks per 4x4 (red, then green), as BC3's alpha half.
+
+    Normal maps (``*.Texture.nrm``) use it: x and y of the normal. Blue and
+    alpha come out 255; a reader rebuilds z from x and y.
+    """
+    out = bytearray(b"\xff" * (width * height * 4))
+    from_bytes = int.from_bytes
+    for bi, ox, oy in _blocks(width, height):
+        o = bi * 16
+        if o + 16 > len(px):
+            raise ValueError(f"BC5 payload too short: {len(px)} < {(bi + 1) * 16}")
+        rt, gt = _bc3_alpha(px[o], px[o + 1]), _bc3_alpha(px[o + 8], px[o + 9])
+        rbits = from_bytes(px[o + 2:o + 8], "little")
+        gbits = from_bytes(px[o + 10:o + 16], "little")
+        for i in range(16):
+            x, y = ox + (i & 3), oy + (i >> 2)
+            if x >= width or y >= height:
+                continue
+            d = (y * width + x) * 4
+            out[d] = rt[(rbits >> (3 * i)) & 7]
+            out[d + 1] = gt[(gbits >> (3 * i)) & 7]
+    return out
+
+
 def decode_to_rgba(pixels: bytes, width: int, height: int, fmt: str) -> bytearray:
     """Decode a cooked texture payload into straight RGBA8 rows."""
     f = (fmt or "").upper()
@@ -151,6 +176,8 @@ def decode_to_rgba(pixels: bytes, width: int, height: int, fmt: str) -> bytearra
         return _decode_bc1(pixels, width, height)
     if f == "BC3":
         return _decode_bc3(pixels, width, height)
+    if f in ("BC5", "BC5U"):
+        return _decode_bc5(pixels, width, height)
     if f in ("RGBA8", "RGBA"):
         need = width * height * 4
         if len(pixels) < need:

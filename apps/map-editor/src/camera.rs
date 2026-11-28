@@ -25,7 +25,7 @@ const MAX_PITCH: f32 = 1.5703;
 
 impl Default for Camera {
     fn default() -> Self {
-        Camera { target: Vec3::ZERO, yaw: 0.0, pitch: 0.95, dist: 640.0, fov_y: 42f32.to_radians(), ortho: false }
+        Camera { target: Vec3::ZERO, yaw: 0.0, pitch: 0.95, dist: 640.0, fov_y: EDITOR_FOV.to_radians(), ortho: false }
     }
 }
 
@@ -169,11 +169,57 @@ impl Camera {
     pub fn view_top(&mut self) {
         self.pitch = MAX_PITCH;
     }
+
+    /// The in-run camera (Hero_Common "Default Camera", src/loader/lua/rsmm/camera.lua):
+    /// eye = look-at + D (cos X sin Y, sin X, cos X cos Y), so our yaw is the
+    /// game's plus half a turn. Yaw 45° and distance 33 are proven in game;
+    /// pitch 0.942 and FOV 31° are read from the file but their roles are not.
+    pub fn view_game(&mut self) {
+        self.yaw = GAME_YAW + std::f32::consts::PI;
+        self.pitch = GAME_PITCH;
+        self.dist = GAME_DIST;
+        self.fov_y = GAME_FOV.to_radians();
+        self.ortho = false;
+    }
+
+    /// Still looking the way the game does (panning keeps it).
+    pub fn is_game(&self) -> bool {
+        !self.ortho
+            && (self.yaw - GAME_YAW - std::f32::consts::PI).abs() < 1e-4
+            && (self.pitch - GAME_PITCH).abs() < 1e-4
+            && (self.dist - GAME_DIST).abs() < 1e-3
+    }
+}
+
+/// 45°, the file holds 0.785398 (π/4).
+const GAME_YAW: f32 = std::f32::consts::FRAC_PI_4;
+const GAME_PITCH: f32 = 0.942_478;
+const GAME_DIST: f32 = 33.0;
+const GAME_FOV: f32 = 31.0;
+const EDITOR_FOV: f32 = 42.0;
+
+impl Camera {
+    /// Back to the editor's own lens after the game view.
+    pub fn leave_game(&mut self) {
+        self.fov_y = EDITOR_FOV.to_radians();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_view_matches_the_game_formula() {
+        let mut c = Camera { target: Vec3::new(5.0, 2.0, -3.0), ..Default::default() };
+        c.view_game();
+        let (y, x) = (GAME_YAW, GAME_PITCH);
+        let want = c.target + GAME_DIST * Vec3::new(x.cos() * y.sin(), x.sin(), x.cos() * y.cos());
+        assert!((c.eye() - want).length() < 1e-3, "{:?} vs {want:?}", c.eye());
+        assert!(c.is_game());
+        c.orbit(10.0, 0.0);
+        assert!(!c.is_game());
+    }
 
     #[test]
     fn looking_around_keeps_the_eye_still() {

@@ -90,6 +90,8 @@ class Part:
     color: str | None = None  # flat colour when the material has no texture
     decal: bool = False       # draw the texture on a flat quad, not the mesh
     vfx: bool = False         # an effect's sprites: camera-facing glowing quads
+    normal: str | None = None  # the material's normal map png, when it has one
+    normal_swap: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -194,10 +196,12 @@ def _cooked_key(rel: str) -> str | None:
         from .asset_map import decoded_to_encoded
 
         shipped = decoded_to_encoded()
+        # Normal maps cook to `.Texture.nrm` (the same header as `.dxt`).
         for ext in (".tga", ".png"):
-            key = rel[:-4] + ext + ".Texture.dxt"
-            if key in shipped:
-                return key
+            for kind in (".Texture.dxt", ".Texture.nrm"):
+                key = rel[:-4] + ext + kind
+                if key in shipped:
+                    return key
     return None
 
 
@@ -225,7 +229,7 @@ def _texture_png(cooked_bytes: bytes) -> bytes:
 
 
 #: Bytes per 4x4 block of the block-compressed formats `icon_decode` reads.
-_BLOCK_BYTES = {"BC1": 8, "BC3": 16}
+_BLOCK_BYTES = {"BC1": 8, "BC3": 16, "BC5": 16, "BC5U": 16}
 
 
 def _skip_blocks(px: bytes, w: int, h: int, fmt: str | None) -> tuple[bytes, int, int]:
@@ -349,17 +353,49 @@ def material_albedo(mat_path: str, root: str = "3D") -> tuple[str | None, bool]:
     for p in sorted(texs, key=score):
         if score(p) == 99:
             break
-        rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
-        if _uncooked(rel):
-            return rel, _texture_uncompressed(p)
-        if _cooked_key(rel):
-            return rel, False            # decoded from the install, true colours
+        found = _texture_rel(root, p)
+        if found[0]:
+            return found
+    return None, False
+
+
+def _texture_rel(root: str, p: str) -> tuple[str | None, bool]:
+    rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
+    if _uncooked(rel):
+        return rel, _texture_uncompressed(p)
+    if _cooked_key(rel):
+        return rel, False                # decoded from the install, true colours
+    return None, False
+
+
+@functools.lru_cache(maxsize=4096)
+def material_normal(mat_path: str, root: str = "3D") -> tuple[str | None, bool]:
+    """``(png path, swap_rb)`` of a material's normal map (``*_nrm`` / ``*_normal``), if any."""
+    data = _bytes(root, mat_path)
+    if not data:
+        return None, False
+    for r, p in resource_refs(data):
+        stem = p.rsplit("\\", 1)[-1].rsplit(".", 1)[0].lower()
+        is_map = p.lower().endswith((".tga", ".png"))
+        if r == root and is_map and stem.endswith(("_nrm", "_normal")):
+            found = _texture_rel(root, p)
+            if found[0]:
+                return found
     return None, False
 
 
 # --------------------------------------------------------------------------
 # transforms
 # --------------------------------------------------------------------------
+
+def part_json(p: Part) -> dict:
+    """A part as the editors read it (``normal`` only when the material has one)."""
+    out = {"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
+           "color": p.color, "decal": p.decal, "vfx": p.vfx}
+    if p.normal:
+        out["normal"], out["normal_swap"] = p.normal, p.normal_swap
+    return out
+
 
 def trs(pos, quat, scale) -> Matrix:
     """Column-major matrix from translation, quaternion (x, y, z, w) and scale."""
@@ -587,12 +623,16 @@ def _entity_meshes(ref: str, data: bytes, depth: int) -> tuple[tuple[Part, Matri
             # meshes): each slot drawn with its own texture.
             for i, m in enumerate(mats):
                 tex = material_albedo(m)
+                nrm = material_normal(m)
                 own.append((Part(f"{mesh}#{i}", tex[0], tex[1],
-                                 None if tex[0] else material_color(m)), IDENTITY))
+                                 None if tex[0] else material_color(m),
+                                 normal=nrm[0], normal_swap=nrm[1]), IDENTITY))
             return
         tex = next((t for t in map(material_albedo, mats) if t[0]), (None, False))
         color = next((c for c in map(material_color, mats) if c), None)
-        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color), IDENTITY))
+        nrm = next((n for n in map(material_normal, mats) if n[0]), (None, False))
+        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color,
+                         normal=nrm[0], normal_swap=nrm[1]), IDENTITY))
 
     for root, path in refs:
         low = path.lower()
@@ -677,8 +717,7 @@ def to_json(parts: list[tuple[Part, Matrix]]) -> dict:
         for a in mats:
             a.byteswap()
     return {
-        "parts": [{"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
-                   "color": p.color, "decal": p.decal, "vfx": p.vfx} for p in order],
+        "parts": [part_json(p) for p in order],
         "matrices": [base64.b64encode(a.tobytes()).decode("ascii") for a in mats],
         "instances": len(parts),
     }
