@@ -118,9 +118,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      # npx only (tauri signer); no pnpm here, so skip v5's auto pnpm cache.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - uses: actions/download-artifact@v7
         with:
           path: art
