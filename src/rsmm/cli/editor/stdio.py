@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import threading
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import BinaryIO
@@ -105,7 +106,12 @@ class Pipe:
         try:
             r = app.handle(self.ctx, method, target, headers, body, alive=self._alive(rid))
         except Exception as e:  # noqa: BLE001 -- answer the request; never kill the pipe
-            self.send(rid, 500, app.JSON, json.dumps({"error": str(e)}).encode("utf-8"))
+            # The traceback goes to stderr (the editor's Console); a bare
+            # `assert` or MemoryError has an empty str(), so name the type too.
+            traceback.print_exc(file=sys.stderr)
+            msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            err = json.dumps({"error": f"{method} {target}: {msg}"})
+            self.send(rid, 500, app.JSON, err.encode("utf-8"))
             return
         finally:
             with self._clock:

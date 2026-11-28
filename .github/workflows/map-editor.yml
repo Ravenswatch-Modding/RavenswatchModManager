@@ -75,7 +75,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip pyinstaller
           pip install -e .
-          python scripts/build-sidecar.py
+          # Play in game installs the loader from the bundled CLI: without
+          # dist/winhttp.dll in it, install_loader stops at "Build first" and
+          # Play fails with "Failed to install loader DLL". Bundle the loader
+          # channel's signed DLL (no toolchain needed) and require it.
+          python -c "from rsmm.engine.loader_update import fetch_prebuilt_dll as f; print(f())"
+          python scripts/build-sidecar.py --require-loader
 
       - name: Package
         shell: bash
