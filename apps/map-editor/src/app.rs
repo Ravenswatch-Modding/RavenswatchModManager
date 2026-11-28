@@ -2194,11 +2194,12 @@ impl MapEditor {
         self.status = format!("New empty chapter: flat ground at {h} m. Paint it, place props and spots, then File > Save As");
     }
 
-    /// File > New chapter: once the recipe has loaded, place only the start
-    /// and the boss. Every spot stays, so the start lands wherever the game
-    /// normally puts it (removing spots left Dark Hills with no start: the
-    /// hero never spawned); the fill pass that puts camps, blockers and props
-    /// on leftover spots is turned off. One undo step, like any other edit.
+    /// File > New chapter: once the recipe has loaded, remove every spot and
+    /// put back exactly two, at a shipped Start spot and a shipped Map_Boss
+    /// spot, each allowing only its own kind. A chapter needs both: with no
+    /// Start spot Dark Hills had no start and the hero never spawned. Every
+    /// other kind's count is 0 and the fill pass that puts camps, blockers
+    /// and props on leftover spots is off, so those two are the only tiles.
     fn make_clean(&mut self) {
         if !self.clean_pending {
             return;
@@ -2227,11 +2228,37 @@ impl MapEditor {
             .collect();
         let shipped: HashMap<String, KindVals> = r.kinds.iter().map(|k| (k.name.clone(), k.vals.clone())).collect();
         let fill: serde_json::Map<String, Value> = r.groups.iter().map(|g| (g.clone(), json!([]))).collect();
-        self.change(|e, _| {
+        self.change(|e, s| {
             for (name, v) in kinds {
                 if shipped.get(&name) != Some(&v) {
                     e.kinds.insert(name, v);
                 }
+            }
+            // One shipped spot often allows both kinds; the boss takes the
+            // spot farthest from the start so the two never share a place.
+            let mut keep: Vec<(&str, String, Vec3)> = Vec::new();
+            for k in KEEP {
+                let Some(fits) = shipped.get(k).map(|v| &v.footprints) else { continue };
+                let far = |p: &&crate::recipe::Spot| keep.iter().map(|(_, _, q)| p.pos.distance(*q)).fold(f32::MAX, f32::min);
+                let Some(p) = s
+                    .spots
+                    .iter()
+                    // Shipped Start spots allow it only through a scenario
+                    // override (1 = always), never through the base mask.
+                    .filter(|p| {
+                        !p.whole_map
+                            && fits.get(&p.group) == Some(&true)
+                            && (p.allow.get(k) == Some(&true) || p.overrides.iter().any(|o| o.get(k) == Some(&1)))
+                    })
+                    .max_by(|a, b| far(a).total_cmp(&far(b)))
+                else {
+                    continue;
+                };
+                keep.push((k, p.group.clone(), p.pos));
+            }
+            e.spot_removed.extend(s.spots.iter().filter(|p| !p.whole_map).map(|p| p.id));
+            for (k, group, pos) in keep {
+                e.add_spot(group, pos, BTreeMap::from([(k.to_owned(), true)]));
             }
         });
         if let Some(o) = self.keep_edits.as_object_mut() {
@@ -2241,7 +2268,7 @@ impl MapEditor {
         self.layout.clear();
         self.show_spots = false;
         self.dirty = true;
-        self.status = "Empty chapter: only the start and the boss are placed; no camps, crystals or fill".into();
+        self.status = "Empty chapter: every spot removed but one Start and one boss spot; no camps, crystals or fill".into();
     }
 
     /// The flat ground height of a blank map (`map.blank`), kept in the map
@@ -5341,7 +5368,7 @@ let lights_now = self.lights_near(self.camera.target);
                     ui.label(egui::RichText::new("An empty chapter: flat unpainted ground, no scenery, no invisible walls, one start and one boss spot.").small().weak());
                     ui.label(egui::RichText::new("Pick its world: the sky, light, music, enemies and tiles it uses.").small().weak());
                     ui.add(egui::Slider::new(&mut self.new_blank_height, -40.0..=40.0).step_by(2.0).text("ground m"));
-                    ui.checkbox(&mut self.new_keep_kinds, "Keep the run's tiles").on_hover_text("Camps, crystals, shrines, chests… on the chapter's spots, as the shipped chapter rolls them; off = only the start and the boss");
+                    ui.checkbox(&mut self.new_keep_kinds, "Keep the run's tiles").on_hover_text("Camps, crystals, shrines, chests… on the chapter's spots, as the shipped chapter rolls them; off = every spot removed but one start and one boss spot");
                     ui.checkbox(&mut self.new_edge_walls, "Edge walls").on_hover_text("Invisible walls around the ground, so heroes cannot walk off it");
                     for c in &self.chapters {
                         if BLANK_BASES.contains(&c.key.as_str()) && ui.button(format!("{} world", c.label)).clicked() {

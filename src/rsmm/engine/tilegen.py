@@ -517,6 +517,9 @@ class TileGen:
     kinds: dict[int, TileKind]
     sizes: dict[int, SlotSize]
     slots: dict[int, Slot]
+    # A shipped placeable slot, kept from `read` so `add_slot` still has its
+    # class indices after every placeable slot was removed (a blank chapter).
+    slot_template: Slot | None = field(default=None, repr=False, compare=False)
 
     @property
     def kind_names(self) -> list[str]:
@@ -579,7 +582,9 @@ def read(level_bytes: bytes) -> TileGen:
             slots[i] = _rd_slot(p)
     if spawner is None:
         raise TileGenError("not a tile-generation level: no spawner settings")
-    tg = TileGen(spawner=spawner, kinds=kinds, sizes=sizes, slots=slots)
+    tmpl = next((s for s in slots.values() if s.kinds), None)
+    tg = TileGen(spawner=spawner, kinds=kinds, sizes=sizes, slots=slots,
+                 slot_template=tmpl)
     validate(tg)
     return tg
 
@@ -755,8 +760,11 @@ def add_slot(tg: TileGen, group: str, pos: tuple[float, float, float],
     if group not in names:
         raise TileGenError(f"no footprint group {group!r}; have {names}")
     size = tg.sizes[tg.spawner.size_ids[names.index(group)]]
-    tmpl = next((tg.slots[i] for i in size.slots), None) or next(
-        s for s in tg.slots.values() if s.kinds)
+    tmpl = (next((tg.slots[i] for i in size.slots), None)
+            or next((s for s in tg.slots.values() if s.kinds), None)
+            or tg.slot_template)
+    if tmpl is None:
+        raise TileGenError("the recipe has no placeable slot to model a new one on")
     allow = allow or {}
     unknown = set(allow) - set(tg.kind_names)
     if unknown:
