@@ -2234,13 +2234,28 @@ impl MapEditor {
                     e.kinds.insert(name, v);
                 }
             }
-            let keep: Vec<(&str, String, Vec3)> = KEEP
-                .iter()
-                .filter_map(|k| {
-                    let p = s.spots.iter().find(|p| !p.whole_map && p.allow.get(*k) == Some(&true))?;
-                    Some((*k, p.group.clone(), p.pos))
-                })
-                .collect();
+            // One shipped spot often allows both kinds; the boss takes the
+            // spot farthest from the start so the two never share a place.
+            let mut keep: Vec<(&str, String, Vec3)> = Vec::new();
+            for k in KEEP {
+                let Some(fits) = shipped.get(k).map(|v| &v.footprints) else { continue };
+                let far = |p: &&crate::recipe::Spot| keep.iter().map(|(_, _, q)| p.pos.distance(*q)).fold(f32::MAX, f32::min);
+                let Some(p) = s
+                    .spots
+                    .iter()
+                    // Shipped Start spots allow it only through a scenario
+                    // override (1 = always), never through the base mask.
+                    .filter(|p| {
+                        !p.whole_map
+                            && fits.get(&p.group) == Some(&true)
+                            && (p.allow.get(k) == Some(&true) || p.overrides.iter().any(|o| o.get(k) == Some(&1)))
+                    })
+                    .max_by(|a, b| far(a).total_cmp(&far(b)))
+                else {
+                    continue;
+                };
+                keep.push((k, p.group.clone(), p.pos));
+            }
             e.spot_removed.extend(s.spots.iter().filter(|p| !p.whole_map).map(|p| p.id));
             for (k, group, pos) in keep {
                 e.add_spot(group, pos, BTreeMap::from([(k.to_owned(), true)]));
