@@ -1,0 +1,400 @@
+{
+ "entries": [
+  {
+   "addr": "0x1403a0420",
+   "name": "p_HeroController_CountHeldSkills",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_AddSkill; counts non-null entries across the 10 held skill slots hero+0x1020..0x1140 (stride 0x20)."
+  },
+  {
+   "addr": "0x1403b24a0",
+   "name": "p_HeroController_RefreshSkillSlotStates",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_AddSkill and HeroController_RemoveSkill; resolves hero level (hero+0x2f8+0xa94 or XpComponent via 0x1402dd800), finds first empty slot among 10 held slots (hero+0x1020), and dispatches bool signals on slot UI +0x348 (isFirstEmpty) and +0x368 (slot < level) via 0x1402af350."
+  },
+  {
+   "addr": "0x1403b2590",
+   "name": "p_HeroController_RecountSkillTiers",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_AddSkill and HeroController_RemoveSkill; zeros rarity counts at hero+0x11a0..0x11ac, iterates the 10 held skill slots (hero+0x1020), tallies **(uint**)(ctrl+0x68) for tiers 0..3, and mirrors tiers to *(hero+0x1dc0)+0x18+slot*4."
+  },
+  {
+   "addr": "0x1403b2860",
+   "name": "p_HeroController_RecountSkillCategories",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_AddSkill and HeroController_RemoveSkill; zeros category counts at hero+0x1230..0x1248, iterates the 10 held skill slots (hero+0x1020), and tallies matching category ids in settings+0x408 (count +0x410)."
+  },
+  {
+   "addr": "0x1402e9b40",
+   "name": "p_SkillController_ApplyTierSignals",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by SkillController_SetTier and oCDtEntityCpntSkillController::vf28; dispatches tier-change channel ctrl+0x108 (0x14026ece0) and activates exactly one tier signal ctrl+0x128/+0x148/+0x168/+0x188 for tier 0..3 via 0x1402af350."
+  },
+  {
+   "addr": "0x1402eb2d0",
+   "name": "p_GuidVector_InsertUnique",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_AddSkill on magicalObjectComp+0x1d*8 with settings+0x88 (16-byte identity GUID); scans 16-byte pairs and appends via 0x14014e1e0 if absent."
+  },
+  {
+   "addr": "0x1402eb360",
+   "name": "p_GuidVector_Remove",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroController_RemoveSkill on magicalObjectComp+0x1d*8 with settings+0x88 (16-byte identity GUID); finds matching 16-byte entry, shifts remaining entries down, decrements count, returns 1 if removed."
+  },
+  {
+   "addr": "0x1403a6ae0",
+   "name": "p_HeroController_SetState",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroStats_OnDamageTaken and hero handlers; switches on state 0 (EntityComponent_Activate hero+0x300), 1 (deactivate hero+0x300 via 0x140711ab0), 2 (teardown 0x1403abfd0/0x1403aa7d0 and branch on hero+0xd80)."
+  },
+  {
+   "addr": "0x1403aa8f0",
+   "name": "p_HeroController_SetActiveTarget",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by NamedEvent_HeroUnsubscribeAll and hero handlers; swaps hero+0x1758, deactivating old target+0x138 via 0x140711ab0 and unsubscribing LAB_14040b5b0 via 0x14051bfe0, then activating new target via EntityComponent_Activate and subscribing LAB_14040b5b0."
+  },
+  {
+   "addr": "0x14032eec0",
+   "name": "p_SkinProfileDataSettings_Alloc",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by HeroDef_Deserialize; allocates 0x498 bytes, calls oe::dt::SkinProfileDataSettings::ctor_or_dtor, invokes vftable[1] (+0x08)."
+  },
+  {
+   "addr": "0x1402efdf0",
+   "name": "p_AbilityController_AllocStateId",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called exclusively by AbilityController_Ctor and oCDtEntityCpntAbilityController::vf8; allocates 4 bytes initialized to 0xffffffff."
+  },
+  {
+   "addr": "0x1402f0020",
+   "name": "p_GroupLevelComponent_AllocLevelXpPair",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called exclusively by GroupLevelComponent_Ctor and oCDtEntityCpntGroupLevel::vf8; allocates 8 bytes initialized to 1 (level=1, xp=0)."
+  },
+  {
+   "addr": "0x14040b2e0",
+   "name": "p_HeroController_ForwardHeal50Achievement",
+   "kind": "function",
+   "note": "[proposed hero/skills] Called by oCDtEntityCpntHeroController::vf28 and NamedEvent_HeroUnsubscribeAll; moves string arg *param_3 out and calls str_HEAL_50_OR_MORE."
+  },
+  {
+   "addr": "0x1403a4e30",
+   "name": "p_HeroController_TickAll",
+   "kind": "function",
+   "note": "[proposed hero/skills] Iterates hero controller list, queries GlobalEntityValueSceneContext via GameScene_FindContextByTester, reads entity position via vftable[9], ages 5s/1s damage ring buffer at hero+0x1778/+0x1780, and calls 0x1403b24a0."
+  },
+  {
+   "addr": "0x1402dd800",
+   "name": "p_XpComponent_GetLevel",
+   "kind": "function",
+   "note": "[proposed hero/xp] Called by 0x1402de420 and 0x1403b24a0; follows delegation pointer xpComp+0x110 to root and returns **(uint**)(root+0x108) (level)."
+  },
+  {
+   "addr": "0x1402dd830",
+   "name": "p_XpComponent_GetXp",
+   "kind": "function",
+   "note": "[proposed hero/xp] Called by 0x1402de420; follows delegation pointer xpComp+0x110 to root and returns *(uint*)(*(root+0x108)+4) (current XP)."
+  },
+  {
+   "addr": "0x1402dd8d0",
+   "name": "p_XpComponent_GetXpForCurrentLevel",
+   "kind": "function",
+   "note": "[proposed hero/xp] Called by 0x1402de420; follows xpComp+0x110, reads current level **(uint**)(root+0x108), indexes XP curve *(settings+0x1d8)[level-1] or calls XpComponent_XpForLevel."
+  },
+  {
+   "addr": "0x1402ddd70",
+   "name": "p_XpComponent_AddLevels",
+   "kind": "function",
+   "note": "[proposed hero/xp] Calls XpComponent_IsMaxLevel and XpComponent_GetMaxLevel, adds *(int*)(param_2+0x50) to **(int**)(xpComp+0x108) clamped to max level, and calls XpComponent_SetLevel."
+  },
+  {
+   "addr": "0x1402de420",
+   "name": "p_XpComponent_SyncStatReportLevel",
+   "kind": "function",
+   "note": "[proposed hero/xp] Called by XpComponent_SetLevel, XpComponent_SetXp, and oCDtEntityCpntGroupLevel::vf28; computes float(level) + float(xp)/float(xpNeeded) via 0x1402dd800/830/8d0 and stores into *(g_StatReportRoot+0x20)+0x238."
+  },
+  {
+   "addr": "0x1406f84f0",
+   "name": "p_ModifierValueDesc_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by ModifierSettings_CreateDesc and StatusValueDefs_Register; allocates 0x80 bytes, constructs via ModifierValueDesc_Ctor, invokes vftable[1] (FUN_1400bb470)."
+  },
+  {
+   "addr": "0x14044bfc0",
+   "name": "p_EntityValueModifierAddComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 0); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierAddComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c060",
+   "name": "p_EntityValueModifierSubComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 1); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierSubComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c100",
+   "name": "p_EntityValueModifierMultComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 2); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierMultComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c1a0",
+   "name": "p_EntityValueModifierMaxComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 3); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierMaxComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c240",
+   "name": "p_EntityValueModifierMinComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 4); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierMinComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c2e0",
+   "name": "p_EntityValueModifierReduceComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 5); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierReduceComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14044c380",
+   "name": "p_EntityValueModifierOldestComputer_Alloc",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent (kind 6); allocates 0x28 bytes, calls EntityValueUnion_CopyAssign, sets oCEntityValueModifierOldestComputer::vftable, calls vftable[1]."
+  },
+  {
+   "addr": "0x14030d830",
+   "name": "p_EntityValueStore_GetModifierHolderPersistentData",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent; calls Entity_LookupMagicalObjectComponent and checks RTTI IsKindOf (+0x58) against DAT_141477c88 (oCEntityCpntModifierHolderPersistentData)."
+  },
+  {
+   "addr": "0x1406ec640",
+   "name": "p_EntityValueModifierList_ForEach",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_InitBaseValues, EntityValueStore_Recompute, EntityValueStore_ApplyModifierEvent; iterates modifier ptrs at *(param_1+0x20) (count +0x28) invoking param_2->vftable[3] (+0x18)."
+  },
+  {
+   "addr": "0x1406ec6a0",
+   "name": "p_EntityValueModifierList_InsertAndNotify",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent; obtains modifier via 0x1406f8790, prepends if *(float*)(mod+0x3c) <= 0.0 else appends to list+0x20, then notifies list+8 via 0x1401fd6f0."
+  },
+  {
+   "addr": "0x1407488f0",
+   "name": "p_EntityValueStore_HasOverrideKey",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by RemoteDamageTarget_OnModifierAdded and Emit_ADD_MODIFIER; scans override array *(store+0xc0) (stride 0x38, count +0xc8) for key == param_2."
+  },
+  {
+   "addr": "0x1407490c0",
+   "name": "p_EntityValueStore_RemoveModifierById",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by NamedEvent_HeroUnsubscribeAll and RemoteDamageTarget_OnModifierRemoved; builds op=5 request for modifier id param_2 and removes immediately via 0x14074c650 or defers via LAB_14076e820."
+  },
+  {
+   "addr": "0x14074c650",
+   "name": "p_EntityValueStore_EraseModifierFromTable",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by 0x1407490c0; probes SwissTable at store+0x88 (mask +0xa0, hash mult 0xde5fb9d2630458e9) for modifier key *param_2 and erases it."
+  },
+  {
+   "addr": "0x140427dd0",
+   "name": "p_CustomizeChallengePage_UpdateModifierSelection",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by CustomizeChallengePage_OnToggleModifier and CustomizeChallengePageUiControllerEntityCpnt::vf28; copies modifier list (0x1401bc190), checks preset via 0x140320a30, calls GameModifierUi_PadSelectedSlots or 0x14035b260."
+  },
+  {
+   "addr": "0x1406f66a0",
+   "name": "p_ModifierSignal_UnsubscribeHandler",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent; scans callback array *param_1 for {obj==param_2, fn==LAB_1406fdb90} and removes via 0x14051bfe0."
+  },
+  {
+   "addr": "0x1406f52c0",
+   "name": "p_SignalChannel_DispatchPtrU32",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent; iterates signal subscribers *param_1 calling (*(code**)(node+0x10))(param_2, &param_3, node) with swap-remove cleanup if param_1[2]==-1."
+  },
+  {
+   "addr": "0x140711ab0",
+   "name": "p_EntityComponent_Deactivate",
+   "kind": "function",
+   "note": "[proposed entity] Paired inverse of EntityComponent_Activate (called by 0x1403a6ae0, 0x1403aa8f0); checks vftable[27] (+0xd8) and invokes EntityComponent_RunDeactivate or increments deactivate count."
+  },
+  {
+   "addr": "0x140710ef0",
+   "name": "p_EntityComponentSettings_ResolveDisplayName",
+   "kind": "function",
+   "note": "[proposed entity] Called by HeroController_AddSkill, RemoteDamageTarget_OnModifierRemoved, 0x1403d22c0; walks parent oIEntityCpntSettings chain (DAT_141477640) via 0x1406dff20 and returns &settings+0xe8."
+  },
+  {
+   "addr": "0x14081c510",
+   "name": "p_AttackHit_ResolveSourceComponent",
+   "kind": "function",
+   "note": "[proposed combat] Called by HeroStats_OnDamageTaken, NamedEvent_EmitNetworkDamageFromHit, Emit_ADD_MODIFIER, oCEntityCpntHittable::vf31/32; returns cached *(hit+0x90) or resolves entity handle *(hit+0x80) via 0x140726090 and indexes component slot *(ushort*)(hit+0x88)."
+  },
+  {
+   "addr": "0x140725fd0",
+   "name": "p_Entity_GetOwnerPeerId",
+   "kind": "function",
+   "note": "[proposed entity] Called by Hero_ModifyDreamShards, str_NotADash, oCDtEntityCpntHeroControllerListener::vf28; calls Entity_GetNetComponent and queries netComp+0xb8->vftable[3] or scene+0x230->vftable[17], else -1."
+  },
+  {
+   "addr": "0x1403d22c0",
+   "name": "p_RemoteDamageTarget_GetOrLogModifierSlot",
+   "kind": "function",
+   "note": "[proposed combat] Called by RemoteDamageTarget_OnModifierAdded and RemoteDamageTarget_OnModifierRemoved; returns slot->vftable[30] (+0xf0) if target+0x68+idx*8 is non-null, else formats backslash-joined path via 0x140710ef0 and returns 0."
+  },
+  {
+   "addr": "0x1403fc3a0",
+   "name": "p_CombatEvent_FinalizeAndDestroy",
+   "kind": "function",
+   "note": "[proposed combat] Called by Entity_ResolveAttackHits, NamedEvent_EmitNetworkDamageFromHit, RemoteDamageTarget_OnModifierAdded/Removed; calls obj->vftable[3] (+0x18) then tail-calls deleting dtor obj->vftable[0](obj, 1)."
+  },
+  {
+   "addr": "0x1401fd6f0",
+   "name": "p_SignalChannel_DispatchPtr",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by EntityValueStore_ApplyModifierEvent, Hero_GrantMagicalObject, XpComponent_SetLevel/SetXp, NamedEvent_HeroUnsubscribeAll (267 callers); dispatches ptr arg to signal subscribers with deferred swap-remove."
+  },
+  {
+   "addr": "0x1402af350",
+   "name": "p_SignalChannel_DispatchBool",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by 0x1403b24a0 (HeroController) and 0x1402e9b40 (SkillController); dispatches bool* arg to signal subscribers with deferred swap-remove."
+  },
+  {
+   "addr": "0x14026ece0",
+   "name": "p_SignalChannel_DispatchU32",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by Hero_ModifyDreamShards, Reroll_GrantToHeroes, 0x1402e9b40 (SkillController) (208 callers); dispatches uint32_t* arg to signal subscribers with deferred swap-remove."
+  },
+  {
+   "addr": "0x14051bfe0",
+   "name": "p_SignalChannel_RemoveAtIndex",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by EntityValueStore_ApplyModifierEvent, NamedEvent_HeroUnsubscribeAll, 0x1403aa8f0, 0x1406f66a0 (251 callers); marks active iterator -1 or swap-removes subscriber at index param_2 and frees node via 0x14051f2c0."
+  },
+  {
+   "addr": "0x14051f2c0",
+   "name": "p_SignalNode_Destroy",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by 0x14051bfe0; invokes optional closure destructor node+8(0, node, 0) and frees node via Crt_Free."
+  },
+  {
+   "addr": "0x14051bcf0",
+   "name": "p_SignalClosure_MoveAssign",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called by HeroController_AddSkill, NamedEvent_HeroSubscribeAll, 0x1403aa8f0 (428 callers); destroys old closure, moves {vtable, fn} from param_2 to param_1, runs move op (2, dst, src) or copies inline payload."
+  },
+  {
+   "addr": "0x140214980",
+   "name": "p_SignalNode_Alloc",
+   "kind": "function",
+   "note": "[proposed engine/signals] Called before 0x14051bcf0 in HeroController_AddSkill, NamedEvent_HeroSubscribeAll, 0x1403aa8f0 (427 callers); allocates 0x20 bytes via _malloc_base and zero-initializes."
+  },
+  {
+   "addr": "0x14082ba30",
+   "name": "p_EntityValueUnion_ResolveResource",
+   "kind": "function",
+   "note": "[proposed modifiers] Called by EntityValueStore_ApplyModifierEvent, ModifierValueDesc_Ctor, StatusValueDefs_Register (387 callers); resolves resource ref by type tag (+0x18: 5->0x1406886f0, 6->oCTexture DAT_1414773f0, 9->oCMaterial DAT_1414776d0) via ResourceRef_Resolve + 0x1400bf810."
+  },
+  {
+   "addr": "0x1400bf810",
+   "name": "p_RefCountedPtr_Assign",
+   "kind": "function",
+   "note": "[proposed engine] Called by 0x14082ba30; atomically decrements old refcount at (*param_1)+8 (releasing via vftable[1] on 1->0), assigns *param_1 = *param_2, atomically increments new refcount."
+  },
+  {
+   "addr": "0x1401a1d40",
+   "name": "p_MetaClass_AllocAndRegister",
+   "kind": "function",
+   "note": "[proposed engine/meta] Called by 1,937 registrars incl. HasGameModifierStateMachine_Register and SkillController_Ctor; allocates 0x90 bytes, constructs oCKindMetaClass, installs oCMetaClass::vftable, calls 0x14050c830 and str_Attempted_a_typeid_of_nullptr_pointer."
+  },
+  {
+   "addr": "0x14050b970",
+   "name": "p_MetaClassRegistry_EnqueueInit",
+   "kind": "function",
+   "note": "[proposed engine/meta] Called by 1,991 registrars incl. HasGameModifierStateMachine_Register and SkillController_Ctor (confirmed in Phase 5); appends metaclass to DAT_14143ded0 and init callback (excluding _guard_check_icall) to DAT_14143dee0 via Vector_Grow."
+  },
+  {
+   "addr": "0x140517b30",
+   "name": "p_TlsRng_NextFloat01",
+   "kind": "function",
+   "note": "[proposed engine] Called by Hero_GrantMagicalObject, EnemyCamp_TierSelector, EnemyCamp_TribeEntryBuilder; steps TLS PCG-RXS-M-XS-32 state at TLS+0xff4c and returns float in [0, 1) (* 2^-31)."
+  },
+  {
+   "addr": "0x140528820",
+   "name": "p_oCString_PathBasename",
+   "kind": "function",
+   "note": "[proposed engine/string] Called by HeroStats_OnDamageDealt and HeroStats_OnDamageTaken; scans backwards for '\\' in oCString and returns view after last backslash."
+  },
+  {
+   "addr": "0x140528930",
+   "name": "p_oCString_PathStripExtension",
+   "kind": "function",
+   "note": "[proposed engine/string] Called by HeroStats_OnDamageDealt and HeroStats_OnDamageTaken; finds last '\\' then first '.' after it and returns copy truncated before '.'."
+  },
+  {
+   "addr": "0x14010ee00",
+   "name": "p_oCString_CopyCtor",
+   "kind": "function",
+   "note": "[proposed engine/string] Called 677 times incl. HeroDef_LoadBaseEntity/LoadSkinEntity, Hero_GrantMagicalObject, RunRoster_ApplyModifiers, XpComponent_SetLevel; shallow-copies static oCString (flag 0x80000000) or heap-allocates and copies bytes."
+  },
+  {
+   "addr": "0x14052af30",
+   "name": "p_oCString_RemoveChar",
+   "kind": "function",
+   "note": "[proposed engine/string] Called by 0x140669590 to strip ' ', ',', ';', '!'; removes all occurrences of char param_2 in-place (COW via 0x14052bfe0 if static) and returns removal count."
+  },
+  {
+   "addr": "0x14052ba70",
+   "name": "p_oCString_Reserve",
+   "kind": "function",
+   "note": "[proposed engine/string] Called by 0x140669590, 0x1403d22c0, 0x140528930; promotes static oCString or reallocates heap buffer to capacity >= param_2."
+  },
+  {
+   "addr": "0x140669590",
+   "name": "p_CustomFlagList_AddTag",
+   "kind": "function",
+   "note": "[proposed hero/flags] Called by Entity_GainHealthHandler, HeroStats_OnDamageDealt/Taken, Hero_GrantMagicalObject; copies/strips string (0x14052af30), clamps to <=0x100, hashes via Crc32_TableInit + NamedEvent_Id_FromCrc, inserts {crc, oCString} into flag vector."
+  },
+  {
+   "addr": "0x1406697f0",
+   "name": "p_CustomFlagList_Merge",
+   "kind": "function",
+   "note": "[proposed hero/flags] Called by HeroStats_OnDamageDealt, Hero_ModifyDreamShards, TileSpawn_PlaceTiles; merges {crc, oCString} entries (stride 0x18) from param_2+8 into param_1+8 deduplicated by CRC."
+  },
+  {
+   "addr": "0x1401bc190",
+   "name": "p_VectorU64_AssignRange",
+   "kind": "function",
+   "note": "[proposed engine/containers] Called by CustomizeChallengePage_OnToggleModifier, GameModifierUi_PadSelectedSlots, RunRoster_ApplyModifiers; assigns param_3 qwords from param_2 into oCVector<uint64_t> growing via Vector_InsertRange or shrinking via _realloc_base."
+  },
+  {
+   "addr": "0x14020a870",
+   "name": "p_VectorU64_AssignFromSpan",
+   "kind": "function",
+   "note": "[proposed engine/containers] Called by Chapter_StartHeroSetup, GameModifierLock_OnStateChange; assigns qword span {count=*param_2, data=*(param_2+8)} into oCVector<uint64_t>."
+  },
+  {
+   "addr": "0x14014dda0",
+   "name": "p_VectorU32_InsertRange",
+   "kind": "function",
+   "note": "[proposed engine/containers] Called by CustomizeChallengePage_OnToggleModifier, HeroStats_OnDamageDealt, RemoteDamageTarget_OnModifierAdded; inserts param_3 uint32_t elements at index param_2, growing geometrically via 0x14014de30."
+  },
+  {
+   "addr": "0x14014de30",
+   "name": "p_VectorU32_Realloc",
+   "kind": "function",
+   "note": "[proposed engine/containers] Called by 0x14014dda0; reallocates/frees 4-byte element buffer (param_3*4) and updates capacity at +0xc."
+  },
+  {
+   "addr": "0x1401997c0",
+   "name": "p_Vector24_InsertRange",
+   "kind": "function",
+   "note": "[proposed engine/containers] Called by 0x140669590 and 0x1406697f0 (CustomFlagList); inserts param_3 0x18-byte entries at index param_2, growing via 0x14014df70."
+  }
+ ]
+}

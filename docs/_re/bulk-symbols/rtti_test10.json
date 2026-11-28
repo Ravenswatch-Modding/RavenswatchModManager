@@ -1,0 +1,64 @@
+{
+ "entries": [
+  {
+   "addr": "0x140246710",
+   "name": "std::_Func_impl_no_alloc<_public:_static_class_pplx::task<void>___cdecl_pplx::details::_WhenAllImpl<void,pplx::task<void>*___ptr64>::_Perform(pplx::ta_847c09cb::vf3",
+   "kind": "function",
+   "note": "[rtti slot] std::_Func_impl_no_alloc<`public:_static_class_pplx::task<void>___cdecl_pplx::details::_WhenAllImpl<void,pplx::task<void>*___ptr64>::_Perform(pplx::task_options_const&___ptr64,pplx::task<void>*___ptr64,pplx::task<void>*___ptr64)'::`2'::<lambda_1>,void,unsigned_char>::vftable slot 3 (vts=1)"
+  },
+  {
+   "addr": "0x1400bd850",
+   "name": "oCTGlobalResourceRef<oCEntitySettingsResource,0>::vf4",
+   "kind": "function",
+   "note": "[rtti slot] oCTGlobalResourceRef<oCEntitySettingsResource,0>::vftable slot 4 (vts=2)"
+  },
+  {
+   "addr": "0x1400c4840",
+   "name": "std::ctype<char>::vf3",
+   "kind": "function",
+   "note": "[rtti slot] std::ctype<char>::vftable slot 3 (vts=1)"
+  },
+  {
+   "addr": "0x1400be1a0",
+   "name": "oe::dt::RainRenderSettings::vf0",
+   "kind": "function",
+   "note": "[rtti slot] oe::dt::RainRenderSettings::vftable slot 0 (vts=1)"
+  },
+  {
+   "addr": "0x1400bb320",
+   "name": "oCKindMetaClass::vf39",
+   "kind": "function",
+   "note": "[rtti slot] oCKindMetaClass::vftable slot 39 (vts=44)"
+  },
+  {
+   "addr": "0x1400b9e80",
+   "name": "std::exception::dtor_deleting",
+   "kind": "function",
+   "note": "[rtti slot] std::exception::vftable slot 0 (vts=1) [deleting dtor]"
+  },
+  {
+   "addr": "0x1400c4940",
+   "name": "std::ctype<char>::dtor_deleting",
+   "kind": "function",
+   "note": "[rtti slot] std::ctype<char>::vftable slot 0 (vts=1) [deleting dtor]"
+  },
+  {
+   "addr": "0x1400bb660",
+   "name": "oCGameNamedEvent::ctor_or_dtor",
+   "kind": "function",
+   "note": "[rtti ctor/dtor] stores 1 vtable(s): oCGameNamedEvent"
+  },
+  {
+   "addr": "0x1400c1dc0",
+   "name": "oe::EntityCpntValueSignal<int>::ctor_or_dtor",
+   "kind": "function",
+   "note": "[rtti ctor/dtor] stores 2 vtable(s): oe::ValueSignalBase, oe::EntityCpntValueSignal<int>"
+  },
+  {
+   "addr": "0x1400db8a0",
+   "name": "Stormancer::Steam::details::SteamImpl::sub0xa0_vf0",
+   "kind": "function",
+   "note": "[rtti slot] Stormancer::Steam::details::SteamImpl::vftable slot 0 (vts=1)"
+  }
+ ]
+}

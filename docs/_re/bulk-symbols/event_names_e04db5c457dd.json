@@ -1,0 +1,452 @@
+{
+ "ABILITY_EXIT": {
+  "va": "0x140f190e0"
+ },
+ "ACTIVITY_FAILED": {
+  "va": "0x140f19c30"
+ },
+ "ACTIVITY_START": {
+  "va": "0x140f19c08"
+ },
+ "ACTIVITY_SUCCESS": {
+  "va": "0x140f19c40"
+ },
+ "ADD_ALL_SKILLS": {
+  "va": "0x140f19670"
+ },
+ "ADD_BASIC_CHARGE": {
+  "va": "0x140f19258"
+ },
+ "ADD_DASH_CHARGE": {
+  "va": "0x140f192e8"
+ },
+ "ADD_DEFENSIVE_CHARGE": {
+  "va": "0x140f19270"
+ },
+ "ADD_MODIFIER": {
+  "va": "0x140f09310"
+ },
+ "ADD_PRIMARY_CHARGE": {
+  "va": "0x140f19240"
+ },
+ "ADD_RANDOM_ULTI_SKILL": {
+  "va": "0x140f196a8"
+ },
+ "ADD_SECONDARY_CHARGE": {
+  "va": "0x140f19288"
+ },
+ "ADD_TRAIT_CHARGE": {
+  "va": "0x140f192b8"
+ },
+ "ADD_ULTIMATE_CHARGE": {
+  "va": "0x140f192a0"
+ },
+ "ALL_PLAYER_DEAD": {
+  "va": "0x140f19908"
+ },
+ "ALTAR_HERO_REVIVE_STAT": {
+  "va": "0x140f19930"
+ },
+ "ALTAR_OF_HEROES_PAID": {
+  "va": "0x140f19c18"
+ },
+ "ATTACHMENT_CHANGE": {
+  "va": "0x140f09340"
+ },
+ "BABAYAGA_HOUSE_DEFEATED": {
+  "va": "0x140f19ad8"
+ },
+ "BLOOD_BOMB_EXPLODE": {
+  "va": "0x140f19cb0"
+ },
+ "BOSS_ACTIVATED": {
+  "va": "0x140f19bc8"
+ },
+ "BOSS_DEFEATED": {
+  "va": "0x140f19af0"
+ },
+ "BOSS_FIGHTING_START": {
+  "va": "0x140f19ac0"
+ },
+ "BOSS_FIGHTING_STOP": {
+  "va": "0x140f19aa8"
+ },
+ "CHARGE_LINK": {
+  "va": "0x140f190d0"
+ },
+ "CHOOSE_MELODY": {
+  "va": "0x140f19428"
+ },
+ "CINE_ASK_SKIP": {
+  "va": "0x140f19990"
+ },
+ "CINE_END": {
+  "va": "0x140f09358"
+ },
+ "CINE_RELEASE_CONTROL": {
+  "va": "0x140f09380"
+ },
+ "CINE_START": {
+  "va": "0x140f19968"
+ },
+ "CINE_STOP": {
+  "va": "0x140f19958"
+ },
+ "CINE_TAKE_CONTROL": {
+  "va": "0x140f09368"
+ },
+ "CLEAR_BASIC_CD": {
+  "va": "0x140f19100"
+ },
+ "CLEAR_CD": {
+  "va": "0x140f19110"
+ },
+ "CLEAR_CHILLED": {
+  "va": "0x140f196d0"
+ },
+ "CLEAR_DASH_CD": {
+  "va": "0x140f19178"
+ },
+ "CLEAR_DEFENSIVE_CD": {
+  "va": "0x140f19160"
+ },
+ "CLEAR_PRIMARY_CD": {
+  "va": "0x140f19138"
+ },
+ "CLEAR_ROSE_SEED": {
+  "va": "0x140f196c0"
+ },
+ "CLEAR_SECONDARY_CD": {
+  "va": "0x140f19120"
+ },
+ "CLEAR_STAGGER": {
+  "va": "0x140f19708"
+ },
+ "CLEAR_STATUS": {
+  "va": "0x140f19718"
+ },
+ "CLEAR_TRAIT_CD": {
+  "va": "0x140f19150"
+ },
+ "CLEAR_ULTIMATE_CD": {
+  "va": "0x140f19188"
+ },
+ "COMBO_LINK": {
+  "va": "0x140f190c0"
+ },
+ "CROWS_MAP_REVEAL": {
+  "va": "0x140f19b30"
+ },
+ "DEATHDOOR_TIMER_END": {
+  "va": "0x140f19918"
+ },
+ "DEBUG_RESET_CHESTS": {
+  "va": "0x140f19060"
+ },
+ "DEBUG_RESET_HOURGLASS": {
+  "va": "0x140f19088"
+ },
+ "DUPLICATE_RANDOM_COMMON_OBJECT": {
+  "va": "0x140f194a0"
+ },
+ "DUPLICATE_RANDOM_EPIC_OBJECT": {
+  "va": "0x140f194e0"
+ },
+ "DUPLICATE_RANDOM_MAGICAL_OBJECT": {
+  "va": "0x140f19450"
+ },
+ "DUPLICATE_RANDOM_RARE_OBJECT": {
+  "va": "0x140f19480"
+ },
+ "ENEMY_KILLED": {
+  "va": "0x140f19698"
+ },
+ "FIRING_EXPLODE": {
+  "va": "0x140f196f8"
+ },
+ "FORCE_DEATH": {
+  "va": "0x140f19740"
+ },
+ "GAIN_DREAM_SHARDS": {
+  "va": "0x140f19870"
+ },
+ "GAIN_HEALTH": {
+  "va": "0x140f09300"
+ },
+ "GAIN_INGREDIENT": {
+  "va": "0x140f19830"
+ },
+ "GAIN_REROLL": {
+  "va": "0x140f19860"
+ },
+ "GAME_CHRONO_START": {
+  "va": "0x140f199e0"
+ },
+ "GAME_END_CHANGE_STATE": {
+  "va": "0x140f19a40"
+ },
+ "GAME_END_FAILED": {
+  "va": "0x140f199f8"
+ },
+ "GAME_END_NEXT_CHAPTER": {
+  "va": "0x140f19a28"
+ },
+ "GAME_END_SUCCESS": {
+  "va": "0x140f199c8"
+ },
+ "GAME_END_SUCCESS_SKIP_NEXT": {
+  "va": "0x140f19a08"
+ },
+ "GAME_START": {
+  "va": "0x140f199a0"
+ },
+ "GENERATE_REWARDS": {
+  "va": "0x140f19978"
+ },
+ "GIVE_MAGICAL_OBJECT": {
+  "va": "0x140f19438"
+ },
+ "GRIMOIRE_QUEST_FINISHED": {
+  "va": "0x140f19bf0"
+ },
+ "HEALTH_MODIFICATION": {
+  "va": "0x140f092d0"
+ },
+ "HERO_DEATH_DOOR": {
+  "va": "0x140f19948"
+ },
+ "HERO_REVIVE": {
+  "va": "0x140f190a0"
+ },
+ "HOURGLASS_STATS": {
+  "va": "0x140f19c88"
+ },
+ "INTERACTION_CANCELED": {
+  "va": "0x140f197b8"
+ },
+ "INTERACTION_FAILED": {
+  "va": "0x140f197d0"
+ },
+ "INTERACTION_REJECT": {
+  "va": "0x140f19750"
+ },
+ "INTERACTION_REQUEST": {
+  "va": "0x140f19728"
+ },
+ "INTERACTION_SUCCESS": {
+  "va": "0x140f197a0"
+ },
+ "INTERACTION_VALIDATE": {
+  "va": "0x140f19768"
+ },
+ "LOCAL_INTERACTION_SUCCESS": {
+  "va": "0x140f19780"
+ },
+ "LOCK_CONTROL": {
+  "va": "0x140f19078"
+ },
+ "MAP_GENERATION_DONE": {
+  "va": "0x140f199b0"
+ },
+ "MAX_HEALTH_MODIFICATION": {
+  "va": "0x140f092e8"
+ },
+ "MINIMAP_PING": {
+  "va": "0x140f19b48"
+ },
+ "NETWORK_DAMAGE": {
+  "va": "0x140f092a8"
+ },
+ "NETWORK_DAMAGE_RESPONSE": {
+  "va": "0x140f092b8"
+ },
+ "OPEN_CHEST": {
+  "va": "0x140f19b58"
+ },
+ "POWER_UP_COLLECT_REQUEST": {
+  "va": "0x140f193a0"
+ },
+ "REDUCE_BASIC_CD": {
+  "va": "0x140f191a0"
+ },
+ "REDUCE_CD": {
+  "va": "0x140f191b0"
+ },
+ "REDUCE_DASH_CD": {
+  "va": "0x140f19218"
+ },
+ "REDUCE_DEFENSIVE_CD": {
+  "va": "0x140f19200"
+ },
+ "REDUCE_PRIMARY_CD": {
+  "va": "0x140f191d8"
+ },
+ "REDUCE_SECONDARY_CD": {
+  "va": "0x140f191c0"
+ },
+ "REDUCE_TRAIT_CD": {
+  "va": "0x140f191f0"
+ },
+ "REDUCE_ULTIMATE_CD": {
+  "va": "0x140f19228"
+ },
+ "REMOVE_ALL_COMMON_OBJECT": {
+  "va": "0x140f195c0"
+ },
+ "REMOVE_ALL_CURSED_OBJECT": {
+  "va": "0x140f19630"
+ },
+ "REMOVE_ALL_EPIC_OBJECT": {
+  "va": "0x140f19600"
+ },
+ "REMOVE_ALL_LEGENDARY_OBJECT": {
+  "va": "0x140f19650"
+ },
+ "REMOVE_ALL_MAGICAL_OBJECT": {
+  "va": "0x140f195e0"
+ },
+ "REMOVE_ALL_RARE_OBJECT": {
+  "va": "0x140f19618"
+ },
+ "REMOVE_BASIC_CHARGE": {
+  "va": "0x140f192d0"
+ },
+ "REMOVE_DASH_CHARGE": {
+  "va": "0x140f19358"
+ },
+ "REMOVE_DEFENSIVE_CHARGE": {
+  "va": "0x140f19340"
+ },
+ "REMOVE_MAGICAL_OBJECT_FROM_ID": {
+  "va": "0x140f194c0"
+ },
+ "REMOVE_MELODY": {
+  "va": "0x140f19470"
+ },
+ "REMOVE_MODIFIER": {
+  "va": "0x140f09320"
+ },
+ "REMOVE_NEWLY_UNLOCK": {
+  "va": "0x140f19b68"
+ },
+ "REMOVE_PRIMARY_CHARGE": {
+  "va": "0x140f19310"
+ },
+ "REMOVE_RANDOM_COMMON_OBJECT": {
+  "va": "0x140f19500"
+ },
+ "REMOVE_RANDOM_CURSED_OBJECT": {
+  "va": "0x140f19580"
+ },
+ "REMOVE_RANDOM_EPIC_OBJECT": {
+  "va": "0x140f19540"
+ },
+ "REMOVE_RANDOM_LEGENDARY_OBJECT": {
+  "va": "0x140f195a0"
+ },
+ "REMOVE_RANDOM_MAGICAL_OBJECT": {
+  "va": "0x140f19520"
+ },
+ "REMOVE_RANDOM_RARE_OBJECT": {
+  "va": "0x140f19560"
+ },
+ "REMOVE_SECONDARY_CHARGE": {
+  "va": "0x140f192f8"
+ },
+ "REMOVE_TRAIT_CHARGE": {
+  "va": "0x140f19328"
+ },
+ "REMOVE_ULTIMATE_CHARGE": {
+  "va": "0x140f19370"
+ },
+ "RESET_SKILLS": {
+  "va": "0x140f193f0"
+ },
+ "RESET_STAGGER_RESILIENCE": {
+  "va": "0x140f19898"
+ },
+ "REVIVE_REJECT": {
+  "va": "0x140f198b8"
+ },
+ "REVIVE_RELEASE_TOKEN": {
+  "va": "0x140f198f0"
+ },
+ "REVIVE_REQUEST": {
+  "va": "0x140f19888"
+ },
+ "REVIVE_TOKEN_LOSS": {
+  "va": "0x140f198d8"
+ },
+ "REVIVE_VALIDATE": {
+  "va": "0x140f198c8"
+ },
+ "SOLO_ACTIVITY_FAILED": {
+  "va": "0x140f19c98"
+ },
+ "SOLO_ACTIVITY_START": {
+  "va": "0x140f19c70"
+ },
+ "SOLO_ACTIVITY_SUCCESS": {
+  "va": "0x140f19c58"
+ },
+ "STARTUP_LINK": {
+  "va": "0x140f190f0"
+ },
+ "START_DAYMARE": {
+  "va": "0x140f19a68"
+ },
+ "START_NIGHTMARE": {
+  "va": "0x140f19a58"
+ },
+ "STORY_QUEST_FINISHED": {
+  "va": "0x140f19bb0"
+ },
+ "SYNCHRONISATION_POINT_ACTIVATED": {
+  "va": "0x140f09398"
+ },
+ "SYNCHRONISATION_POINT_VALIDATED": {
+  "va": "0x140f093b8"
+ },
+ "TELEPORT_SUBMAP_ENTER": {
+  "va": "0x140f19b18"
+ },
+ "TELEPORT_SUBMAP_EXIT": {
+  "va": "0x140f19b00"
+ },
+ "TUMOR_FIGHTING_START": {
+  "va": "0x140f19a90"
+ },
+ "TUMOR_FIGHTING_STOP": {
+  "va": "0x140f19a78"
+ },
+ "UNLOCK_CONTROL": {
+  "va": "0x140f190b0"
+ },
+ "UPDATE_MODIFIER": {
+  "va": "0x140f09330"
+ },
+ "UPDATE_OBJECT_UI": {
+  "va": "0x140f19680"
+ },
+ "UPGRADE_LOWER_SKILL": {
+  "va": "0x140f193c0"
+ },
+ "UPGRADE_LOWER_SKILL_TO_LEGENDARY": {
+  "va": "0x140f19400"
+ },
+ "UPGRADE_RANDOM_SKILL": {
+  "va": "0x140f19388"
+ },
+ "UPGRADE_SPECIFIC_SKILL": {
+  "va": "0x140f193d8"
+ },
+ "USE_BLOOD_FOUNTAIN": {
+  "va": "0x140f19b80"
+ },
+ "USE_HEAL_FOUNTAIN": {
+  "va": "0x140f19b98"
+ },
+ "WISHING_WELL_FILLED": {
+  "va": "0x140f19bd8"
+ }
+}
