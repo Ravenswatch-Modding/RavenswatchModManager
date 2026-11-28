@@ -1,0 +1,832 @@
+{
+  "entries": [
+    {
+      "addr": "0x1400bb5b0",
+      "name": "p_AnalyticsMetricBucket_CopyKey",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1401f0970 and 0x1401f0c50; copies u32 key hash and assigns bucket label string via String_Assign."
+    },
+    {
+      "addr": "0x1401f0c50",
+      "name": "p_Analytics_AccumulateMetricBucket",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Callback registered by 0x1401f6990/0x1401f79d0 (Analytics session); accumulates float sum (+0x18) and count (+0x1c) in keyed 0x20-byte bucket vector at this+0xe8."
+    },
+    {
+      "addr": "0x140201800",
+      "name": "p_SignalChannel_SubscribeWrappedClosure",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1401c1b10; allocates signal node (p_SignalNode_Alloc), wraps 0x18-byte heap closure (0x14023e5f0/0x140238b60), moves via p_SignalClosure_MoveAssign, and appends to channel."
+    },
+    {
+      "addr": "0x140203820",
+      "name": "p_AnalyticsMetricBucketVector_EmplaceBack",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1401f0970 and 0x1401f0c50; grows 0x20-byte-stride metric bucket vector (0x14020f220) and default-initializes appended entry."
+    },
+    {
+      "addr": "0x14020fa30",
+      "name": "p_DtProcessedDamage_Alloc",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by DtGame_Init and oCDtProcessedDamage::vf4; allocates 0xf0 bytes, zero-fills, constructs oCDtProcessedDamage, and invokes vf3."
+    },
+    {
+      "addr": "0x14020fa90",
+      "name": "p_DtDamage_Alloc",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtDamage::vf4 and oCDtEntityCpntDamage::vf30; allocates 0x130 bytes, constructs oCDtDamage, and invokes vf3."
+    },
+    {
+      "addr": "0x14020fae0",
+      "name": "p_DtDamageFeedback_Alloc",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by DtGame_Init, oCDtDamageFeedback::vf3, and Entity_ResolveAttackHits; allocates 0x38 bytes, sets oCDtDamageFeedback::vftable, and invokes vf1."
+    },
+    {
+      "addr": "0x140249fd0",
+      "name": "p_DamageStatusEffectVector_CopyAssign",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140247600 and 0x1403ca910; copy-assigns vector of 0x14-byte status-effect entries (oCDtDamage+0xc0), growing via 0x14024db00 or shrinking via _realloc_base/Crt_Free."
+    },
+    {
+      "addr": "0x14024a730",
+      "name": "p_EntityValueUnionVector_CopyAssign",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140247600, 0x1403ca910, oCTMetaAttribute<oe::Vector<oCEntityValueUnion> >::vf8, and TemporaryStackableValueCpntPersistentData; copy-assigns oe::Vector<oCEntityValueUnion>."
+    },
+    {
+      "addr": "0x140256200",
+      "name": "p_TipsUiDisplay_UpdateActionLabel",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1402563c0 (near str_Dt_Tips_Ui_Display); queries oCDtEncyclopediaSceneContext, resolves action slot label (s_Explo_BasicAttack/s_Options_BasicAttack), updates text signals +0x20/+0x40."
+    },
+    {
+      "addr": "0x1402563c0",
+      "name": "p_TipsUiDisplay_BindActionList",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1404446b0 and 0x1404467f0; binds action list at this+0x78, updates label via 0x140256200, and dispatches count via p_SignalChannel_DispatchU32(this+0x60)."
+    },
+    {
+      "addr": "0x1402c7eb0",
+      "name": "p_AbilityController_RefreshActiveVariant",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] AbilityController callback (near p_AbilityController_*); evaluates active variant index via 0x1402c7ef0, updates +0x378 on change, and dispatches signal channel +0x338."
+    },
+    {
+      "addr": "0x1402c9ff0",
+      "name": "p_AbilityCtrlListener_OnChargeCountChanged",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] AbilityCtrlListener callback registered by 0x1402c98c0 on abilityCtrl+0x308; clamps count >= 0, stores +0x178, dispatches +0xb8, and marks net component dirty (0x140720000)."
+    },
+    {
+      "addr": "0x1402d13b0",
+      "name": "p_oCDtEntityCpntSelectionMenuUiController_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oCDtEntityCpntSelectionMenuUiController::vftable[0] and Settings::vftable[9]; returns DAT_1414786d0."
+    },
+    {
+      "addr": "0x1402d16b0",
+      "name": "p_SelectionMenuUiController_Dtor",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntSelectionMenuUiController::vf2; destroys closures, six oe::ValueSignalBase members (+0x198..+0x238), embedded oCEntitySpawner (+0x90), and oIEntityCpnt base."
+    },
+    {
+      "addr": "0x1402e9800",
+      "name": "p_SkillController_ComputeUpgradeCost",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x14036c350 and str_IsUpgradePreview; computes rounded skill upgrade cost from DarkTalesAppSettingsSection (+0x15c+tier*4), hero modifiers 0x1d60ae52/0x173900b2, and scene value 0x187310ec."
+    },
+    {
+      "addr": "0x1402e9a50",
+      "name": "p_SkillController_CompareChoiceOrder",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] qsort comparator called by 0x1403b2b80 and 0x1404142a0; orders skill choices by lock flag (+0xc8), required hero rank (0x140317af0), and sort index (+0xcc)."
+    },
+    {
+      "addr": "0x1402ebb00",
+      "name": "p_EntitySpawner_SpawnSelectionMenu",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1402dad80 and 0x1403a5990; spawns entity via 0x1406eb930, looks up oCDtEntityCpntSelectionMenuUiController (DAT_1414786d0), and destroys entity if absent."
+    },
+    {
+      "addr": "0x1402f0130",
+      "name": "p_DtNamedEventGainHealthResource_Alloc",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtNamedEventGainHealthResource::vf3; allocates 0x68 bytes, constructs oCNamedEventGainHealth, sets oCDtNamedEventGainHealthResource::vftable, and invokes vf1."
+    },
+    {
+      "addr": "0x14030db40",
+      "name": "p_EntityCpntValue_CachedState_Dtor",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCEntityCpntValue::vf2/vf5 and 0x14030d4e0; destructs and frees the three embedded oCEntityValueUnion fields (+0x48, +0x28, +0x08) of the 0x70-byte cached state."
+    },
+    {
+      "addr": "0x140317af0",
+      "name": "p_SkillUnlock_GetRequiredHeroRank",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by 0x1402e9a50; scans lock conditions at +0xb8 for oe::dt::HeroRankGameLockConditionSettings (DAT_141478510) and returns required rank (+0xb0)."
+    },
+    {
+      "addr": "0x14034b650",
+      "name": "p_SelectionMenuUiController_OpenChoiceList",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntMagicalObjectsDrop::vf28, 0x1402d4d00, 0x1402dad80, 0x1403a5990, 0x1403b34f0; activates card spawner, binds each option viewer via +0x158 callback, subscribes confirm signal, and focuses first enabled oCUINavigable."
+    },
+    {
+      "addr": "0x14034c1d0",
+      "name": "p_SelectionMenuUiController_PushFocusedUpdateGs",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntSelectionMenuUiController::vf28 and 0x14034c170; allocates oe::FocusedUpdateGs (0x14035eb20) and attaches it to oCDtInGameGs+0x28 with callbacks 0x14035ef70/0x14035ef90."
+    },
+    {
+      "addr": "0x14034c2c0",
+      "name": "p_SelectionMenuUiController_PopFocusedUpdateGs",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntSelectionMenuUiController::vf29 and 0x14034c190; clears callbacks on this+0x160 FocusedUpdateGs, sets finished flag +0x30=1, and nulls +0x160."
+    },
+    {
+      "addr": "0x14034c360",
+      "name": "p_SelectionMenuUiController_ApplySoloPause",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntSelectionMenuUiController::vf28 and 0x14034c170; in solo sessions (players < 2) with g_GameOptions+0x11a8 enabled, pushes scene pause token via 0x14066b590."
+    },
+    {
+      "addr": "0x14034fb50",
+      "name": "p_AbilityUiController_OnAbilityStateChanged",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oCDtEntityCpntAbilityUiController callback registered via 0x140362f20 in 0x14034ed10/0x14034f010; dispatches active variant icon/text, bool flags, charge value, and activates component."
+    },
+    {
+      "addr": "0x140383440",
+      "name": "p_HittableListener_OnHealthGainedCheckThreshold",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called via 0x14038e9a0 from oCDtEntityCpntHittableListener::vf30; checks hp/maxHp against DarkTalesAppSettingsSection+0x110 threshold and deactivates low-HP component this+0x428."
+    },
+    {
+      "addr": "0x140390fe0",
+      "name": "p_CharacterController_IsInIdleActionState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntCharacterController::vf34 and 0x1403c3360; returns true when FSM state fn at +0x2b8 equals FUN_1403c09e0 and substate +0x2c0 == 0."
+    },
+    {
+      "addr": "0x1403a2090",
+      "name": "p_HeroController_ApplyAbilityDamageModifiers",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x14040b280 in oCDtEntityCpntHeroController::vf28; applies hero damage modifiers (0x16917ec8, 0x174a0363, per-slot charge multipliers 0x1ab5dcf4..dc96, 0x1d699f76) to oCDtDamage."
+    },
+    {
+      "addr": "0x1403a38a0",
+      "name": "p_HeroController_EnterSkillSelectionWaitState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntSandmanMenuUiController::vf29 and MagicMirrorMenuUiControllerEntityCpnt::vf29; transitions hero FSM (this+0x68) into FUN_1403a5560."
+    },
+    {
+      "addr": "0x1403a42c0",
+      "name": "p_HeroController_CheckRerollThreshold",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by MagicalObjectsDrop::vf28, 0x1402d4d00, 0x1403a5990, 0x1403b34f0; compares param_3 against hero value 0x1aa49d8d, returning 0 if below threshold else param_2."
+    },
+    {
+      "addr": "0x1403a5990",
+      "name": "p_HeroController_SkillSelectionMenuState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Hero FSM state (0=enter, 1=exit) called by 0x1403a5560; spawns SelectionMenuUiController, rolls/displays skill choices, grants confirmed skill via HeroController_AddSkill, emits analytics events (0x17d370a8/0x17fc7683), and unlocks input."
+    },
+    {
+      "addr": "0x1403b2a40",
+      "name": "p_HeroController_PopulateSkillChoiceCard",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Callback registered via 0x140401ad0 in 0x1403a5990; binds SkillUiViewerEntityCpnt to offered skill via 0x1404446b0, records viewer in hero+0x1390, and sets card enabled state."
+    },
+    {
+      "addr": "0x1403b2b80",
+      "name": "p_HeroController_RollSkillChoices",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403a5990 and 0x1403b34f0; selects candidate talent pool for next empty slot, filters owned/locked skills, draws via TLS RNG, sorts with 0x1402e9a50, and assigns rarity tiers."
+    },
+    {
+      "addr": "0x1403b3680",
+      "name": "p_HeroController_SyncPendingSkillsToPersistentData",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403a5990 and 0x1403b34f0; syncs pending offered skill GUIDs and rarities from hero+0x1380 into oCDtEntityCpntHeroControllerPersistentData (DAT_1414778c8)."
+    },
+    {
+      "addr": "0x1403b3930",
+      "name": "p_HeroController_ScaleValueBySkillCount",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x140401970 in oCDtEntityCpntHeroController::vf28; scales param_2 by (sum_skills_e80..e90 * value(0x17099302) + 1.0)."
+    },
+    {
+      "addr": "0x1403be4a0",
+      "name": "p_CharacterController_PopulateDamageFromStats",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCDtEntityCpntDamage::vf30; populates oCDtDamage crit/multiplier/stat fields from character value store (+0x4c8) and dispatches damage modifier listeners (+0x5d0)."
+    },
+    {
+      "addr": "0x1403c1330",
+      "name": "p_CharacterController_GetAbilitySlotDamageBonus",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by 0x1403be4a0; reads base value 0x17032652 and overrides from per-ability-slot (0..6) entity values 0x1b8db6e4..0x1b8db6ef."
+    },
+    {
+      "addr": "0x1403c6df0",
+      "name": "p_Attack_CancelPendingTimer",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x14040cc30 in oIDtEntityCpntAttack::vf31; removes timer handle this+0x80 from scene timer manager (+0x1c0)."
+    },
+    {
+      "addr": "0x1403c8a80",
+      "name": "p_AttackComboStep_ActivePhaseState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403ca460; combo step FSM active phase (0=enter, 1=exit): binds callbacks, activates step component +0xc8, subscribes completion (0x14040b8b0), or transitions to recovery (0x1403c8ef0)."
+    },
+    {
+      "addr": "0x1403c8ef0",
+      "name": "p_AttackComboStep_RecoveryPhaseState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403c8a80; combo step FSM recovery phase (0=enter, 1=exit): activates/deactivates recovery component +0xd0 and subscribes/unsubscribes completion via 0x1403fc190/0x1403fc280."
+    },
+    {
+      "addr": "0x1403c9180",
+      "name": "p_AttackComboStep_DispatchFinished",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x14040b8d0 in 0x1403fc190/0x1403fc280; dispatches step completion signal list this+0xf0 with safe deferred removal."
+    },
+    {
+      "addr": "0x1403ca0c0",
+      "name": "p_AttackCombo_CountEnabledSteps",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntAttackCombo::vf30/vf31 and 0x1403c9ef0; counts enabled combo steps in this+0xf0 (stride 0x108) and dispatches count to +0x130."
+    },
+    {
+      "addr": "0x1403ca140",
+      "name": "p_AttackCombo_GetCurrentStep",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntAttackCombo::vf31..vf35 and 0x1403c9ef0; returns enabled combo step matching current index *(int*)(this+0x100) (fallback index 0)."
+    },
+    {
+      "addr": "0x1403ca240",
+      "name": "p_AttackCombo_TickAll",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by str_oCDtEntityCpntAttackCombo_State_update; updates active AttackCombo input state and consumes buffered/auto-repeat inputs to advance combo via 0x1403c9ef0."
+    },
+    {
+      "addr": "0x1403ca460",
+      "name": "p_AttackCombo_StartStep",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntAttackCombo::vf31 and 0x1403c9ef0; subscribes step-finished callback, enters p_AttackComboStep_ActivePhaseState (0x1403c8a80), and notifies step+0x50."
+    },
+    {
+      "addr": "0x1403ca620",
+      "name": "p_AttackCombo_StopStep",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntAttackCombo::vf32 and 0x1403c9ef0; unsubscribes step-finished callback, exits step FSM (0x14026f1d0), clears FSM, and notifies step+0x50."
+    },
+    {
+      "addr": "0x1403ca850",
+      "name": "p_BasicDamage_CopyFields",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtDamage::vf4, oCDtProcessedDamage::vf4/vf5, oCBasicDamage::vf4, oCBasicProcessedDamage::vf4; copies base damage fields +0x08..+0x82."
+    },
+    {
+      "addr": "0x1403ca910",
+      "name": "p_DtDamageExtension_CopyFields",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtDamage::vf4 and oCDtProcessedDamage::vf4/vf5; copies oCDtDamage extension fields (+0x88+) including status vector (0x140249fd0) and value union vector (0x14024a730)."
+    },
+    {
+      "addr": "0x1403ceaa0",
+      "name": "p_EntityCpntDamage_GetSlotDamageMultiplierBonus",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCDtEntityCpntDamage::vf30; switches on ability slot property (+0x280/+0x288, 0..6) to read damage multiplier bonus added to oCDtDamage+0xe4."
+    },
+    {
+      "addr": "0x1403ceea0",
+      "name": "p_EntityCpntDamage_GetSlotCritChanceBonus",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCDtEntityCpntDamage::vf30; switches on ability slot property (+0x280/+0x288, 0..6) to read crit chance bonus added to oCDtDamage+0xf0."
+    },
+    {
+      "addr": "0x1403fc190",
+      "name": "p_AttackComboStep_SubscribeRecoveryDone",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403c8ef0 and 0x1403c90c0; subscribes completion thunk LAB_14040b8d0 (p_AttackComboStep_DispatchFinished) onto recovery signal channel."
+    },
+    {
+      "addr": "0x1403fc280",
+      "name": "p_AttackComboStep_UnsubscribeRecoveryDone",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403c8ef0 and 0x1403c90c0; removes LAB_14040b8d0 listener from recovery signal channel via p_SignalChannel_RemoveAtIndex."
+    },
+    {
+      "addr": "0x140401290",
+      "name": "p_HeroController_MakeSkillSelectionStateClosure",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403a5560; builds 0x18-byte FSM state closure {hero, 0, &LAB_14040d880} for skill selection menu state."
+    },
+    {
+      "addr": "0x140401790",
+      "name": "p_AttackComboStep_MakeActivePhaseClosure",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403ca460; builds 0x18-byte FSM state closure {step, 0, &LAB_14040db00} for active combo step phase."
+    },
+    {
+      "addr": "0x1404017d0",
+      "name": "p_AttackComboStep_MakeRecoveryPhaseClosure",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1403c8a80, 0x1403c8dc0, 0x1403c8e20; builds 0x18-byte FSM state closure {step, 0, &LAB_14040db20} for combo step recovery phase."
+    },
+    {
+      "addr": "0x14040c190",
+      "name": "p_ControlsList_PartitionByMedian",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140402e50 (OptionsMenu_BuildKeyboardControls/GamepadControls sort); MSVC median-of-3/9 partition over 8-byte (actionId, isGamepad) pairs using order tables DAT_140eda764/DAT_140eda710."
+    },
+    {
+      "addr": "0x140443910",
+      "name": "p_SkillController_GetQuestProgressRatio",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1404446b0 and 0x1404454e0; returns float ratio prop(+0xf0/+0xf8) / prop(+0xe0/+0xe8), or 0.0 when max <= 0."
+    },
+    {
+      "addr": "0x140445480",
+      "name": "p_SkillUiViewer_SetVisibleRecursive",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by EntityCpntPlayerResultStatBookPage::vf28/29/32 and 0x140444fd0; sets visibility byte +0x85 and recurses over child viewer array +0xb0 (stride 0x28)."
+    },
+    {
+      "addr": "0x140445be0",
+      "name": "p_SkillUiViewer_UnsubscribeSkillSignals",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x14044c480 in oe::dt::SkillUiViewerEntityCpnt::vf5; unsubscribes bound skill tier (+0x1c0), update (+0x1a0 via 0x14044bcf0), and unlock (+0x70->+0x58) signals."
+    },
+    {
+      "addr": "0x14044bcf0",
+      "name": "p_SkillUiViewer_UnsubscribeSkillUpdateChannel",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by SkillUiViewerEntityCpnt::vf8, 0x1404446b0, 0x140444fd0, 0x140445be0; removes (viewer, 0, &LAB_14044c720) via p_SignalChannel_RemoveAtIndex."
+    },
+    {
+      "addr": "0x1404afbf0",
+      "name": "p_GpnInConeTester_TestTarget",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1404b0200 and oCGpnInConeTester::vf2; tests horizontal XZ cone (origin, dir, minRange, maxRange, halfAngle) against target circle (pos +0x2c/+0x34, radius +0x44)."
+    },
+    {
+      "addr": "0x1404afee0",
+      "name": "p_GpnInLineTester_TestTarget",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCGpnInLineTester::vf2; tests horizontal XZ line/capsule box (start, end, width) against target circle (pos +0x2c/+0x34, radius +0x44)."
+    },
+    {
+      "addr": "0x14051a7a0",
+      "name": "p_Unicode_FoldCodepointToAscii",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 7 font/text helpers (0x140653700..0x140688430); folds Latin-1/Latin-Ext, Cyrillic (via 0x14051a4b0), and typographic space/dash/quote codepoints to fallback ASCII."
+    },
+    {
+      "addr": "0x14056a150",
+      "name": "p_oCUIGauge_ComputeFillRect",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCUIGauge::vf30; computes clipped min/max pixel rect from origin, size, fill ratio, and fill direction enum *(this+0x360) (0..3)."
+    },
+    {
+      "addr": "0x140599450",
+      "name": "p_oC3dTrailEmitterStick_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oC3dTrailEmitterStick::vftable[0] and Settings::vftable[8]; returns DAT_141479e48."
+    },
+    {
+      "addr": "0x140610af0",
+      "name": "p_oC3dTrailEffectorAlphaRamp_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oC3dTrailEffectorAlphaRamp::vftable[0] and Settings::vftable[8]; returns DAT_14147a838."
+    },
+    {
+      "addr": "0x140610db0",
+      "name": "p_oC3dTrailEffectorUvRamp_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oC3dTrailEffectorUvRamp::vftable[0] and Settings::vftable[8]; returns DAT_14147a8a8."
+    },
+    {
+      "addr": "0x140615670",
+      "name": "p_oC3dEffector_ResetState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oC3dTrailEffectorUvRamp::vftable[6] and oC3dBeamEffectorOscillation::vftable[6]; clears active flag +0x10 and accumulator +0x20."
+    },
+    {
+      "addr": "0x14061d4c0",
+      "name": "p_oC3dParticleEffectorForceSpeedNorm_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oC3dParticleEffectorForceSpeedNorm::vftable[0] and Settings::vftable[8]; returns DAT_14147a870."
+    },
+    {
+      "addr": "0x140694f90",
+      "name": "p_GameEventListener_OnMaxStatEvent",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x14069b6f0 in 0x140694650 (oCGameEventListener); filters tags (0x140695200), tracks max float at +0x14, dispatches changed (+0x38), goal (+0x20), and event (+0x50) signals."
+    },
+    {
+      "addr": "0x1406e2850",
+      "name": "p_Entity_DispatchImpulseListeners",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by EntitySpawner_InstantiateRecord, oCEntityCpntBasicMove::vf28, and 0x140827100; dispatches entity impulse listener list at entity+0x450 with safe deferred removal."
+    },
+    {
+      "addr": "0x1406f8ab0",
+      "name": "p_ZoneAttack_AllocHitRecordNode",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by p_EntityCpntZoneAttack_EvaluateHits, 0x14083b180, and str_CpntGpnProjectileAttack_DamageAllHittableGpnInLineST_Col; allocates zeroed doubly-linked hit-record node."
+    },
+    {
+      "addr": "0x140716270",
+      "name": "p_SwissTable_FindOrInsertDamageKey",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCEntityCpntBasicDamage::vf34; Abseil SwissTable SIMD probe/insert for 10-byte key (u64, u16) in 0x18-byte slots, calling 0x140716810 on insert."
+    },
+    {
+      "addr": "0x140716810",
+      "name": "p_SwissTable_PrepareInsertDamageKey",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by 0x140716270; finds first empty/deleted SwissTable slot, triggers rehash (0x140716f90) or tombstone drop (0x140716c60), and decrements growth_left."
+    },
+    {
+      "addr": "0x140716f90",
+      "name": "p_SwissTable_ResizeDamageKeyTable",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by 0x140716810; allocates new SwissTable control+slot buffer (0x18-byte slots), rehashes active entries, and frees old buffer."
+    },
+    {
+      "addr": "0x140728210",
+      "name": "p_NamedEventGameLockCondition_OnEventTriggered",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x140738490 in oe::NamedEventGameLockConditionData::vf10; increments counter +0x28, checks completion vf14 (+0x70), and dispatches signal +0x10."
+    },
+    {
+      "addr": "0x14072f830",
+      "name": "p_EntitySpawner_ScheduleAsyncSpawnOrDespawn",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x1407336a0 in oCEntityCpntEntitySpawner::vf5; schedules/cancels deferred spawn (scene+0x460, LAB_1407336e0) or despawn (scene+0x480, LAB_1407336c0) job on entity scene context."
+    },
+    {
+      "addr": "0x14072fba0",
+      "name": "p_EntitySpawner_ProcessDeferredDespawnBatch",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x1407336c0 in 0x14072f830; despawns entities from spawner+0x1c0 within QPC microsecond budget param_2, unsubscribes destroy signals, updates count +0x1f8, and unregisters when empty."
+    },
+    {
+      "addr": "0x140769ad0",
+      "name": "p_ValueOpNode_EvalDistance2D",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Function pointer referenced by oe::EntityCpntValueOperations::oCEntityCpntNodeSettings::vf3; evaluates two Vec3 inputs (child vf8 or 0x14076b120) and returns XZ Euclidean distance as double."
+    },
+    {
+      "addr": "0x14076b120",
+      "name": "p_ValueOpContext_ReadVec3Var",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 22 ValueOp node evaluators (0x1407687c0..0x140769ad0); reads oCEntityValueUnion variable slot and extracts Vec3 (tag==3) or zeroes output."
+    },
+    {
+      "addr": "0x14076e240",
+      "name": "p_EntityCpntValue_CachedState_Alloc",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCEntityCpntValue::vf5; allocates 0x70-byte cached state and default-constructs three oCEntityValueUnion fields (+0x08/+0x28/+0x48)."
+    },
+    {
+      "addr": "0x14077d100",
+      "name": "p_SwitchSelector_RefreshSelection",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x140798b20 in oCEntityCpntSwitchSelector::vf28; resolves active branch via 0x14077d340 and transitions via 0x14077d120."
+    },
+    {
+      "addr": "0x1407b8100",
+      "name": "p_EntityCpntZoneAttack_ComputeAttackTransform",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by p_EntityCpntZoneAttack_EvaluateHits; computes world attack transform from 0, 1, or N zone-point entities at this+0xa0."
+    },
+    {
+      "addr": "0x1407f2d10",
+      "name": "p_PhysicVolume_OnEntityApplyImpulse",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x1407fe8f0 in oCEntityCpntPhysicVolume::vf28/29; computes relative position from rigid body COM (vf25) and applies impulse via vf34 (+0x110)."
+    },
+    {
+      "addr": "0x140806460",
+      "name": "p_PathFindingEntityCpnt_GetMetaClass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oe::PathFindingEntityCpnt::vftable[0] and Settings::vftable[9]; returns DAT_14147c048."
+    },
+    {
+      "addr": "0x140806480",
+      "name": "p_PathFindingEntityCpnt_Ctor",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Constructs oe::PathFindingEntityCpnt (oIEntityCpnt base, bool and 3 Vec3 EntityCpntValueSignals, embedded oCDetourRequest at +0xf8, zeroed state)."
+    },
+    {
+      "addr": "0x140810630",
+      "name": "p_CharacterLocomotion_MovingState",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1408111a0 (oCEntityCpntCharacterLocomotion::vf28) and 0x140811450; locomotion FSM moving state (enter/exit/tick): integrates speed & yaw steering, updates FloatObservables, syncs net component."
+    },
+    {
+      "addr": "0x140811070",
+      "name": "p_CharacterLocomotion_SetHeadingAngle",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1408104b0 and 0x140810630; wraps yaw angle into [-pi, pi), stores +0x2d8, and dispatches XZ unit forward vector to this+0x170."
+    },
+    {
+      "addr": "0x14081e3a0",
+      "name": "p_EntityCpntBasicDamage_FillDamageRecord",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCDtEntityCpntDamage::vf30 and oCEntityCpntBasicDamage::vf30; populates base oCBasicDamage fields (+0x08..+0x82), monotonic hit ID, scene counter, and local P2P peer ID."
+    },
+    {
+      "addr": "0x1408208e0",
+      "name": "p_EntityCpntHitPoint_RemoveHealth",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by oCEntityCpntHitPoint::vf30, 0x140820ca0, str_max_change, str_force_value; subtracts HP via vf33, updates observable +0x1f8, activates damage subcomponent, and sends oCGameEventHitPointModification."
+    },
+    {
+      "addr": "0x140820a90",
+      "name": "p_EntityCpntHitPoint_AddHealth",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by Entity_GiveHandler, oCEntityCpntHitPoint::vf30/31, 0x140820ca0, 0x140821290, str_max_change, str_force_value; runs pre/post-heal listeners (0x14082c3c0/0x14082c240), adds HP, and sends HitPointModification event."
+    },
+    {
+      "addr": "0x140821290",
+      "name": "p_EntityCpntHitPoint_OnGainHealthEvent",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x140832360 in oCEntityCpntHitPoint::vf7; resolves flat vs max-HP-percent heal amount from event and calls p_EntityCpntHitPoint_AddHealth (0x140820a90)."
+    },
+    {
+      "addr": "0x140821c60",
+      "name": "p_GameNamedEventNetworkDamageResponse_Ctor",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140823500 and oCEntityCpntHittable::vf36; constructs oCGameNamedEventNetworkDamageResponse and embedded oCEntityProcessedHitData."
+    },
+    {
+      "addr": "0x1408233b0",
+      "name": "p_EntityCpntHittable_OnPreProcessHit",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x1408321a0 in oCEntityCpntHittable::vf28/29; sets client-side local hit prediction flag *(damage+0x70) when attack source matches local peer, then tail-calls 0x140823500."
+    },
+    {
+      "addr": "0x140823500",
+      "name": "p_EntityCpntHittable_ProcessIncomingHit",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Tail-called by 0x1408233b0; computes hit transform (0x140823de0), evaluates processed damage (vf33/vf30), dispatches hit hooks/channels (+0x80/+0x98), and emits oCGameNamedEventNetworkDamageResponse."
+    },
+    {
+      "addr": "0x140823de0",
+      "name": "p_EntityCpntHittable_BuildHitTransform",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140823500 and oCEntityCpntHittable::vf36; transforms incoming oCEntityHitData contact/axes by damage orientation matrix (0x1404e2ba0) into 15-float feedback struct."
+    },
+    {
+      "addr": "0x140827100",
+      "name": "p_EntityCpntHitEjection_OnApplyEjection",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Registered via 0x140832340 in oCEntityCpntHitEjection::vf28/29; computes knockback impulse via 0x1408271c0 and dispatches to target entity via p_Entity_DispatchImpulseListeners (0x1406e2850)."
+    },
+    {
+      "addr": "0x1408271c0",
+      "name": "p_EntityCpntHitEjection_ComputeImpulseVector",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by 0x140827100; computes directional + radial knockback vector from hit origin/forward, directional/radial strength, and inverse-square distance falloff."
+    },
+    {
+      "addr": "0x14082c240",
+      "name": "p_HitPoint_DispatchPostHealListeners",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140820a90 and 0x140821470; dispatches post-heal signal channel (this+0x80) with (requested, applied, sourceTag, sourceEntity, flag) and safe deferred removal."
+    },
+    {
+      "addr": "0x14082c3c0",
+      "name": "p_HitPoint_DispatchPreHealModifiers",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140820a90 and 0x140821470; dispatches pre-heal modifier signal channel (this+0x68) with (&healAmount, &sourceTag) and safe deferred removal."
+    },
+    {
+      "addr": "0x1408320d0",
+      "name": "p_EntityCpntHittable_RegisterNamedEventThunk",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by oCEntityCpntHittable::vf5; moves event name string and forwards to 0x14040f1f8."
+    },
+    {
+      "addr": "0x14083b180",
+      "name": "p_EntityCpntZoneAttack_ApplyHitsToTargets",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called exclusively by p_EntityCpntZoneAttack_EvaluateHits; deduplicates hit targets via intrusive list (+0xe8), computes contact point/normal, activates on-hit component, and calls NamedEvent_EmitNetworkDamageFromHit."
+    },
+    {
+      "addr": "0x140846e00",
+      "name": "p_btRigidBody_ApplyTorqueImpulse",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140846f50 and btDiscreteDynamicsWorld::vf36; adds (m_invInertiaTensorWorld * torque) * m_angularFactor to btRigidBody::m_angularVelocity (+0x1c0)."
+    },
+    {
+      "addr": "0x140846f50",
+      "name": "p_btRigidBody_ApplyImpulse",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x1408539d0 and oCTBulletRigidBodyOwner::vf34; updates linear velocity (+0x1b0) and calls p_btRigidBody_ApplyTorqueImpulse with relPos x (impulse * linearFactor)."
+    },
+    {
+      "addr": "0x140851fd0",
+      "name": "p_BulletRigidBodyOwner_GetCenterOfMass",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oCTBulletRigidBodyOwner<Box/Capsule/Cylinder>::vftable[25]; returns world origin (+0x1e0..+0x1e8) of embedded btRigidBody at +0x1a0."
+    },
+    {
+      "addr": "0x1408539d0",
+      "name": "p_BulletRigidBodyOwner_ApplyImpulse",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] oCTBulletRigidBodyOwner<Box/Capsule/Cylinder>::vftable[34]; activates rigid body (+0x298=1) and forwards to p_btRigidBody_ApplyImpulse(this+0x1a0, ...)."
+    },
+    {
+      "addr": "0x140a6f8c0",
+      "name": "p_btVoronoiSimplexSolver_Init",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by btConvexConvexAlgorithm::vf1; initializes btVoronoiSimplexSolver m_equalVertexThreshold=1e-4f (+0x140) and clears cached-valid flags (+0x160)."
+    },
+    {
+      "addr": "0x140a71590",
+      "name": "p_btCollisionWorld_ObjectQuerySingleInternal",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btCollisionWorld::objectQuerySingleInternal; called by btSingleSweepCallback::vf1, invokes btContinuousConvexCollision::vf1 and btBvhTriangleMeshShape::performConvexcast."
+    },
+    {
+      "addr": "0x140a7c230",
+      "name": "p_btConvexShape_LocalGetSupportVertexWithoutMarginNonVirtual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btConvexShape::localGetSupportVertexWithoutMarginNonVirtual; switches on m_shapeType (+0x08) to compute unmargined support vertex."
+    },
+    {
+      "addr": "0x140a7c790",
+      "name": "p_btConvexShape_LocalGetSupportVertexNonVirtual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btConvexShape::localGetSupportVertexNonVirtual; normalizes direction and adds margin (0x140a7c900) to support vertex without margin (0x140a7c230)."
+    },
+    {
+      "addr": "0x140a7c900",
+      "name": "p_btConvexShape_GetMarginNonVirtual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btConvexShape::getMarginNonVirtual; switches on m_shapeType (+0x08) to return collision margin or virtual getMargin() (+0x58)."
+    },
+    {
+      "addr": "0x140a8b7d0",
+      "name": "p_btClosestPointInput_Init",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by btConvexConvexAlgorithm::vf1; initializes btDiscreteCollisionDetectorInterface::ClosestPointInput::m_maximumDistanceSquared = BT_LARGE_FLOAT (1e18f) at +0x80."
+    },
+    {
+      "addr": "0x140a8bdd0",
+      "name": "p_btContinuousConvexCollision_ComputeClosestPoints",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btContinuousConvexCollision::computeClosestPoints; called exclusively by btContinuousConvexCollision::vf1, delegates to btGjkPairDetector::getClosestPointsNonVirtual (0x140aa5aa0)."
+    },
+    {
+      "addr": "0x140aa4520",
+      "name": "p_btGjk_ComputeMinkowskiSupport",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa5aa0; computes world support points supA, supB and Minkowski difference w = supA - supB via localGetSupportVertexWithoutMarginNonVirtual."
+    },
+    {
+      "addr": "0x140aa4820",
+      "name": "p_btGjk_FloatNearEqual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa49a0; float approximate equality within FLT_EPSILON (1.1920929e-7)."
+    },
+    {
+      "addr": "0x140aa4870",
+      "name": "p_btGjk_Vec3NearEqual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa5020; component-wise FLT_EPSILON equality test for two 3D vectors."
+    },
+    {
+      "addr": "0x140aa4960",
+      "name": "p_btGjk_FloatSign",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa55c0; returns -1, 0 (within FLT_EPSILON), or +1 for float sign."
+    },
+    {
+      "addr": "0x140aa49a0",
+      "name": "p_btGjk_PointToSegmentDistSq",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa4c30; computes squared distance and optional closest point from point to line segment."
+    },
+    {
+      "addr": "0x140aa4c30",
+      "name": "p_btGjk_PointToTriangleDistSq",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa5020 and 0x140aa55c0; computes squared distance from point to triangle (interior projection or 3-edge fallback via 0x140aa49a0)."
+    },
+    {
+      "addr": "0x140aa5020",
+      "name": "p_btGjk_ReduceTriangleSimplex",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa55c0 and 0x140aa5aa0; reduces 3-vertex GJK simplex toward origin and computes next search direction."
+    },
+    {
+      "addr": "0x140aa55c0",
+      "name": "p_btGjk_ReduceTetrahedronSimplex",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Called by 0x140aa5aa0; reduces 4-vertex GJK simplex toward origin using face signs and delegates triangle reduction to 0x140aa5020."
+    },
+    {
+      "addr": "0x140aa5aa0",
+      "name": "p_btGjkPairDetector_GetClosestPointsNonVirtual",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkPairDetector::getClosestPointsNonVirtual; called by btGjkConvexCast::vf1, 0x140a8bdd0, btMinkowskiPenetrationDepthSolver::vf1, btConvexConvexAlgorithm::vf1."
+    },
+    {
+      "addr": "0x140aa87c0",
+      "name": "p_btGjkEpa_MinkowskiDiff_Support1",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 MinkowskiDiff::Support1; transforms direction to shape1 local space, invokes support fn +0x80, transforms result back."
+    },
+    {
+      "addr": "0x140aa8910",
+      "name": "p_btGjkEpa_GJK_Evaluate",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 GJK::Evaluate; runs GJK loop using getsupport (0x140aa9a30) and projectorigin3/4 (0x140aa9c40/0x140aaa380)."
+    },
+    {
+      "addr": "0x140aa9380",
+      "name": "p_btGjkEpa_GJK_EncloseOrigin",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 GJK::EncloseOrigin; called by EPA::Evaluate (0x140aaa8c0) to expand 1/2/3-simplex into origin-enclosing tetrahedron."
+    },
+    {
+      "addr": "0x140aa9a30",
+      "name": "p_btGjkEpa_GJK_GetSupport",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 GJK::getsupport; normalizes direction and computes Support0(d) - Support1(-d)."
+    },
+    {
+      "addr": "0x140aa9b90",
+      "name": "p_btGjkEpa_Det3",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 det(a, b, c); called by GJK::projectorigin4 (0x140aaa380) to compute 3x3 determinant / scalar triple product."
+    },
+    {
+      "addr": "0x140aa9c40",
+      "name": "p_btGjkEpa_GJK_ProjectOrigin3",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 GJK::projectorigin(a, b, c, w, m); projects origin onto triangle simplex."
+    },
+    {
+      "addr": "0x140aaa380",
+      "name": "p_btGjkEpa_GJK_ProjectOrigin4",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 GJK::projectorigin(a, b, c, d, w, m); projects origin onto tetrahedron simplex using Det3 and ProjectOrigin3."
+    },
+    {
+      "addr": "0x140aaa880",
+      "name": "p_btGjkEpa_EPA_RemoveFaceFromList",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::remove; unlinks sFace node (+0x48/+0x50) from doubly-linked sList."
+    },
+    {
+      "addr": "0x140aaa8c0",
+      "name": "p_btGjkEpa_EPA_Evaluate",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::Evaluate; expands polytope around origin to find minimum penetration normal and depth."
+    },
+    {
+      "addr": "0x140aab190",
+      "name": "p_btGjkEpa_EPA_GetEdgeDist",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::getedgedist; computes origin-to-edge distance when face projection falls outside edge."
+    },
+    {
+      "addr": "0x140aab410",
+      "name": "p_btGjkEpa_EPA_NewFace",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::newface; allocates sFace from stock (+0x7078), computes plane normal/distance, and appends to hull (+0x7068)."
+    },
+    {
+      "addr": "0x140aab710",
+      "name": "p_btGjkEpa_EPA_FindBestFace",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::findbest; scans hull face list (+0x7068) for face with minimum squared origin distance."
+    },
+    {
+      "addr": "0x140aab760",
+      "name": "p_btGjkEpa_EPA_ExpandHorizon",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 EPA::expand; recursively removes faces visible from new support vertex and stitches horizon faces."
+    },
+    {
+      "addr": "0x140aab910",
+      "name": "p_btGjkEpa_InitializeShapes",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpa2 Initialize; populates sResults and MinkowskiDiff relative transform and support fn pointer."
+    },
+    {
+      "addr": "0x140aac350",
+      "name": "p_btGjkEpaSolver2_Penetration",
+      "kind": "function",
+      "note": "[proposed run3-kit/drcov] Bullet btGjkEpaSolver2::Penetration; called exclusively by btGjkEpaPenetrationDepthSolver::vf1, runs GJK + EPA and fills sResults."
+    }
+  ]
+}

@@ -1,0 +1,1338 @@
+{
+  "logs": {
+    "baseline": "E:\\Documents\\Projects\\Ravenswatch\\RSMM\\evidence\\2026-11-26-bulk-symbols\\drcov-baseline\\drcov.Ravenswatch.exe.06300.0000.proc.log",
+    "dash": "E:\\Documents\\Projects\\Ravenswatch\\RSMM\\evidence\\2026-11-26-bulk-symbols\\drcov-action\\drcov.Ravenswatch.exe.03384.0000.proc.log",
+    "run3": "E:\\Documents\\Projects\\Ravenswatch\\RSMM\\evidence\\2026-11-26-bulk-symbols\\drcov-run3-kit\\drcov.Ravenswatch.exe.39744.0000.proc.log"
+  },
+  "counts": {
+    "baseline_funcs": 30115,
+    "dash_funcs": 30294,
+    "seen_union_funcs": 30333,
+    "run3_funcs": 30465,
+    "run3_unmapped_bbs": 5,
+    "cumulative_3runs_funcs": 30596,
+    "cumulative_3runs_named": 15908,
+    "cumulative_3runs_fun": 14688,
+    "run3_only_total": 263,
+    "run3_only_named": 263,
+    "run3_only_unnamed_fun": 0
+  },
+  "run3_only_named": [
+    {
+      "rva": "0xbb5b0",
+      "va": "0x1400bb5b0",
+      "name": "p_AnalyticsMetricBucket_CopyKey"
+    },
+    {
+      "rva": "0xbca80",
+      "va": "0x1400bca80",
+      "name": "oCEntityValueModifierMaxComputer::vf1"
+    },
+    {
+      "rva": "0xbca90",
+      "va": "0x1400bca90",
+      "name": "oCEntityValueModifierMaxComputer::vf2"
+    },
+    {
+      "rva": "0x1c6f90",
+      "va": "0x1401c6f90",
+      "name": "oCDtProcessedDamage::vf2"
+    },
+    {
+      "rva": "0x1c6fa0",
+      "va": "0x1401c6fa0",
+      "name": "oCDtProcessedDamage::vf3"
+    },
+    {
+      "rva": "0x1c6fd0",
+      "va": "0x1401c6fd0",
+      "name": "oCDtDamage::vf3"
+    },
+    {
+      "rva": "0x1c6ff0",
+      "va": "0x1401c6ff0",
+      "name": "oCDtDamage::ctor_or_dtor"
+    },
+    {
+      "rva": "0x1c7130",
+      "va": "0x1401c7130",
+      "name": "oCDtDamage::dtor_deleting"
+    },
+    {
+      "rva": "0x1c7290",
+      "va": "0x1401c7290",
+      "name": "oCDtDamageFeedback::vf0"
+    },
+    {
+      "rva": "0x1c72a0",
+      "va": "0x1401c72a0",
+      "name": "oCDtDamageFeedback::vf1"
+    },
+    {
+      "rva": "0x1c72c0",
+      "va": "0x1401c72c0",
+      "name": "oCDtDamageFeedback::vf2"
+    },
+    {
+      "rva": "0x1f0c50",
+      "va": "0x1401f0c50",
+      "name": "p_Analytics_AccumulateMetricBucket"
+    },
+    {
+      "rva": "0x1f0cf0",
+      "va": "0x1401f0cf0",
+      "name": "Analytics_EmitSkillProposed"
+    },
+    {
+      "rva": "0x1f1010",
+      "va": "0x1401f1010",
+      "name": "Analytics_EmitSkillSelected"
+    },
+    {
+      "rva": "0x201800",
+      "va": "0x140201800",
+      "name": "p_SignalChannel_SubscribeWrappedClosure"
+    },
+    {
+      "rva": "0x203820",
+      "va": "0x140203820",
+      "name": "p_AnalyticsMetricBucketVector_EmplaceBack"
+    },
+    {
+      "rva": "0x20fa30",
+      "va": "0x14020fa30",
+      "name": "p_DtProcessedDamage_Alloc"
+    },
+    {
+      "rva": "0x20fa90",
+      "va": "0x14020fa90",
+      "name": "p_DtDamage_Alloc"
+    },
+    {
+      "rva": "0x20fae0",
+      "va": "0x14020fae0",
+      "name": "p_DtDamageFeedback_Alloc"
+    },
+    {
+      "rva": "0x213460",
+      "va": "0x140213460",
+      "name": "oCDtProcessedDamage::ctor_or_dtor"
+    },
+    {
+      "rva": "0x213900",
+      "va": "0x140213900",
+      "name": "oCDtProcessedDamage::dtor_deleting"
+    },
+    {
+      "rva": "0x249fd0",
+      "va": "0x140249fd0",
+      "name": "p_DamageStatusEffectVector_CopyAssign"
+    },
+    {
+      "rva": "0x24a730",
+      "va": "0x14024a730",
+      "name": "p_EntityValueUnionVector_CopyAssign"
+    },
+    {
+      "rva": "0x256200",
+      "va": "0x140256200",
+      "name": "p_TipsUiDisplay_UpdateActionLabel"
+    },
+    {
+      "rva": "0x2563c0",
+      "va": "0x1402563c0",
+      "name": "p_TipsUiDisplay_BindActionList"
+    },
+    {
+      "rva": "0x2c7eb0",
+      "va": "0x1402c7eb0",
+      "name": "p_AbilityController_RefreshActiveVariant"
+    },
+    {
+      "rva": "0x2c9ff0",
+      "va": "0x1402c9ff0",
+      "name": "p_AbilityCtrlListener_OnChargeCountChanged"
+    },
+    {
+      "rva": "0x2d13b0",
+      "va": "0x1402d13b0",
+      "name": "p_oCDtEntityCpntSelectionMenuUiController_GetMetaClass"
+    },
+    {
+      "rva": "0x2d13d0",
+      "va": "0x1402d13d0",
+      "name": "oCDtEntityCpntSelectionMenuUiController::meta_cb0_impl"
+    },
+    {
+      "rva": "0x2d16b0",
+      "va": "0x1402d16b0",
+      "name": "p_SelectionMenuUiController_Dtor"
+    },
+    {
+      "rva": "0x2d1800",
+      "va": "0x1402d1800",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf2"
+    },
+    {
+      "rva": "0x2e1280",
+      "va": "0x1402e1280",
+      "name": "oCDtNamedEventGainHealthResource::vf1"
+    },
+    {
+      "rva": "0x2e1290",
+      "va": "0x1402e1290",
+      "name": "oCDtNamedEventGainHealthResource::ctor_or_dtor"
+    },
+    {
+      "rva": "0x2e1310",
+      "va": "0x1402e1310",
+      "name": "oCDtNamedEventGainHealthResource::vf6"
+    },
+    {
+      "rva": "0x2e1350",
+      "va": "0x1402e1350",
+      "name": "oCDtNamedEventGainHealthResource::vf2"
+    },
+    {
+      "rva": "0x2e38e0",
+      "va": "0x1402e38e0",
+      "name": "oCDtNamedEventGainHealthResource::vf3"
+    },
+    {
+      "rva": "0x2e3910",
+      "va": "0x1402e3910",
+      "name": "oCDtNamedEventGainHealthResource::vf4"
+    },
+    {
+      "rva": "0x2e9800",
+      "va": "0x1402e9800",
+      "name": "p_SkillController_ComputeUpgradeCost"
+    },
+    {
+      "rva": "0x2e9a50",
+      "va": "0x1402e9a50",
+      "name": "p_SkillController_CompareChoiceOrder"
+    },
+    {
+      "rva": "0x2eb2d0",
+      "va": "0x1402eb2d0",
+      "name": "p_GuidVector_InsertUnique"
+    },
+    {
+      "rva": "0x2ebb00",
+      "va": "0x1402ebb00",
+      "name": "p_EntitySpawner_SpawnSelectionMenu"
+    },
+    {
+      "rva": "0x2f0130",
+      "va": "0x1402f0130",
+      "name": "p_DtNamedEventGainHealthResource_Alloc"
+    },
+    {
+      "rva": "0x3056a0",
+      "va": "0x1403056a0",
+      "name": "oCGameEventHitPointModification::ctor_or_dtor"
+    },
+    {
+      "rva": "0x30db40",
+      "va": "0x14030db40",
+      "name": "p_EntityCpntValue_CachedState_Dtor"
+    },
+    {
+      "rva": "0x317af0",
+      "va": "0x140317af0",
+      "name": "p_SkillUnlock_GetRequiredHeroRank"
+    },
+    {
+      "rva": "0x34b130",
+      "va": "0x14034b130",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf5"
+    },
+    {
+      "rva": "0x34b2c0",
+      "va": "0x14034b2c0",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf6"
+    },
+    {
+      "rva": "0x34b330",
+      "va": "0x14034b330",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf7"
+    },
+    {
+      "rva": "0x34b450",
+      "va": "0x14034b450",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf8"
+    },
+    {
+      "rva": "0x34b550",
+      "va": "0x14034b550",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf11"
+    },
+    {
+      "rva": "0x34b590",
+      "va": "0x14034b590",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf12"
+    },
+    {
+      "rva": "0x34b5d0",
+      "va": "0x14034b5d0",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf17"
+    },
+    {
+      "rva": "0x34b5f0",
+      "va": "0x14034b5f0",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf19"
+    },
+    {
+      "rva": "0x34b650",
+      "va": "0x14034b650",
+      "name": "p_SelectionMenuUiController_OpenChoiceList"
+    },
+    {
+      "rva": "0x34ba30",
+      "va": "0x14034ba30",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf28"
+    },
+    {
+      "rva": "0x34bfa0",
+      "va": "0x14034bfa0",
+      "name": "oCDtEntityCpntSelectionMenuUiController::vf29"
+    },
+    {
+      "rva": "0x34c1d0",
+      "va": "0x14034c1d0",
+      "name": "p_SelectionMenuUiController_PushFocusedUpdateGs"
+    },
+    {
+      "rva": "0x34c2c0",
+      "va": "0x14034c2c0",
+      "name": "p_SelectionMenuUiController_PopFocusedUpdateGs"
+    },
+    {
+      "rva": "0x34c360",
+      "va": "0x14034c360",
+      "name": "p_SelectionMenuUiController_ApplySoloPause"
+    },
+    {
+      "rva": "0x34fb50",
+      "va": "0x14034fb50",
+      "name": "p_AbilityUiController_OnAbilityStateChanged"
+    },
+    {
+      "rva": "0x381cd0",
+      "va": "0x140381cd0",
+      "name": "oCDtEntityCpntHittable::vf30"
+    },
+    {
+      "rva": "0x381d50",
+      "va": "0x140381d50",
+      "name": "oCDtEntityCpntHittable::vf32"
+    },
+    {
+      "rva": "0x383440",
+      "va": "0x140383440",
+      "name": "p_HittableListener_OnHealthGainedCheckThreshold"
+    },
+    {
+      "rva": "0x390fe0",
+      "va": "0x140390fe0",
+      "name": "p_CharacterController_IsInIdleActionState"
+    },
+    {
+      "rva": "0x39fec0",
+      "va": "0x14039fec0",
+      "name": "HeroController_AddSkill"
+    },
+    {
+      "rva": "0x3a0420",
+      "va": "0x1403a0420",
+      "name": "p_HeroController_CountHeldSkills"
+    },
+    {
+      "rva": "0x3a2090",
+      "va": "0x1403a2090",
+      "name": "p_HeroController_ApplyAbilityDamageModifiers"
+    },
+    {
+      "rva": "0x3a38a0",
+      "va": "0x1403a38a0",
+      "name": "p_HeroController_EnterSkillSelectionWaitState"
+    },
+    {
+      "rva": "0x3a42c0",
+      "va": "0x1403a42c0",
+      "name": "p_HeroController_CheckRerollThreshold"
+    },
+    {
+      "rva": "0x3a5990",
+      "va": "0x1403a5990",
+      "name": "p_HeroController_SkillSelectionMenuState"
+    },
+    {
+      "rva": "0x3ab7d0",
+      "va": "0x1403ab7d0",
+      "name": "str_HEAL_50_OR_MORE"
+    },
+    {
+      "rva": "0x3b2590",
+      "va": "0x1403b2590",
+      "name": "p_HeroController_RecountSkillTiers"
+    },
+    {
+      "rva": "0x3b2860",
+      "va": "0x1403b2860",
+      "name": "p_HeroController_RecountSkillCategories"
+    },
+    {
+      "rva": "0x3b2a40",
+      "va": "0x1403b2a40",
+      "name": "p_HeroController_PopulateSkillChoiceCard"
+    },
+    {
+      "rva": "0x3b2b80",
+      "va": "0x1403b2b80",
+      "name": "p_HeroController_RollSkillChoices"
+    },
+    {
+      "rva": "0x3b3680",
+      "va": "0x1403b3680",
+      "name": "p_HeroController_SyncPendingSkillsToPersistentData"
+    },
+    {
+      "rva": "0x3b3930",
+      "va": "0x1403b3930",
+      "name": "p_HeroController_ScaleValueBySkillCount"
+    },
+    {
+      "rva": "0x3be4a0",
+      "va": "0x1403be4a0",
+      "name": "p_CharacterController_PopulateDamageFromStats"
+    },
+    {
+      "rva": "0x3c1330",
+      "va": "0x1403c1330",
+      "name": "p_CharacterController_GetAbilitySlotDamageBonus"
+    },
+    {
+      "rva": "0x3c1e30",
+      "va": "0x1403c1e30",
+      "name": "oCDtEntityCpntCharacterController::vf34"
+    },
+    {
+      "rva": "0x3c2160",
+      "va": "0x1403c2160",
+      "name": "oCDtEntityCpntCharacterController::vf35"
+    },
+    {
+      "rva": "0x3c6860",
+      "va": "0x1403c6860",
+      "name": "oIDtEntityCpntAttack::vf31"
+    },
+    {
+      "rva": "0x3c6c30",
+      "va": "0x1403c6c30",
+      "name": "oIDtEntityCpntAttack::vf32"
+    },
+    {
+      "rva": "0x3c6df0",
+      "va": "0x1403c6df0",
+      "name": "p_Attack_CancelPendingTimer"
+    },
+    {
+      "rva": "0x3c8a80",
+      "va": "0x1403c8a80",
+      "name": "p_AttackComboStep_ActivePhaseState"
+    },
+    {
+      "rva": "0x3c8ef0",
+      "va": "0x1403c8ef0",
+      "name": "p_AttackComboStep_RecoveryPhaseState"
+    },
+    {
+      "rva": "0x3c9180",
+      "va": "0x1403c9180",
+      "name": "p_AttackComboStep_DispatchFinished"
+    },
+    {
+      "rva": "0x3c9c80",
+      "va": "0x1403c9c80",
+      "name": "oCDtEntityCpntAttackCombo::vf30"
+    },
+    {
+      "rva": "0x3c9ca0",
+      "va": "0x1403c9ca0",
+      "name": "oCDtEntityCpntAttackCombo::vf28"
+    },
+    {
+      "rva": "0x3c9cf0",
+      "va": "0x1403c9cf0",
+      "name": "oCDtEntityCpntAttackCombo::vf29"
+    },
+    {
+      "rva": "0x3c9de0",
+      "va": "0x1403c9de0",
+      "name": "oCDtEntityCpntAttackCombo::vf31"
+    },
+    {
+      "rva": "0x3c9e70",
+      "va": "0x1403c9e70",
+      "name": "oCDtEntityCpntAttackCombo::vf32"
+    },
+    {
+      "rva": "0x3c9eb0",
+      "va": "0x1403c9eb0",
+      "name": "oCDtEntityCpntAttackCombo::vf33"
+    },
+    {
+      "rva": "0x3ca0c0",
+      "va": "0x1403ca0c0",
+      "name": "p_AttackCombo_CountEnabledSteps"
+    },
+    {
+      "rva": "0x3ca140",
+      "va": "0x1403ca140",
+      "name": "p_AttackCombo_GetCurrentStep"
+    },
+    {
+      "rva": "0x3ca240",
+      "va": "0x1403ca240",
+      "name": "p_AttackCombo_TickAll"
+    },
+    {
+      "rva": "0x3ca460",
+      "va": "0x1403ca460",
+      "name": "p_AttackCombo_StartStep"
+    },
+    {
+      "rva": "0x3ca620",
+      "va": "0x1403ca620",
+      "name": "p_AttackCombo_StopStep"
+    },
+    {
+      "rva": "0x3ca850",
+      "va": "0x1403ca850",
+      "name": "p_BasicDamage_CopyFields"
+    },
+    {
+      "rva": "0x3ca910",
+      "va": "0x1403ca910",
+      "name": "p_DtDamageExtension_CopyFields"
+    },
+    {
+      "rva": "0x3cdcf0",
+      "va": "0x1403cdcf0",
+      "name": "oCDtEntityCpntDamage::vf30"
+    },
+    {
+      "rva": "0x3ce640",
+      "va": "0x1403ce640",
+      "name": "oCDtEntityCpntDamage::vf34"
+    },
+    {
+      "rva": "0x3ce780",
+      "va": "0x1403ce780",
+      "name": "oCDtEntityCpntDamage::vf35"
+    },
+    {
+      "rva": "0x3cea50",
+      "va": "0x1403cea50",
+      "name": "oCDtEntityCpntDamage::vf36"
+    },
+    {
+      "rva": "0x3ceaa0",
+      "va": "0x1403ceaa0",
+      "name": "p_EntityCpntDamage_GetSlotDamageMultiplierBonus"
+    },
+    {
+      "rva": "0x3ceea0",
+      "va": "0x1403ceea0",
+      "name": "p_EntityCpntDamage_GetSlotCritChanceBonus"
+    },
+    {
+      "rva": "0x3cf7c0",
+      "va": "0x1403cf7c0",
+      "name": "oCDtProcessedDamage::vf5"
+    },
+    {
+      "rva": "0x3fc190",
+      "va": "0x1403fc190",
+      "name": "p_AttackComboStep_SubscribeRecoveryDone"
+    },
+    {
+      "rva": "0x3fc280",
+      "va": "0x1403fc280",
+      "name": "p_AttackComboStep_UnsubscribeRecoveryDone"
+    },
+    {
+      "rva": "0x401290",
+      "va": "0x140401290",
+      "name": "p_HeroController_MakeSkillSelectionStateClosure"
+    },
+    {
+      "rva": "0x401790",
+      "va": "0x140401790",
+      "name": "p_AttackComboStep_MakeActivePhaseClosure"
+    },
+    {
+      "rva": "0x4017d0",
+      "va": "0x1404017d0",
+      "name": "p_AttackComboStep_MakeRecoveryPhaseClosure"
+    },
+    {
+      "rva": "0x40c190",
+      "va": "0x14040c190",
+      "name": "p_ControlsList_PartitionByMedian"
+    },
+    {
+      "rva": "0x443910",
+      "va": "0x140443910",
+      "name": "p_SkillController_GetQuestProgressRatio"
+    },
+    {
+      "rva": "0x445480",
+      "va": "0x140445480",
+      "name": "p_SkillUiViewer_SetVisibleRecursive"
+    },
+    {
+      "rva": "0x445760",
+      "va": "0x140445760",
+      "name": "str_IsUpgradePreview"
+    },
+    {
+      "rva": "0x445be0",
+      "va": "0x140445be0",
+      "name": "p_SkillUiViewer_UnsubscribeSkillSignals"
+    },
+    {
+      "rva": "0x44bcf0",
+      "va": "0x14044bcf0",
+      "name": "p_SkillUiViewer_UnsubscribeSkillUpdateChannel"
+    },
+    {
+      "rva": "0x44c1a0",
+      "va": "0x14044c1a0",
+      "name": "p_EntityValueModifierMaxComputer_Alloc"
+    },
+    {
+      "rva": "0x45d8a0",
+      "va": "0x14045d8a0",
+      "name": "oC3dSimpleTrailRenderer::vf13"
+    },
+    {
+      "rva": "0x4afbf0",
+      "va": "0x1404afbf0",
+      "name": "p_GpnInConeTester_TestTarget"
+    },
+    {
+      "rva": "0x4afee0",
+      "va": "0x1404afee0",
+      "name": "p_GpnInLineTester_TestTarget"
+    },
+    {
+      "rva": "0x4b0760",
+      "va": "0x1404b0760",
+      "name": "oCGpnInConeTester::vf1"
+    },
+    {
+      "rva": "0x4b0820",
+      "va": "0x1404b0820",
+      "name": "oCGpnInConeTester::vf2"
+    },
+    {
+      "rva": "0x4b0ab0",
+      "va": "0x1404b0ab0",
+      "name": "oCGpnInLineTester::vf2"
+    },
+    {
+      "rva": "0x51a7a0",
+      "va": "0x14051a7a0",
+      "name": "p_Unicode_FoldCodepointToAscii"
+    },
+    {
+      "rva": "0x56a150",
+      "va": "0x14056a150",
+      "name": "p_oCUIGauge_ComputeFillRect"
+    },
+    {
+      "rva": "0x599450",
+      "va": "0x140599450",
+      "name": "p_oC3dTrailEmitterStick_GetMetaClass"
+    },
+    {
+      "rva": "0x599460",
+      "va": "0x140599460",
+      "name": "oC3dTrailEmitterStick::vf1"
+    },
+    {
+      "rva": "0x599470",
+      "va": "0x140599470",
+      "name": "oC3dTrailEmitterStick::ctor_or_dtor"
+    },
+    {
+      "rva": "0x599540",
+      "va": "0x140599540",
+      "name": "oC3dTrailEmitterStick::vf2"
+    },
+    {
+      "rva": "0x5adf80",
+      "va": "0x1405adf80",
+      "name": "oCTrailRenderersSettings::ctor_or_dtor_2"
+    },
+    {
+      "rva": "0x5d06f0",
+      "va": "0x1405d06f0",
+      "name": "oCDrawRectModifier::vf1"
+    },
+    {
+      "rva": "0x5d07c0",
+      "va": "0x1405d07c0",
+      "name": "oCDrawRectModifier::vf3"
+    },
+    {
+      "rva": "0x5d0890",
+      "va": "0x1405d0890",
+      "name": "oCDrawRectModifier::vf4"
+    },
+    {
+      "rva": "0x610af0",
+      "va": "0x140610af0",
+      "name": "p_oC3dTrailEffectorAlphaRamp_GetMetaClass"
+    },
+    {
+      "rva": "0x610b00",
+      "va": "0x140610b00",
+      "name": "oC3dTrailEffectorAlphaRamp::vf1"
+    },
+    {
+      "rva": "0x610b10",
+      "va": "0x140610b10",
+      "name": "oC3dTrailEffectorAlphaRamp::vf2"
+    },
+    {
+      "rva": "0x610db0",
+      "va": "0x140610db0",
+      "name": "p_oC3dTrailEffectorUvRamp_GetMetaClass"
+    },
+    {
+      "rva": "0x610dc0",
+      "va": "0x140610dc0",
+      "name": "oC3dTrailEffectorUvRamp::vf1"
+    },
+    {
+      "rva": "0x610dd0",
+      "va": "0x140610dd0",
+      "name": "oC3dTrailEffectorUvRamp::vf2"
+    },
+    {
+      "rva": "0x611580",
+      "va": "0x140611580",
+      "name": "oC3dTrailEmitterStick::vf11"
+    },
+    {
+      "rva": "0x611680",
+      "va": "0x140611680",
+      "name": "oC3dTrailEmitterStick::vf10"
+    },
+    {
+      "rva": "0x613010",
+      "va": "0x140613010",
+      "name": "oC3dTrailEffectorAlphaRamp::vf7"
+    },
+    {
+      "rva": "0x613100",
+      "va": "0x140613100",
+      "name": "oC3dTrailEffectorAlphaRamp::vf6"
+    },
+    {
+      "rva": "0x615670",
+      "va": "0x140615670",
+      "name": "p_oC3dEffector_ResetState"
+    },
+    {
+      "rva": "0x615680",
+      "va": "0x140615680",
+      "name": "oC3dTrailEffectorUvRamp::vf7"
+    },
+    {
+      "rva": "0x61d4c0",
+      "va": "0x14061d4c0",
+      "name": "p_oC3dParticleEffectorForceSpeedNorm_GetMetaClass"
+    },
+    {
+      "rva": "0x61d4d0",
+      "va": "0x14061d4d0",
+      "name": "oC3dParticleEffectorForceSpeedNorm::vf1"
+    },
+    {
+      "rva": "0x61d4e0",
+      "va": "0x14061d4e0",
+      "name": "oC3dParticleEffectorForceSpeedNorm::vf2"
+    },
+    {
+      "rva": "0x61e180",
+      "va": "0x14061e180",
+      "name": "oC3dParticleEffectorForceSpeedNorm::vf7"
+    },
+    {
+      "rva": "0x625a80",
+      "va": "0x140625a80",
+      "name": "oC3dParticleEffectorForceOrient::vf7"
+    },
+    {
+      "rva": "0x632470",
+      "va": "0x140632470",
+      "name": "oCAnimLerpNode::vf3"
+    },
+    {
+      "rva": "0x633740",
+      "va": "0x140633740",
+      "name": "oCAnimQuadDirBlendNode::vf3"
+    },
+    {
+      "rva": "0x633920",
+      "va": "0x140633920",
+      "name": "oCAnimQuadDirBlendNode::vf4"
+    },
+    {
+      "rva": "0x645600",
+      "va": "0x140645600",
+      "name": "oC3dParticleEffectorForceSpeedNorm::ctor_or_dtor"
+    },
+    {
+      "rva": "0x694f90",
+      "va": "0x140694f90",
+      "name": "p_GameEventListener_OnMaxStatEvent"
+    },
+    {
+      "rva": "0x6a5370",
+      "va": "0x1406a5370",
+      "name": "oCUINavigableListener::sub0x310_vf3"
+    },
+    {
+      "rva": "0x6e2850",
+      "va": "0x1406e2850",
+      "name": "p_Entity_DispatchImpulseListeners"
+    },
+    {
+      "rva": "0x6e2aa0",
+      "va": "0x1406e2aa0",
+      "name": "Entity_DispatchHit"
+    },
+    {
+      "rva": "0x6ec230",
+      "va": "0x1406ec230",
+      "name": "oCEntityValueModifierMaxComputer::vf3"
+    },
+    {
+      "rva": "0x6f3f30",
+      "va": "0x1406f3f30",
+      "name": "oCComputeEntityCollector::vf5"
+    },
+    {
+      "rva": "0x6f8ab0",
+      "va": "0x1406f8ab0",
+      "name": "p_ZoneAttack_AllocHitRecordNode"
+    },
+    {
+      "rva": "0x716270",
+      "va": "0x140716270",
+      "name": "p_SwissTable_FindOrInsertDamageKey"
+    },
+    {
+      "rva": "0x716810",
+      "va": "0x140716810",
+      "name": "p_SwissTable_PrepareInsertDamageKey"
+    },
+    {
+      "rva": "0x716f90",
+      "va": "0x140716f90",
+      "name": "p_SwissTable_ResizeDamageKeyTable"
+    },
+    {
+      "rva": "0x726050",
+      "va": "0x140726050",
+      "name": "Entity_GetNetId"
+    },
+    {
+      "rva": "0x726330",
+      "va": "0x140726330",
+      "name": "NamedEvent_EmitNetworkDamageFromHit"
+    },
+    {
+      "rva": "0x728210",
+      "va": "0x140728210",
+      "name": "p_NamedEventGameLockCondition_OnEventTriggered"
+    },
+    {
+      "rva": "0x72f830",
+      "va": "0x14072f830",
+      "name": "p_EntitySpawner_ScheduleAsyncSpawnOrDespawn"
+    },
+    {
+      "rva": "0x72fba0",
+      "va": "0x14072fba0",
+      "name": "p_EntitySpawner_ProcessDeferredDespawnBatch"
+    },
+    {
+      "rva": "0x742f70",
+      "va": "0x140742f70",
+      "name": "oCEntityCpntSpreadPos::vf12"
+    },
+    {
+      "rva": "0x769ad0",
+      "va": "0x140769ad0",
+      "name": "p_ValueOpNode_EvalDistance2D"
+    },
+    {
+      "rva": "0x76b120",
+      "va": "0x14076b120",
+      "name": "p_ValueOpContext_ReadVec3Var"
+    },
+    {
+      "rva": "0x76e240",
+      "va": "0x14076e240",
+      "name": "p_EntityCpntValue_CachedState_Alloc"
+    },
+    {
+      "rva": "0x77d100",
+      "va": "0x14077d100",
+      "name": "p_SwitchSelector_RefreshSelection"
+    },
+    {
+      "rva": "0x7abe40",
+      "va": "0x1407abe40",
+      "name": "oCEntityCpntQuadDirAnimatic::vf30"
+    },
+    {
+      "rva": "0x7abe50",
+      "va": "0x1407abe50",
+      "name": "oCEntityCpntQuadDirAnimatic::vf33"
+    },
+    {
+      "rva": "0x7abe60",
+      "va": "0x1407abe60",
+      "name": "oCEntityCpntQuadDirAnimatic::vf34"
+    },
+    {
+      "rva": "0x7ac850",
+      "va": "0x1407ac850",
+      "name": "oCEntityCpntQuadDirAnimatic::vf35"
+    },
+    {
+      "rva": "0x7ac870",
+      "va": "0x1407ac870",
+      "name": "oCEntityCpntQuadDirAnimatic::sub0x68_vf2"
+    },
+    {
+      "rva": "0x7b8100",
+      "va": "0x1407b8100",
+      "name": "p_EntityCpntZoneAttack_ComputeAttackTransform"
+    },
+    {
+      "rva": "0x7c0d20",
+      "va": "0x1407c0d20",
+      "name": "oCEntityGpnInConeTraverser::vf4"
+    },
+    {
+      "rva": "0x7db7c0",
+      "va": "0x1407db7c0",
+      "name": "oCEntityCpntNavigableListenerUi::sub0x148_vf3"
+    },
+    {
+      "rva": "0x7ea530",
+      "va": "0x1407ea530",
+      "name": "btBoxShape::vf15"
+    },
+    {
+      "rva": "0x7f2d10",
+      "va": "0x1407f2d10",
+      "name": "p_PhysicVolume_OnEntityApplyImpulse"
+    },
+    {
+      "rva": "0x806460",
+      "va": "0x140806460",
+      "name": "p_PathFindingEntityCpnt_GetMetaClass"
+    },
+    {
+      "rva": "0x806480",
+      "va": "0x140806480",
+      "name": "p_PathFindingEntityCpnt_Ctor"
+    },
+    {
+      "rva": "0x806650",
+      "va": "0x140806650",
+      "name": "oe::PathFindingEntityCpnt::vf2"
+    },
+    {
+      "rva": "0x8069e0",
+      "va": "0x1408069e0",
+      "name": "oe::PathFindingEntityCpnt::vf15"
+    },
+    {
+      "rva": "0x806a20",
+      "va": "0x140806a20",
+      "name": "oe::PathFindingEntityCpnt::vf5"
+    },
+    {
+      "rva": "0x806ac0",
+      "va": "0x140806ac0",
+      "name": "oe::PathFindingEntityCpnt::vf6"
+    },
+    {
+      "rva": "0x80ffd0",
+      "va": "0x14080ffd0",
+      "name": "oCEntityCpntCharacterLocomotion::vf25"
+    },
+    {
+      "rva": "0x810630",
+      "va": "0x140810630",
+      "name": "p_CharacterLocomotion_MovingState"
+    },
+    {
+      "rva": "0x811070",
+      "va": "0x140811070",
+      "name": "p_CharacterLocomotion_SetHeadingAngle"
+    },
+    {
+      "rva": "0x81c510",
+      "va": "0x14081c510",
+      "name": "p_AttackHit_ResolveSourceComponent"
+    },
+    {
+      "rva": "0x81e1e0",
+      "va": "0x14081e1e0",
+      "name": "oCEntityCpntBasicDamage::vf34"
+    },
+    {
+      "rva": "0x81e270",
+      "va": "0x14081e270",
+      "name": "oCEntityCpntBasicDamage::vf35"
+    },
+    {
+      "rva": "0x81e3a0",
+      "va": "0x14081e3a0",
+      "name": "p_EntityCpntBasicDamage_FillDamageRecord"
+    },
+    {
+      "rva": "0x820810",
+      "va": "0x140820810",
+      "name": "oCEntityCpntHitPoint::vf30"
+    },
+    {
+      "rva": "0x8208e0",
+      "va": "0x1408208e0",
+      "name": "p_EntityCpntHitPoint_RemoveHealth"
+    },
+    {
+      "rva": "0x820a90",
+      "va": "0x140820a90",
+      "name": "p_EntityCpntHitPoint_AddHealth"
+    },
+    {
+      "rva": "0x821290",
+      "va": "0x140821290",
+      "name": "p_EntityCpntHitPoint_OnGainHealthEvent"
+    },
+    {
+      "rva": "0x821c60",
+      "va": "0x140821c60",
+      "name": "p_GameNamedEventNetworkDamageResponse_Ctor"
+    },
+    {
+      "rva": "0x822e60",
+      "va": "0x140822e60",
+      "name": "oCEntityCpntHittable::vf31"
+    },
+    {
+      "rva": "0x823010",
+      "va": "0x140823010",
+      "name": "oCEntityCpntHittable::vf32"
+    },
+    {
+      "rva": "0x823290",
+      "va": "0x140823290",
+      "name": "oCEntityCpntHittable::vf33"
+    },
+    {
+      "rva": "0x8233b0",
+      "va": "0x1408233b0",
+      "name": "p_EntityCpntHittable_OnPreProcessHit"
+    },
+    {
+      "rva": "0x823500",
+      "va": "0x140823500",
+      "name": "p_EntityCpntHittable_ProcessIncomingHit"
+    },
+    {
+      "rva": "0x823de0",
+      "va": "0x140823de0",
+      "name": "p_EntityCpntHittable_BuildHitTransform"
+    },
+    {
+      "rva": "0x827100",
+      "va": "0x140827100",
+      "name": "p_EntityCpntHitEjection_OnApplyEjection"
+    },
+    {
+      "rva": "0x8271c0",
+      "va": "0x1408271c0",
+      "name": "p_EntityCpntHitEjection_ComputeImpulseVector"
+    },
+    {
+      "rva": "0x82c240",
+      "va": "0x14082c240",
+      "name": "p_HitPoint_DispatchPostHealListeners"
+    },
+    {
+      "rva": "0x82c3c0",
+      "va": "0x14082c3c0",
+      "name": "p_HitPoint_DispatchPreHealModifiers"
+    },
+    {
+      "rva": "0x8320d0",
+      "va": "0x1408320d0",
+      "name": "p_EntityCpntHittable_RegisterNamedEventThunk"
+    },
+    {
+      "rva": "0x838970",
+      "va": "0x140838970",
+      "name": "oCEntityGpnNetworkTester::vf10"
+    },
+    {
+      "rva": "0x83b180",
+      "va": "0x14083b180",
+      "name": "p_EntityCpntZoneAttack_ApplyHitsToTargets"
+    },
+    {
+      "rva": "0x846e00",
+      "va": "0x140846e00",
+      "name": "p_btRigidBody_ApplyTorqueImpulse"
+    },
+    {
+      "rva": "0x846f50",
+      "va": "0x140846f50",
+      "name": "p_btRigidBody_ApplyImpulse"
+    },
+    {
+      "rva": "0x851fd0",
+      "va": "0x140851fd0",
+      "name": "p_BulletRigidBodyOwner_GetCenterOfMass"
+    },
+    {
+      "rva": "0x8539d0",
+      "va": "0x1408539d0",
+      "name": "p_BulletRigidBodyOwner_ApplyImpulse"
+    },
+    {
+      "rva": "0xa6f800",
+      "va": "0x140a6f800",
+      "name": "btManifoldResult::vf1"
+    },
+    {
+      "rva": "0xa6f8c0",
+      "va": "0x140a6f8c0",
+      "name": "p_btVoronoiSimplexSolver_Init"
+    },
+    {
+      "rva": "0xa71590",
+      "va": "0x140a71590",
+      "name": "p_btCollisionWorld_ObjectQuerySingleInternal"
+    },
+    {
+      "rva": "0xa7b440",
+      "va": "0x140a7b440",
+      "name": "btPairCachingGhostObject::vf6"
+    },
+    {
+      "rva": "0xa7b5a0",
+      "va": "0x140a7b5a0",
+      "name": "btPairCachingGhostObject::vf7"
+    },
+    {
+      "rva": "0xa7c230",
+      "va": "0x140a7c230",
+      "name": "p_btConvexShape_LocalGetSupportVertexWithoutMarginNonVirtual"
+    },
+    {
+      "rva": "0xa7c790",
+      "va": "0x140a7c790",
+      "name": "p_btConvexShape_LocalGetSupportVertexNonVirtual"
+    },
+    {
+      "rva": "0xa7c900",
+      "va": "0x140a7c900",
+      "name": "p_btConvexShape_GetMarginNonVirtual"
+    },
+    {
+      "rva": "0xa8b7d0",
+      "va": "0x140a8b7d0",
+      "name": "p_btClosestPointInput_Init"
+    },
+    {
+      "rva": "0xa8b880",
+      "va": "0x140a8b880",
+      "name": "btPointCollector::vf3"
+    },
+    {
+      "rva": "0xa8bdd0",
+      "va": "0x140a8bdd0",
+      "name": "p_btContinuousConvexCollision_ComputeClosestPoints"
+    },
+    {
+      "rva": "0xa8c7f0",
+      "va": "0x140a8c7f0",
+      "name": "btContinuousConvexCollision::vf1"
+    },
+    {
+      "rva": "0xa8d990",
+      "va": "0x140a8d990",
+      "name": "btGjkEpaPenetrationDepthSolver::vf1"
+    },
+    {
+      "rva": "0xa97590",
+      "va": "0x140a97590",
+      "name": "btConvexTriangleCallback::vf1"
+    },
+    {
+      "rva": "0xa9a9a0",
+      "va": "0x140a9a9a0",
+      "name": "btConvexConvexAlgorithm::CreateFunc::vf1"
+    },
+    {
+      "rva": "0xa9aa80",
+      "va": "0x140a9aa80",
+      "name": "btConvexConvexAlgorithm::dtor_deleting"
+    },
+    {
+      "rva": "0xa9b400",
+      "va": "0x140a9b400",
+      "name": "btConvexConvexAlgorithm::vf1"
+    },
+    {
+      "rva": "0xaa4470",
+      "va": "0x140aa4470",
+      "name": "btGjkPairDetector::ctor_or_dtor_2"
+    },
+    {
+      "rva": "0xaa4520",
+      "va": "0x140aa4520",
+      "name": "p_btGjk_ComputeMinkowskiSupport"
+    },
+    {
+      "rva": "0xaa4820",
+      "va": "0x140aa4820",
+      "name": "p_btGjk_FloatNearEqual"
+    },
+    {
+      "rva": "0xaa4870",
+      "va": "0x140aa4870",
+      "name": "p_btGjk_Vec3NearEqual"
+    },
+    {
+      "rva": "0xaa4960",
+      "va": "0x140aa4960",
+      "name": "p_btGjk_FloatSign"
+    },
+    {
+      "rva": "0xaa49a0",
+      "va": "0x140aa49a0",
+      "name": "p_btGjk_PointToSegmentDistSq"
+    },
+    {
+      "rva": "0xaa4c30",
+      "va": "0x140aa4c30",
+      "name": "p_btGjk_PointToTriangleDistSq"
+    },
+    {
+      "rva": "0xaa5020",
+      "va": "0x140aa5020",
+      "name": "p_btGjk_ReduceTriangleSimplex"
+    },
+    {
+      "rva": "0xaa55c0",
+      "va": "0x140aa55c0",
+      "name": "p_btGjk_ReduceTetrahedronSimplex"
+    },
+    {
+      "rva": "0xaa5aa0",
+      "va": "0x140aa5aa0",
+      "name": "p_btGjkPairDetector_GetClosestPointsNonVirtual"
+    },
+    {
+      "rva": "0xaa87c0",
+      "va": "0x140aa87c0",
+      "name": "p_btGjkEpa_MinkowskiDiff_Support1"
+    },
+    {
+      "rva": "0xaa8910",
+      "va": "0x140aa8910",
+      "name": "p_btGjkEpa_GJK_Evaluate"
+    },
+    {
+      "rva": "0xaa9380",
+      "va": "0x140aa9380",
+      "name": "p_btGjkEpa_GJK_EncloseOrigin"
+    },
+    {
+      "rva": "0xaa9a30",
+      "va": "0x140aa9a30",
+      "name": "p_btGjkEpa_GJK_GetSupport"
+    },
+    {
+      "rva": "0xaa9b90",
+      "va": "0x140aa9b90",
+      "name": "p_btGjkEpa_Det3"
+    },
+    {
+      "rva": "0xaa9c40",
+      "va": "0x140aa9c40",
+      "name": "p_btGjkEpa_GJK_ProjectOrigin3"
+    },
+    {
+      "rva": "0xaaa380",
+      "va": "0x140aaa380",
+      "name": "p_btGjkEpa_GJK_ProjectOrigin4"
+    },
+    {
+      "rva": "0xaaa880",
+      "va": "0x140aaa880",
+      "name": "p_btGjkEpa_EPA_RemoveFaceFromList"
+    },
+    {
+      "rva": "0xaaa8c0",
+      "va": "0x140aaa8c0",
+      "name": "p_btGjkEpa_EPA_Evaluate"
+    },
+    {
+      "rva": "0xaab190",
+      "va": "0x140aab190",
+      "name": "p_btGjkEpa_EPA_GetEdgeDist"
+    },
+    {
+      "rva": "0xaab410",
+      "va": "0x140aab410",
+      "name": "p_btGjkEpa_EPA_NewFace"
+    },
+    {
+      "rva": "0xaab710",
+      "va": "0x140aab710",
+      "name": "p_btGjkEpa_EPA_FindBestFace"
+    },
+    {
+      "rva": "0xaab760",
+      "va": "0x140aab760",
+      "name": "p_btGjkEpa_EPA_ExpandHorizon"
+    },
+    {
+      "rva": "0xaab910",
+      "va": "0x140aab910",
+      "name": "p_btGjkEpa_InitializeShapes"
+    },
+    {
+      "rva": "0xaac350",
+      "va": "0x140aac350",
+      "name": "p_btGjkEpaSolver2_Penetration"
+    }
+  ],
+  "run3_only_unnamed_fun": []
+}

@@ -1,0 +1,895 @@
+{
+ "baseline": {
+  "file": "E:\\Documents\\Projects\\Ravenswatch\\RSMM\\evidence\\2026-11-26-bulk-symbols\\drcov-baseline\\drcov.Ravenswatch.exe.06300.0000.proc.log",
+  "version": 3,
+  "header_bb_count": 1243681,
+  "target_unique_bbs": 268050,
+  "unique_functions": 30115,
+  "unmapped_bbs": 5
+ },
+ "action": {
+  "file": "E:\\Documents\\Projects\\Ravenswatch\\RSMM\\evidence\\2026-11-26-bulk-symbols\\drcov-action\\drcov.Ravenswatch.exe.03384.0000.proc.log",
+  "version": 3,
+  "header_bb_count": 1236204,
+  "target_unique_bbs": 270198,
+  "unique_functions": 30294,
+  "unmapped_bbs": 5
+ },
+ "shared_functions": 30076,
+ "baseline_only_count": 39,
+ "action_only_count": 218,
+ "action_only": [
+  {
+   "addr": "0x1400be0a0",
+   "name": "p_oCDtSurfaceParticleEmitter_GetMetaClass"
+  },
+  {
+   "addr": "0x1400be0b0",
+   "name": "oCDtSurfaceParticleEmitter::vf1"
+  },
+  {
+   "addr": "0x1400be0c0",
+   "name": "oCDtSurfaceParticleEmitter::vf2"
+  },
+  {
+   "addr": "0x1400c6920",
+   "name": "p_pplx_TaskImpl_CancelWithException"
+  },
+  {
+   "addr": "0x1400c6af0",
+   "name": "p_pplx_TaskImpl_GetCreationContext"
+  },
+  {
+   "addr": "0x1400c7170",
+   "name": "p_pplx_TaskCompletionEvent_SetException"
+  },
+  {
+   "addr": "0x14010a520",
+   "name": "p_pplx_TaskCompletionEvent_CancelAll"
+  },
+  {
+   "addr": "0x14010a880",
+   "name": "p_RefCountedPtr_Release"
+  },
+  {
+   "addr": "0x14014d610",
+   "name": "p_StdFunction_Destroy"
+  },
+  {
+   "addr": "0x1401a44f0",
+   "name": "oCDtSurfaceParticleEmitter::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1401c6e50",
+   "name": "p_oCSpawnerGoEntityCollector_GetMetaClass"
+  },
+  {
+   "addr": "0x1401c6e60",
+   "name": "oCSpawnerGoEntityCollector::vf1"
+  },
+  {
+   "addr": "0x1401c6e70",
+   "name": "oCSpawnerGoEntityCollector::vf2"
+  },
+  {
+   "addr": "0x1402155a0",
+   "name": "_Sort_unchecked<GSISymbolEntry*___ptr64*___ptr64,<lambda_17fc2db6b915a174aa9adac87939b088>_>"
+  },
+  {
+   "addr": "0x1402393a0",
+   "name": "p_Sort_InsertionByDistance2D"
+  },
+  {
+   "addr": "0x14023df80",
+   "name": "p_Vector_ClearAndFree"
+  },
+  {
+   "addr": "0x1402950c0",
+   "name": "oCDtSurfaceParticleEmitter::vf6"
+  },
+  {
+   "addr": "0x1402c63c0",
+   "name": "p_AbilityController_CanAcceptInputSlot"
+  },
+  {
+   "addr": "0x1402c6500",
+   "name": "p_AbilityController_TriggerAction"
+  },
+  {
+   "addr": "0x1402c66c0",
+   "name": "p_AbilityController_TickAll"
+  },
+  {
+   "addr": "0x1402c6af0",
+   "name": "p_AbilityController_OnActivate"
+  },
+  {
+   "addr": "0x1402c72f0",
+   "name": "p_AbilityController_OnDeactivate"
+  },
+  {
+   "addr": "0x1402c76f0",
+   "name": "p_AbilityController_OnExecutionFinished"
+  },
+  {
+   "addr": "0x1402c7810",
+   "name": "p_AbilityController_UpdateRechargeFlag"
+  },
+  {
+   "addr": "0x1402c7f70",
+   "name": "p_AbilityController_ConsumeChargeAndStartCooldown"
+  },
+  {
+   "addr": "0x1402c85b0",
+   "name": "str_NotADash"
+  },
+  {
+   "addr": "0x1402c8b80",
+   "name": "p_AbilityController_StartNextCooldown"
+  },
+  {
+   "addr": "0x1402c8c30",
+   "name": "p_AbilityController_EnqueueCooldown"
+  },
+  {
+   "addr": "0x1402ca0d0",
+   "name": "p_AbilityController_SetNetFlag0"
+  },
+  {
+   "addr": "0x1402ca130",
+   "name": "p_AbilityController_SetNetFlag1"
+  },
+  {
+   "addr": "0x1402daab0",
+   "name": "oe::dt::RefugeeScenarioSelectorEntityCpnt::vf11"
+  },
+  {
+   "addr": "0x1403011b0",
+   "name": "p_HeroHudSlot_SyncAvailabilitySignal"
+  },
+  {
+   "addr": "0x140301270",
+   "name": "p_HeroHudSlot_BindHeroAndRefresh"
+  },
+  {
+   "addr": "0x14033e130",
+   "name": "p_Reward_PopFarthestWithinRadius2D"
+  },
+  {
+   "addr": "0x1403a1cd0",
+   "name": "p_HeroController_SetAbilityActiveState"
+  },
+  {
+   "addr": "0x1403a1d90",
+   "name": "p_HeroController_ConsumeBufferedInput"
+  },
+  {
+   "addr": "0x1403a6b70",
+   "name": "p_HeroController_InAbilityState"
+  },
+  {
+   "addr": "0x1403ac2c0",
+   "name": "p_HeroController_UpdateAbilityAimAndInput"
+  },
+  {
+   "addr": "0x1403acdc0",
+   "name": "p_HeroController_OrientTowardDirection"
+  },
+  {
+   "addr": "0x1403d5200",
+   "name": "p_RemoteDamageTarget_OnEventHash"
+  },
+  {
+   "addr": "0x1403d52b0",
+   "name": "RemoteDamageTarget_OnModifierRemoved"
+  },
+  {
+   "addr": "0x140401150",
+   "name": "p_HeroController_MakeInAbilityStateClosure"
+  },
+  {
+   "addr": "0x14045e850",
+   "name": "p_oC3dBillboardBeamRenderer_GetMetaClass"
+  },
+  {
+   "addr": "0x14045e860",
+   "name": "oC3dBillboardBeamRenderer::vf1"
+  },
+  {
+   "addr": "0x14045e870",
+   "name": "oC3dBillboardBeamRenderer::vf2"
+  },
+  {
+   "addr": "0x14045e970",
+   "name": "oC3dBillboardBeamRenderer::vf7"
+  },
+  {
+   "addr": "0x14046d540",
+   "name": "oC3dBillboardBeamRenderer::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1404b0860",
+   "name": "oCGpnInLineTester::vf1"
+  },
+  {
+   "addr": "0x1404bea40",
+   "name": "p_ConstraintZone_ContainsPoint"
+  },
+  {
+   "addr": "0x1404e58b0",
+   "name": "p_Math_BuildBasisFromForwardUp"
+  },
+  {
+   "addr": "0x14051aee0",
+   "name": "p_StdVector16_FreeBuffer"
+  },
+  {
+   "addr": "0x14059d760",
+   "name": "oCBeamGraphic3dObject::ctor_or_dtor"
+  },
+  {
+   "addr": "0x14059d850",
+   "name": "oC3dBeamEffect::meta_cb0_impl"
+  },
+  {
+   "addr": "0x14059dde0",
+   "name": "p_oCVisualEffectBeam_GetMetaClass"
+  },
+  {
+   "addr": "0x14059ddf0",
+   "name": "oCVisualEffectBeam::vf1"
+  },
+  {
+   "addr": "0x14059de00",
+   "name": "oCVisualEffectBeam::vf2"
+  },
+  {
+   "addr": "0x14059df40",
+   "name": "oCVisualEffectBeam::vf4"
+  },
+  {
+   "addr": "0x14059dfa0",
+   "name": "oCVisualEffectBeam::vf6"
+  },
+  {
+   "addr": "0x14059dfe0",
+   "name": "oCVisualEffectBeam::vf7"
+  },
+  {
+   "addr": "0x14059e030",
+   "name": "oCVisualEffectBeam::vf9"
+  },
+  {
+   "addr": "0x14059e070",
+   "name": "oCVisualEffectBeam::vf11"
+  },
+  {
+   "addr": "0x14059e080",
+   "name": "oCVisualEffectBeam::vf13"
+  },
+  {
+   "addr": "0x14059e100",
+   "name": "oCVisualEffectBeam::vf14"
+  },
+  {
+   "addr": "0x1405a0a00",
+   "name": "oCTRsRuntimePool<oI3dBeamRenderer>::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405a0a70",
+   "name": "oCTRsRuntimePool<oI3dBeamEffector>::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405a0ae0",
+   "name": "oCTRsRuntimePool<oI3dBeamEmitter>::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405a4080",
+   "name": "p_BeamVertexBufferVector_Clear"
+  },
+  {
+   "addr": "0x1405ae4e0",
+   "name": "oCVisualEffectBeam::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405b1a90",
+   "name": "p_SubParticleRenderer_BuildTransformMatrix"
+  },
+  {
+   "addr": "0x1405b1f40",
+   "name": "p_oC3dBeamEmitter_GetMetaClass"
+  },
+  {
+   "addr": "0x1405b1f50",
+   "name": "oC3dBeamEmitter::vf1"
+  },
+  {
+   "addr": "0x1405b1f60",
+   "name": "oC3dBeamEmitter::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405b2050",
+   "name": "oC3dBeamEmitter::vf2"
+  },
+  {
+   "addr": "0x1405b2270",
+   "name": "oC3dBeamEffect::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1405b22f0",
+   "name": "oC3dBeamEffect::vf4"
+  },
+  {
+   "addr": "0x1405b25e0",
+   "name": "p_oC3dBeamEffect_UnregisterScheduleSteps"
+  },
+  {
+   "addr": "0x1405b2770",
+   "name": "p_oC3dBeamEffect_UpdateEmittersEffectors"
+  },
+  {
+   "addr": "0x1405b29a0",
+   "name": "p_oC3dBeamEffect_UpdateRenderers"
+  },
+  {
+   "addr": "0x1405b2c40",
+   "name": "p_oC3dBeamEffect_StartAndSchedule"
+  },
+  {
+   "addr": "0x1405b2ed0",
+   "name": "p_oC3dBeamEffect_StopOrReset"
+  },
+  {
+   "addr": "0x1405b3210",
+   "name": "oCBeamGraphic3dObject::vf4"
+  },
+  {
+   "addr": "0x1405b3320",
+   "name": "p_oC3dBeamEffect_ComputeBounds"
+  },
+  {
+   "addr": "0x1405c9720",
+   "name": "oCTArrayScheduleStep<oC3dBeamEffect,&private:_static_void___cdecl_oC3dBeamEffect::_UpdateRenderers(class_oIScheduleStep_const*___ptr64,struct_oSTime_c_f686da12::vf0"
+  },
+  {
+   "addr": "0x1405c9820",
+   "name": "oCTArrayScheduleStep<oC3dBeamEffect,&private:_static_void___cdecl_oC3dBeamEffect::_UpdateEmittersEffectors(class_oIScheduleStep_const*___ptr64,struct__10428f54::vf0"
+  },
+  {
+   "addr": "0x1405ca430",
+   "name": "oCTArrayScheduleStep<oC3dBeamEffect,&private:_static_void___cdecl_oC3dBeamEffect::_UpdateEmittersEffectors(class_oIScheduleStep_const*___ptr64,struct__10428f54::vf1"
+  },
+  {
+   "addr": "0x1405ca790",
+   "name": "oCTArrayScheduleStep<oC3dBeamEffect,&private:_static_void___cdecl_oC3dBeamEffect::_UpdateRenderers(class_oIScheduleStep_const*___ptr64,struct_oSTime_c_f686da12::vf1"
+  },
+  {
+   "addr": "0x1405ccc50",
+   "name": "p_oC3dBeamEffect_AllocUpdateEmittersStep"
+  },
+  {
+   "addr": "0x1406101d0",
+   "name": "p_SwitchStyleFlag_SetEnabled"
+  },
+  {
+   "addr": "0x1406101e0",
+   "name": "p_SwitchStyleFlag_GetEnabled"
+  },
+  {
+   "addr": "0x14061bed0",
+   "name": "p_oC3dParticleEffectorConstraintZone_GetMetaClass"
+  },
+  {
+   "addr": "0x14061bee0",
+   "name": "oC3dParticleEffectorConstraintZone::vf1"
+  },
+  {
+   "addr": "0x14061bef0",
+   "name": "oC3dParticleEffectorConstraintZone::vf2"
+  },
+  {
+   "addr": "0x1406214d0",
+   "name": "oC3dParticleEffectorConstraintZone::vf7"
+  },
+  {
+   "addr": "0x14062ae50",
+   "name": "p_oC3dSubParticleRenderer_GetMetaClass"
+  },
+  {
+   "addr": "0x14062ae60",
+   "name": "oC3dSubParticleRenderer::vf1"
+  },
+  {
+   "addr": "0x14062ae70",
+   "name": "oC3dSubParticleRenderer::vf10"
+  },
+  {
+   "addr": "0x14062af20",
+   "name": "oC3dSubParticleRenderer::vf2"
+  },
+  {
+   "addr": "0x14062af90",
+   "name": "oC3dSubParticleRenderer::vf3"
+  },
+  {
+   "addr": "0x14062b0a0",
+   "name": "oC3dSubParticleRenderer::vf6"
+  },
+  {
+   "addr": "0x14062b1b0",
+   "name": "p_oC3dSubParticleRenderer_ReleaseAllInstances"
+  },
+  {
+   "addr": "0x14062b390",
+   "name": "oC3dSubParticleRenderer::vf8"
+  },
+  {
+   "addr": "0x14062b610",
+   "name": "p_oC3dSubParticleRenderer_UpdateAndSpawn"
+  },
+  {
+   "addr": "0x14062be30",
+   "name": "oC3dBeamEmitter::vf11"
+  },
+  {
+   "addr": "0x14062c3b0",
+   "name": "p_oC3dBeamEmitter_IntegrateSpringPoint"
+  },
+  {
+   "addr": "0x14062c610",
+   "name": "p_oC3dBeamEmitter_EmitSegments"
+  },
+  {
+   "addr": "0x14062d150",
+   "name": "oC3dBeamEmitter::vf6"
+  },
+  {
+   "addr": "0x14062d2f0",
+   "name": "oC3dBeamEmitter::vf7"
+  },
+  {
+   "addr": "0x14062d930",
+   "name": "p_oC3dBeamEffectorSizeRamp_GetMetaClass"
+  },
+  {
+   "addr": "0x14062d940",
+   "name": "oC3dBeamEffectorSizeRamp::vf1"
+  },
+  {
+   "addr": "0x14062d950",
+   "name": "oC3dBeamEffectorSizeRamp::vf2"
+  },
+  {
+   "addr": "0x14062da10",
+   "name": "p_oC3dBeamEffectorFade_GetMetaClass"
+  },
+  {
+   "addr": "0x14062da20",
+   "name": "oC3dBeamEffectorFade::vf1"
+  },
+  {
+   "addr": "0x14062da30",
+   "name": "oC3dBeamEffectorFade::vf2"
+  },
+  {
+   "addr": "0x14062eab0",
+   "name": "oC3dBeamEffectorSizeRamp::vf7"
+  },
+  {
+   "addr": "0x14062ed20",
+   "name": "oC3dBeamEffectorFade::vf6"
+  },
+  {
+   "addr": "0x14062ed90",
+   "name": "oC3dBeamEffectorFade::vf7"
+  },
+  {
+   "addr": "0x14062eef0",
+   "name": "oC3dBeamEffectorFade::vf9"
+  },
+  {
+   "addr": "0x14062ef00",
+   "name": "oC3dBeamEffectorFade::vf10"
+  },
+  {
+   "addr": "0x14062f140",
+   "name": "p_oC3dBeamEffectorFade_ApplyAlphaScale"
+  },
+  {
+   "addr": "0x1406302c0",
+   "name": "oI3dBeamRenderer::ctor_or_dtor"
+  },
+  {
+   "addr": "0x1406305c0",
+   "name": "oI3dBeamRenderer::ctor_or_dtor_2"
+  },
+  {
+   "addr": "0x140635cc0",
+   "name": "p_oC3dSubParticleRenderer_ClearNodes"
+  },
+  {
+   "addr": "0x140636250",
+   "name": "p_oC3dBeamEmitter_InitVertices"
+  },
+  {
+   "addr": "0x140644af0",
+   "name": "oC3dParticleEffectorConstraintZone::ctor_or_dtor"
+  },
+  {
+   "addr": "0x140645a10",
+   "name": "oC3dSubParticleRenderer::ctor_or_dtor"
+  },
+  {
+   "addr": "0x140645b70",
+   "name": "oC3dBeamEffectorSizeRamp::ctor_or_dtor"
+  },
+  {
+   "addr": "0x140645bf0",
+   "name": "oC3dBeamEffectorFade::ctor_or_dtor"
+  },
+  {
+   "addr": "0x140669c80",
+   "name": "p_CustomFlagList_ContainsTag"
+  },
+  {
+   "addr": "0x140681540",
+   "name": "p_InputBinding_SharesKey"
+  },
+  {
+   "addr": "0x140693490",
+   "name": "oCVfxEventCineBloc::vf25"
+  },
+  {
+   "addr": "0x1406d0530",
+   "name": "oICineBloc::vf26"
+  },
+  {
+   "addr": "0x1406ec790",
+   "name": "p_EntityValueModifierList_RemoveMatching"
+  },
+  {
+   "addr": "0x14070a100",
+   "name": "oCEntitySpawnerGo::vf51"
+  },
+  {
+   "addr": "0x14070a120",
+   "name": "oCEntitySpawnerGo::vf53"
+  },
+  {
+   "addr": "0x14073f500",
+   "name": "oCEntityCpntBasicMove::vf28"
+  },
+  {
+   "addr": "0x14073f640",
+   "name": "oCEntityCpntBasicMove::vf29"
+  },
+  {
+   "addr": "0x14073f920",
+   "name": "p_EntityCpntBasicMove_UpdateAllVelocities"
+  },
+  {
+   "addr": "0x14073fd00",
+   "name": "p_EntityCpntBasicMove_ComputeLocalVelocity"
+  },
+  {
+   "addr": "0x14073fe40",
+   "name": "p_EntityCpntBasicMove_ApplyVelocityHeading"
+  },
+  {
+   "addr": "0x1407488f0",
+   "name": "p_EntityValueStore_HasOverrideKey"
+  },
+  {
+   "addr": "0x14074b7f0",
+   "name": "p_EntityValueStore_RemoveModifierEvent"
+  },
+  {
+   "addr": "0x14075bfd0",
+   "name": "p_EntityCpntValueSelector_Evaluate"
+  },
+  {
+   "addr": "0x140794700",
+   "name": "p_oCEntityCpntAnimatedBoneController_GetMetaClass"
+  },
+  {
+   "addr": "0x140794720",
+   "name": "oCEntityCpntAnimatedBoneController::meta_cb0_impl"
+  },
+  {
+   "addr": "0x1407947f0",
+   "name": "oCEntityCpntAnimatedBoneController::vf2"
+  },
+  {
+   "addr": "0x140794c30",
+   "name": "oCEntityCpntAnimatedBoneController::vf5"
+  },
+  {
+   "addr": "0x140794d20",
+   "name": "oCEntityCpntAnimatedBoneController::vf6"
+  },
+  {
+   "addr": "0x140794d40",
+   "name": "oCEntityCpntAnimatedBoneController::vf28"
+  },
+  {
+   "addr": "0x140794e20",
+   "name": "oCEntityCpntAnimatedBoneController::vf29"
+  },
+  {
+   "addr": "0x1407ba450",
+   "name": "oCEntityCpntCollisionGpn::vf28"
+  },
+  {
+   "addr": "0x1407ba4e0",
+   "name": "oCEntityCpntCollisionGpn::vf29"
+  },
+  {
+   "addr": "0x1407ba740",
+   "name": "p_EntityCpntCollisionGpn_UpdateAll"
+  },
+  {
+   "addr": "0x1407ba940",
+   "name": "p_EntityCpntCollisionGpn_OnOverlapHit"
+  },
+  {
+   "addr": "0x1407c16e0",
+   "name": "oCEntityGpnInLineTraverser::vf4"
+  },
+  {
+   "addr": "0x1407ea2a0",
+   "name": "btCollisionWorld::ConvexResultCallback::vf1"
+  },
+  {
+   "addr": "0x1407ebd20",
+   "name": "oCBulletGhostCylinder::vf0"
+  },
+  {
+   "addr": "0x1407f6f60",
+   "name": "p_BulletPhysics_SweepActiveShape"
+  },
+  {
+   "addr": "0x1407f7120",
+   "name": "p_BulletPhysics_ConvexSweepQuery"
+  },
+  {
+   "addr": "0x140816c40",
+   "name": "p_EntityCpntAttack_ComputeForwardDir"
+  },
+  {
+   "addr": "0x14083a910",
+   "name": "oCEntityCpntZoneAttack::vf28"
+  },
+  {
+   "addr": "0x14083a960",
+   "name": "oCEntityCpntZoneAttack::vf29"
+  },
+  {
+   "addr": "0x14083ab70",
+   "name": "p_EntityCpntZoneAttack_UpdateAll"
+  },
+  {
+   "addr": "0x14083acb0",
+   "name": "p_EntityCpntZoneAttack_EvaluateHits"
+  },
+  {
+   "addr": "0x14084dee0",
+   "name": "oCBulletWorld::vf51"
+  },
+  {
+   "addr": "0x1408735a0",
+   "name": "p_EntityCpntFModEvent_UpdateInstance3dAttrs"
+  },
+  {
+   "addr": "0x140873750",
+   "name": "p_EntityCpntFModEvent_UpdateAll3dInstances"
+  },
+  {
+   "addr": "0x1408c49c0",
+   "name": "p_Stormancer_PeerFilter_Dtor"
+  },
+  {
+   "addr": "0x1408d9660",
+   "name": "p_Stormancer_PartyService_SyncPartyStateBody"
+  },
+  {
+   "addr": "0x1409455a0",
+   "name": "p_Stormancer_PartyService_HandleSyncError"
+  },
+  {
+   "addr": "0x14096b070",
+   "name": "p_pplx_Task_Then"
+  },
+  {
+   "addr": "0x14099e790",
+   "name": "pplx::details::_Task_impl<Stormancer::Party::details::PartyState>::vf1"
+  },
+  {
+   "addr": "0x1409ae0e0",
+   "name": "p_pplx_Task_CreateContinuation"
+  },
+  {
+   "addr": "0x1409d72e0",
+   "name": "pplx::details::_PPLTaskHandle<unsigned_char,pplx::task<unsigned_char>::_ContinuationTaskHandle<void,void,_public:___cdecl__private:_class_pplx::task<v_b8ccb2f7::vf1"
+  },
+  {
+   "addr": "0x1409d73b0",
+   "name": "pplx::details::_ContinuationTaskHandleBase::ctor_or_dtor_231"
+  },
+  {
+   "addr": "0x1409e57d0",
+   "name": "pplx::task<unsigned_char>::_ContinuationTaskHandle<void,void,_public:___cdecl__private:_class_pplx::task<void>___cdecl_Stormancer::Party::details::Par_1182e44b::vf0"
+  },
+  {
+   "addr": "0x1409f58b0",
+   "name": "p_pplx_ContinuationTaskHandle_InvokePartySync"
+  },
+  {
+   "addr": "0x1409fb860",
+   "name": "p_Stormancer_AsyncInitMap_OnException"
+  },
+  {
+   "addr": "0x140a080a0",
+   "name": "p_pplx_TaskCompletionEvent_SetExceptionLocked"
+  },
+  {
+   "addr": "0x140a182d0",
+   "name": "p_pplx_TaskCompletionEvent_CancelAllLarge"
+  },
+  {
+   "addr": "0x140a26a40",
+   "name": "std::_Func_impl_no_alloc<_public:___cdecl__private:_class_pplx::task<void>___cdecl_Stormancer::Party::details::PartyService::syncPartyStateTaskWithRet_08f691fc::vf4"
+  },
+  {
+   "addr": "0x140a26ac0",
+   "name": "std::_Func_impl_no_alloc<_public:___cdecl__private:_class_pplx::task<void>___cdecl_Stormancer::Party::details::PartyService::syncPartyStateTaskWithRet_08f691fc::vf2"
+  },
+  {
+   "addr": "0x140a26b50",
+   "name": "std::_Func_impl_no_alloc<_public:___cdecl__private:_class_pplx::task<void>___cdecl_Stormancer::Party::details::PartyService::syncPartyStateTaskWithRet_08f691fc::vf0"
+  },
+  {
+   "addr": "0x140a36280",
+   "name": "std::_Func_impl_no_alloc<_public:_static_void___cdecl_pplx::details::_Task_impl_base::_AsyncInit<std::unordered_map<std::basic_string<char,std::char_t_b5af333d::vf3_102"
+  },
+  {
+   "addr": "0x140a73620",
+   "name": "btSingleSweepCallback::ctor_or_dtor"
+  },
+  {
+   "addr": "0x140a73880",
+   "name": "btSingleSweepCallback::vf1"
+  },
+  {
+   "addr": "0x140a73930",
+   "name": "p_btCollisionWorld_ConvexSweepTest"
+  },
+  {
+   "addr": "0x140a77870",
+   "name": "p_btCollisionWorld_ComputeSweptAabb"
+  },
+  {
+   "addr": "0x140a7ac20",
+   "name": "btSphereShape::vf7"
+  },
+  {
+   "addr": "0x140b05440",
+   "name": "p_Stormancer_RpcObserver_OnError"
+  },
+  {
+   "addr": "0x140b073a0",
+   "name": "p_Stormancer_PacketObserver_OnError"
+  },
+  {
+   "addr": "0x140b0cd10",
+   "name": "rxcpp::detail::specific_observer<std::shared_ptr<Stormancer::Packet<Stormancer::IScenePeer>_>,rxcpp::observer<std::shared_ptr<Stormancer::Packet<Storm_6b373d69::vf3"
+  },
+  {
+   "addr": "0x140b0e5a0",
+   "name": "p_Stormancer_SendRpcPacket"
+  },
+  {
+   "addr": "0x140b0f770",
+   "name": "std::_Func_impl_no_alloc<<lambda_14dce289e4c481c473fa5c8ab9d37459>,void>::vf4"
+  },
+  {
+   "addr": "0x140b0f7d0",
+   "name": "std::_Func_impl_no_alloc<<lambda_14dce289e4c481c473fa5c8ab9d37459>,void>::vf1"
+  },
+  {
+   "addr": "0x140b0f820",
+   "name": "std::_Func_impl_no_alloc<<lambda_14dce289e4c481c473fa5c8ab9d37459>,void>::vf0"
+  },
+  {
+   "addr": "0x140b54a10",
+   "name": "pplx::details::_Task_impl<std::shared_ptr<Stormancer::Scene_Impl>_>::vf1"
+  },
+  {
+   "addr": "0x140b6c8c0",
+   "name": "std::_Func_impl_no_alloc<<lambda_c136c23e8e6706776de52966d619d1eb>,void>::vf0"
+  },
+  {
+   "addr": "0x140b6cd60",
+   "name": "pplx::details::_Task_impl<Stormancer::ConnectionResult>::vf1"
+  },
+  {
+   "addr": "0x140b87310",
+   "name": "std::_Func_impl_no_alloc<<lambda_21ea4aa4d18b2db4f396f49d70d0bb66>,void>::vf0"
+  },
+  {
+   "addr": "0x140c0d090",
+   "name": "p_StdVectorU16_EmplaceReallocate"
+  },
+  {
+   "addr": "0x140cb69d4",
+   "name": "__ExceptionPtrCurrentException"
+  },
+  {
+   "addr": "0x140cbcac8",
+   "name": "__C_specific_handler"
+  },
+  {
+   "addr": "0x140cbd7d4",
+   "name": "__current_exception"
+  },
+  {
+   "addr": "0x140cc0124",
+   "name": "ExFilterRethrow"
+  },
+  {
+   "addr": "0x140cc01ac",
+   "name": "ExFilterRethrowFH4"
+  },
+  {
+   "addr": "0x140cf83e0",
+   "name": "_FindPESection"
+  },
+  {
+   "addr": "0x140cf8430",
+   "name": "_IsNonwritableInCurrentImage"
+  },
+  {
+   "addr": "0x140cf8480",
+   "name": "_ValidateImageBase"
+  },
+  {
+   "addr": "0x140d62870",
+   "name": "p_eh_catch_pplx_TaskCancelWithCurrentException"
+  },
+  {
+   "addr": "0x140d654f0",
+   "name": "p_eh_dtor_StdFunction_140d654f0"
+  },
+  {
+   "addr": "0x140df3af0",
+   "name": "p_eh_catch_Stormancer_Rethrow_140df3af0"
+  },
+  {
+   "addr": "0x140df4320",
+   "name": "p_eh_catch_Stormancer_PartySync_140df4320"
+  },
+  {
+   "addr": "0x140e08ec0",
+   "name": "str_oCStormancerSceneContext_UpdatePartyMemberData_Exception"
+  },
+  {
+   "addr": "0x140e3fd00",
+   "name": "str_Failed_to_send_rpc_packet_on_route"
+  },
+  {
+   "addr": "0x140e6bd30",
+   "name": "p_eh_dtor_SharedPtr_140e6bd30"
+  },
+  {
+   "addr": "0x140e6bdf0",
+   "name": "p_eh_dtor_PeerFilter_140e6bdf0"
+  },
+  {
+   "addr": "0x140e90313",
+   "name": "p_eh_filter_RethrowFH4"
+  },
+  {
+   "addr": "0x140e90342",
+   "name": "p_eh_cleanup_DestructExceptionObject"
+  }
+ ]
+}

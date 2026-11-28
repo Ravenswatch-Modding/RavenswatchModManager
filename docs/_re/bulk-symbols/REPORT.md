@@ -193,23 +193,50 @@ Re-exported corpus (`docs/_re/out_new/`): `60,444` decompiled functions (`total=
 ## Phase 7: Coverage diff experiment (DynamoRIO `drcov`)
 
 **`FUN_` count:** **`30,550`** (experiment only; no symbols added in Phase 7).
-**Status:** Boot, rendering, and `drcov` capture/parse pipeline verified; **interactive gameplay diff runs deferred** per user request (*"Can't right now - hold of"*).
+**Status:** **Completed cleanly** (vanilla game restored, both runs captured & diffed, `steam_appid.txt` cleaned up).
 
-1. **Step 7.1 — Anti-cheat check:** Clear in both the prior log (`logs_2026-11-22_21h-03m-15s.txt`) and tonight's instrumented boot log (`logs_2026-11-27_01h-05m-05s.txt`):
+1. **Step 7.1 — Anti-cheat check:** Clear in both the prior log (`logs_2026-11-22_21h-03m-15s.txt`) and the instrumented boot logs (`logs_2026-11-27_01h-05m-05s.txt`, `logs_2026-11-28_05h-53m-42s.txt`):
    - No `EasyAntiCheat` or `BattlEye` directory exists under `E:\SteamLibrary\steamapps\common\Ravenswatch`.
    - `EOS (LogEOSAntiCheat): [AntiCheatClient] Anti-cheat client not available. Verify that the game was started using the anti-cheat bootstrapper if you intend to use it.`
-2. **Step 7.2 — DynamoRIO `drcov` boot & capture check:**
-   - **Does `Ravenswatch.exe` run under DynamoRIO?** **Yes.** Launched via `launch_drcov.ps1` (`CreateProcessW` onto `WinSta0\Default`) with `drrun.exe` (DynamoRIO `11.3.0`) `-t drcov` and `steam_appid.txt` (`2071280`).
-   - Reached the visible game window (`pid=18800 title=Ravenswatch`), initialized `SteamAPI_Init` + `EOSSDK 1.19.1.2` + `Stormancer` cluster/authenticator/friends scenes, and reached `StateHeroSelection` before exiting cleanly (`00-02-58`).
-   - **Performance / tick note:** Initial JIT warmup slowed early `EOS_LogEOSRTC` TickTracker intervals (`MaxTickInterval` `941ms`/`562ms`/`3046ms`), stabilizing to `400/400` expected ticks per 10s interval by `00-02-04`. Visual FPS in the hub was not yet measured.
-   - **Flushed coverage & parser verification:** Exited cleanly and flushed `drcov-baseline\drcov.Ravenswatch.exe.18800.0000.proc.log` (`8,874,798` bytes, `drcov` v3): `1,106,119` total BBs across loaded modules, `221,615` unique `Ravenswatch.exe` BBs mapped via `diff_drcov.py` to **`26,429`** unique Ghidra functions (`5` unmapped BBs).
-3. **Ready-to-run scripts & cleanup:**
-   - `launch_drcov.ps1` and `diff_drcov.py` remain saved under `E:\Documents\Projects\Ravenswatch\RSMM\evidence\2026-11-26-bulk-symbols\` for future baseline (30s idle in hub) vs action (same + 1 dash) runs.
-   - Removed temporary `E:\SteamLibrary\steamapps\common\Ravenswatch\steam_appid.txt` so the vanilla install remains clean.
+2. **Step 7.2 — DynamoRIO `drcov` gameplay runs & frame rate:**
+   - **Does `Ravenswatch.exe` run under DynamoRIO?** **Yes**, cleanly and smoothly. Once past initial startup JIT warmup, the user reported **~144 FPS with no noticeable lag** (*"probably full 144, can't be sure but didn't see any lag"*).
+   - **Run 1 — Baseline (hub idle ~30s):** `drcov-baseline\drcov.Ravenswatch.exe.06300.0000.proc.log` (`9,975,129` bytes, `drcov` v3): `1,243,681` total BBs across all modules, `268,050` unique `Ravenswatch.exe` BBs mapped to **`30,115`** unique Ghidra functions (`5` unmapped BBs). Prior 2026-11-26 boot-only capture archived in `drcov-boot-test-2026-11-26\`.
+   - **Run 2 — Action (same hero, hub idle ~30s + 1 dash):** `drcov-action\drcov.Ravenswatch.exe.03384.0000.proc.log` (`9,915,313` bytes, `drcov` v3): `1,236,204` total BBs across all modules, `270,198` unique `Ravenswatch.exe` BBs mapped to **`30,294`** unique Ghidra functions (`5` unmapped BBs).
+3. **Step 7.3 — Coverage diff (`diff_drcov.py` → `drcov-diff.json`):**
+   - **Shared functions:** `30,076` (`99.87%` baseline overlap)
+   - **Baseline-only functions:** `39`
+   - **Action-only functions (`action - baseline`):** **`218`** (**`0.36%`** of the `60,445`-function binary; **`117`** named + **`101`** `FUN_*`).
+   - **Notable Dash / Movement / VFX hits inside the `218` action-only functions:**
+     - `0x1402c85b0` (`str_NotADash`) plus surrounding `0x1402c63c0..0x1402ca130` (`11` `FUN_*` functions in the Dash/Ability neighborhood)
+     - `0x14073f500` / `0x14073f640` (`oCEntityCpntBasicMove::vf28` / `vf29`)
+     - `0x1403d52b0` (`RemoteDamageTarget_OnModifierRemoved`)
+     - Dash visual/animation effects: `oCDtSurfaceParticleEmitter::*`, `oCVisualEffectBeam::*`, `oC3dBillboardBeamRenderer::*`, `oCEntityCpntAnimatedBoneController::*`.
+4. **Cleanup:** Removed temporary `E:\SteamLibrary\steamapps\common\Ravenswatch\steam_appid.txt` (`update_symbols.py preflight` exited `0`, `OK`). User's stashed mod files & settings remain intact in `game-mod-stash\` and `game-mod-stash-2026-11-27\`.
+
+### Phase 7b: Proposed names for the 101 unnamed functions in the Dash `drcov` diff
+
+**`FUN_` count:** **`30,449`** (down from `30,550`, `-101`; **`29,996`** named out of `60,445` total internal non-thunk functions in `docs\_re\out\symbols.json`; `167` `p_*`).
+
+- **Artifact:** `E:\Documents\Projects\Ravenswatch\RSMM\evidence\2026-11-26-bulk-symbols\proposed-dash-drcov.json` (`101` `p_*` entries covering every remaining `FUN_*` in `drcov-diff.json`, no `"force"`, `data\symbols.json` untouched).
+- **Groups named (`101`):** AbilityController & Dash pipeline (`12`), HeroController ability/input/HUD & combat tags (`10`), BasicMove / CollisionGpn / Bullet physics / ZoneAttack / Modifiers / FMOD (`18`), 3D beam & particle VFX + `10` `*_GetMetaClass` getters (`28`), Reward/Sort/RefCount/Switch helpers (`6`), Stormancer / `pplx` async tasks & MSVC EH funclets (`27`).
+- **Verification:** `ApplyRsmmKnowledge.java` named `101` (`0` failed, `0` skipped); refreshed `docs\_re\out\symbols.json` (`60,445` total, `30,449` `FUN_`, `29,996` named) and `docs\_re\out\strings.json` (`18,078`); re-ran `diff_drcov.py` → **`Action-only named=218, unnamed FUN_=0`** (`100%` of the Dash diff named).
+
+### Phase 7c: Run 3 — Full Hero Kit + Starting Talent Selection in Hub (`drcov-run3-kit`)
+
+**`FUN_` count:** **`30,311`** (down from `30,449`, `-138`; **`30,134`** named out of `60,445` total internal non-thunk functions in `docs\_re\out\symbols.json`; `305` `p_*`).
+
+- **Capture (`drcov-run3-kit\drcov.Ravenswatch.exe.39744.0000.proc.log`, `11,039,049` bytes, `drcov` v3):** `1,376,671` total BBs across all modules, `273,064` unique `Ravenswatch.exe` BBs mapped to **`30,465`** unique Ghidra functions (`5` unmapped BBs). User played Scarlet in the hub, picked the 4th starting talent to unlock Trait, and cast Attack, Power, Special, Defense, and Trait before exiting cleanly.
+- **Cumulative diff (`drcov-diff-run3-kit.json`, `run3 - (baseline | dash)` where `|baseline | dash| = 30,333`):** **`263`** new functions (`125` already named + **`138`** `FUN_*`). Across Runs 1–3 combined, **`30,596`** unique functions have executed (`15,908` named / `14,688` `FUN_*` including baseline).
+- **Notable systems hit:**
+  - Starting-talent unlock bonus-captured the full talent selection/rolling/UI flow: `p_HeroController_SkillSelectionMenuState`, `p_HeroController_RollSkillChoices`, `p_HeroController_PopulateSkillChoiceCard`, `p_SelectionMenuUiController_OpenChoiceList`, `p_SelectionMenuUiController_PushFocusedUpdateGs`/`PopFocusedUpdateGs`/`ApplySoloPause`, `p_SkillController_CompareChoiceOrder`, `p_SkillUnlock_GetRequiredHeroRank`, `p_SkillController_ComputeUpgradeCost`, `p_SkillUiViewer_*`, `Analytics_EmitSkillProposed`, `Analytics_EmitSkillSelected`, `HeroController_AddSkill`.
+  - Combat / Damage / Crit / Healing / AttackCombo: `p_CharacterController_PopulateDamageFromStats`, `p_CharacterController_GetAbilitySlotDamageBonus`, `p_HeroController_ApplyAbilityDamageModifiers`, `p_EntityCpntDamage_GetSlotDamageMultiplierBonus`, `p_EntityCpntDamage_GetSlotCritChanceBonus`, `p_EntityCpntHittable_ProcessIncomingHit`, `p_EntityCpntZoneAttack_ApplyHitsToTargets`, `p_EntityCpntHitPoint_AddHealth`/`RemoveHealth`/`OnGainHealthEvent`, `p_AttackCombo_TickAll`/`StartStep`/`StopStep`, `p_SwissTable_*DamageKey*`.
+  - Bullet physics collision & GJK/EPA sweep/penetration solver (`35` functions): `p_btCollisionWorld_ObjectQuerySingleInternal`, `p_btContinuousConvexCollision_ComputeClosestPoints`, `p_btGjkPairDetector_GetClosestPointsNonVirtual`, `p_btGjk_*` (`8`), `p_btGjkEpa_*` (`15`), `p_btConvexShape_*` (`3`), `p_btRigidBody_ApplyImpulse`/`ApplyTorqueImpulse`, `p_BulletRigidBodyOwner_*` (`2`).
+- **Artifact:** `E:\Documents\Projects\Ravenswatch\RSMM\evidence\2026-11-26-bulk-symbols\proposed-run3-kit-drcov.json` (`138` `p_*` entries covering every remaining `FUN_*` in `drcov-diff-run3-kit.json`, no `"force"`, `data\symbols.json` untouched).
+- **Verification:** `ApplyRsmmKnowledge.java` dry-run & apply on `/Ravenswatch-e04db5c457dd.exe`: `138 named (0 newly defined), 0 kept an existing user name, 0 not a function start, 0 data label(s)`, save succeeded; refreshed `docs\_re\out\symbols.json` (`60,445` total, `30,311` `FUN_`, `30,134` named, `305` `p_*`) and `docs\_re\out\strings.json` (`18,078`); recomputed `drcov-diff-run3-kit.json` → **`run3_only_total=263, run3_only_named=263, run3_only_unnamed_fun=0`** (`100%` of Run 3 diff named).
 
 ---
 
-## Summary: `FUN_` Progression (Phases 1–7)
+## Summary: `FUN_` Progression (Phases 1–7c)
 
 | Phase | Action | Remaining `FUN_` | Delta | Notes |
 |---|---:|---:|---:|---|
@@ -219,4 +246,6 @@ Re-exported corpus (`docs/_re/out_new/`): `60,444` decompiled functions (`total=
 | 4 | Registrars (`1,602`), `meta_cb*` (`1,538`), events (`1,332`), `str_*` (`2,014`), thunks (`34`) | `30,616` | `-5,573` | `+1,146` `g_EventId_*` data labels, `+946` new trampoline defs |
 | 5 | Read-only reflection probe | `30,616` | `0` | Confirmed `MetaClass_AddMember` (`0x14050a060`) on `144` runtime/settings classes |
 | 6 | Proposed `p_*` Hero / Skills / XP / Modifier / Engine names (`66` named) | `30,550` | `-66` | `29,895` named / `60,445` total; `data\symbols.json` untouched |
-| 7 | DynamoRIO `drcov` boot, flush, & `.pdata` parse check | `30,550` | `0` | Runs cleanly (`26,429` boot/menu funcs captured); gameplay diff deferred |
+| 7 | DynamoRIO `drcov` idle vs. `+1 dash` diff (~`144` FPS) | `30,550` | `0` | `30,294 - 30,115` → **`218` action-only functions** (incl. `str_NotADash`) |
+| 7b | Proposed `p_*` names for all `101` unnamed Dash-diff functions | `30,449` | `-101` | `218/218` (`100%`) of Dash diff named; `29,996` named / `60,445` total |
+| 7c | Run 3 (`drcov-run3-kit`): full Scarlet kit + starting talent diff (`138` named) | **`30,311`** | **`-138`** | **`263/263` (`100%`) of Run 3 diff named**; **`30,134`** named / `60,445` total |

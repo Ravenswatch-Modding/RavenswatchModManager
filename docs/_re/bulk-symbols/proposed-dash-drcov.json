@@ -1,0 +1,610 @@
+{
+ "entries": [
+  {
+   "addr": "0x1402c63c0",
+   "name": "p_AbilityController_CanAcceptInputSlot",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1403ac2c0 and 0x1403ac440; checks ability block flag (+0xe8/+0xf0), override flag (+0x118/+0x120), and settings input slot match (+0x400/+0xf8 == param_2)."
+  },
+  {
+   "addr": "0x1402c6500",
+   "name": "p_AbilityController_TriggerAction",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1403ac440; writes trigger slot *(ctrl+0xd0)=param_2 and cycles action component *(ctrl+0xa0) via EntityComponent_RunDeactivate and 0x140711a20."
+  },
+  {
+   "addr": "0x1402c66c0",
+   "name": "p_AbilityController_TickAll",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_Dt_Ability_Controller schedule step; iterates active AbilityControllers, ticks cooldowns via FloatObservable_Set and 0x1402c8b80."
+  },
+  {
+   "addr": "0x1402c6af0",
+   "name": "p_AbilityController_OnActivate",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oCDtEntityCpntAbilityController::vf28; activates ability execution, invokes str_NotADash, 0x1403a1cd0, 0x1403acdc0, 0x1404e58b0, FloatObservable_Set, and Netcode_Channel_LookupById."
+  },
+  {
+   "addr": "0x1402c72f0",
+   "name": "p_AbilityController_OnDeactivate",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oCDtEntityCpntAbilityController::vf29; unsubscribes action channel, calls 0x1403a1cd0, 0x1402c7f70, and 0x1402c7810."
+  },
+  {
+   "addr": "0x1402c76f0",
+   "name": "p_AbilityController_OnExecutionFinished",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Ability completion callback (@rdata 0x140f25d60); sets finished flag +0x95=1, dispatches bool channels +0x2c0/+0x2e0, calls 0x1402c7f70 and 0x1402c7810."
+  },
+  {
+   "addr": "0x1402c7810",
+   "name": "p_AbilityController_UpdateRechargeFlag",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c72f0 and 0x1402c76f0; compares current charges **(uint**)(ctrl+0x370) against max charges (+0x228/+0x230) and sets recharge flag *(ctrl+0x97)=1."
+  },
+  {
+   "addr": "0x1402c7f70",
+   "name": "p_AbilityController_ConsumeChargeAndStartCooldown",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c72f0, 0x1402c76f0, 0x1402c8380; consumes charge at **(int**)(ctrl+0x370), queues/starts cooldown via 0x1402c8c30/0x1402c8b80, fires EntityEventTrigger_Fire."
+  },
+  {
+   "addr": "0x1402c8b80",
+   "name": "p_AbilityController_StartNextCooldown",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c66c0 and 0x1402c7f70; pops next queued cooldown from circular buffer ctrl+0x70/+0x84/+0x88 (or base +0x158/+0x160), computes duration via 0x1402c8810 into ctrl+0x90."
+  },
+  {
+   "addr": "0x1402c8c30",
+   "name": "p_AbilityController_EnqueueCooldown",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c7f70 and 0x1402c7d10; pushes cooldown value from ctrl+0x158/+0x160 onto circular cooldown queue ctrl+0x70/+0x78/+0x80/+0x88."
+  },
+  {
+   "addr": "0x1402ca0d0",
+   "name": "p_AbilityController_SetNetFlag0",
+   "kind": "function",
+   "note": "[proposed dash/drcov] AbilityController callback (@rdata 0x140f26268); writes *(ctrl+0x180)=param_2, dispatches bool signal ctrl+0xf8, marks net component dirty via 0x140720000."
+  },
+  {
+   "addr": "0x1402ca130",
+   "name": "p_AbilityController_SetNetFlag1",
+   "kind": "function",
+   "note": "[proposed dash/drcov] AbilityController callback (@rdata 0x140f262d0); writes *(ctrl+0x181)=param_2, dispatches bool signal ctrl+0x118, marks net component dirty via 0x140720000."
+  },
+  {
+   "addr": "0x1403a1cd0",
+   "name": "p_HeroController_SetAbilityActiveState",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c6af0 and 0x1402c72f0; switches HeroController state machine at hero+0xc8 between p_HeroController_SetState (0x1403a6ae0) and 0x1403a6b70 via 0x1403fa370."
+  },
+  {
+   "addr": "0x1403a1d90",
+   "name": "p_HeroController_ConsumeBufferedInput",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Processes buffered input slot hero+0x368+slot*0xd8 against window settings+0x280, invokes 0x1403abd20, clears overlapping keybinds via 0x140681540."
+  },
+  {
+   "addr": "0x1403a6b70",
+   "name": "p_HeroController_InAbilityState",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Hero state handler paired with p_HeroController_SetState (called by 0x1403a1cd0); on tick (param_2==2) calls 0x1403abfd0, 0x1403aa7d0, and 0x1403ac2c0."
+  },
+  {
+   "addr": "0x1403ac2c0",
+   "name": "p_HeroController_UpdateAbilityAimAndInput",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by p_HeroController_SetState and 0x1403a6b70; orients hero via 0x1403acdc0 and checks active ability hero+0xd80 input acceptance via 0x1402c63c0."
+  },
+  {
+   "addr": "0x1403acdc0",
+   "name": "p_HeroController_OrientTowardDirection",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c6af0 and 0x1403ac2c0; reads entity quaternion via vftable[11] (+0x58), normalizes target direction param_2, rotates hero orientation."
+  },
+  {
+   "addr": "0x140401150",
+   "name": "p_HeroController_MakeInAbilityStateClosure",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1403a1cd0 paired with 0x140401190; initializes closure {obj=param_2, fn=LAB_14040d7e0}."
+  },
+  {
+   "addr": "0x140681540",
+   "name": "p_InputBinding_SharesKey",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1403a1d90; compares 3-slot keybind arrays (+0x10, stride 4) checking matching scancode and 4 modifier bits."
+  },
+  {
+   "addr": "0x140669c80",
+   "name": "p_CustomFlagList_ContainsTag",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by str_NotADash, Analytics_EmitSandmanBuy, str_revive_player, str_note_gain, str_key_used; linear-scans flag vector param_1+8 (stride 0x18) comparing length + memcmp against oCString *param_2."
+  },
+  {
+   "addr": "0x1403011b0",
+   "name": "p_HeroHudSlot_SyncAvailabilitySignal",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1403012b0; scans *(hero+0x1dc0)+0x48 (stride 0x18) for slot id == *(settings+0xfc) and dispatches bool signal param_1+0x130."
+  },
+  {
+   "addr": "0x140301270",
+   "name": "p_HeroHudSlot_BindHeroAndRefresh",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Hero HUD slot callback (@rdata 0x140f298e8); detaches prior binding via 0x140301530 if param_1+0x148!=0 then calls 0x1403012b0."
+  },
+  {
+   "addr": "0x1403d5200",
+   "name": "p_RemoteDamageTarget_OnEventHash",
+   "kind": "function",
+   "note": "[proposed dash/drcov] RemoteDamageTarget callback (@rdata 0x140f383e0); dispatches on hashes 0x19c98c42, 0x1f13cff5, 0x1b8f65d5 to 0x140663040 on target+0x1e8/+0x200/+0x218."
+  },
+  {
+   "addr": "0x1406ec790",
+   "name": "p_EntityValueModifierList_RemoveMatching",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x14074a390 and 0x14074b7f0; finds modifier matching (source, id) at +0x30/+0x38, deletes via NamedEvent_Delete, compacts array, notifies +8 via p_SignalChannel_DispatchPtr."
+  },
+  {
+   "addr": "0x14074b7f0",
+   "name": "p_EntityValueStore_RemoveModifierEvent",
+   "kind": "function",
+   "note": "[proposed dash/drcov] EntityValueStore callback (@rdata 0x140f80590); handles modifier removal event, checks oCEntityCpntModifierHolderPersistentData (DAT_141477c88), calls 0x1406ec790."
+  },
+  {
+   "addr": "0x14075bfd0",
+   "name": "p_EntityCpntValueSelector_Evaluate",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oCEntityCpntValueSelector::vf28; evaluates selector entries against count *(param_1+0x78)."
+  },
+  {
+   "addr": "0x14073f920",
+   "name": "p_EntityCpntBasicMove_UpdateAllVelocities",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_oCEntityCpntBasicMove_Velocity_update; ticks active BasicMove components using 0x14073fd00 and 0x14073fe40."
+  },
+  {
+   "addr": "0x14073fd00",
+   "name": "p_EntityCpntBasicMove_ComputeLocalVelocity",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCEntityCpntBasicMove::vf28/vf20 and 0x14073f920; reads 3 velocity properties (+0x80/+0x90/+0xa0) and computes transformed velocity vector."
+  },
+  {
+   "addr": "0x14073fe40",
+   "name": "p_EntityCpntBasicMove_ApplyVelocityHeading",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCEntityCpntBasicMove::vf28 and 0x14073f920; normalizes velocity +0x70..+0x78 relative to entity quaternion (+0x58)."
+  },
+  {
+   "addr": "0x1407ba740",
+   "name": "p_EntityCpntCollisionGpn_UpdateAll",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_oCEntityCpntCollisionGpn_Collision_update; queries GPN collision traverser *(comp+0x190) and normalizes pushback vector +0x1b0..0x1b8."
+  },
+  {
+   "addr": "0x1407ba940",
+   "name": "p_EntityCpntCollisionGpn_OnOverlapHit",
+   "kind": "function",
+   "note": "[proposed dash/drcov] CollisionGpn callback (@rdata 0x140f8b2c8); skips self entity, tests 2D distance against combined radii +0xdc/+0x44, checks RTTI DAT_141477920."
+  },
+  {
+   "addr": "0x1407f6f60",
+   "name": "p_BulletPhysics_SweepActiveShape",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Physics sweep callback (@rdata 0x140f90498); checks active flag *(comp+0x64) & 8, prepares identity transform, calls 0x1407f7120."
+  },
+  {
+   "addr": "0x1407f7120",
+   "name": "p_BulletPhysics_ConvexSweepQuery",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x1407f6f60; runs Bullet convex sweep query against world shapes."
+  },
+  {
+   "addr": "0x140a73930",
+   "name": "p_btCollisionWorld_ConvexSweepTest",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCBulletWorld::vf49/vf51; constructs btSingleSweepCallback and computes swept AABB via 0x140a77870."
+  },
+  {
+   "addr": "0x140a77870",
+   "name": "p_btCollisionWorld_ComputeSweptAabb",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x140a73930; calls shape getAabb vftable[1] and expands min/max bounds by linear velocity param_3 * param_5."
+  },
+  {
+   "addr": "0x140816c40",
+   "name": "p_EntityCpntAttack_ComputeForwardDir",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Attack component callback (@rdata 0x140f95dc0); derives forward vector from entity quaternion (+0x58) or override property (+0x70/+0x78) based on *(settings+0x138)."
+  },
+  {
+   "addr": "0x14083ab70",
+   "name": "p_EntityCpntZoneAttack_UpdateAll",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_oCEntityCpntZoneAttack_Attack_update; ticks duration timer +0xe0, activates child component +0xa8 via EntityComponent_RunActivate, calls 0x14083acb0."
+  },
+  {
+   "addr": "0x14083acb0",
+   "name": "p_EntityCpntZoneAttack_EvaluateHits",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCEntityCpntZoneAttack::vf28 and 0x14083ab70; evaluates zone overlap targets and activates hit responses via EntityComponent_Activate/RunActivate."
+  },
+  {
+   "addr": "0x1408735a0",
+   "name": "p_EntityCpntFModEvent_UpdateInstance3dAttrs",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Reads entity 3D coords +0x3cc..+0x3d4 and updates all active FMOD EventInstance* handles in +0x90/+0x98 with str_FMod_event_Inst_nullptr guard."
+  },
+  {
+   "addr": "0x140873750",
+   "name": "p_EntityCpntFModEvent_UpdateAll3dInstances",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_oCEntityCpntFModEvent_3d_instance_update; batch-updates 3D FMOD attributes across active FModEvent components."
+  },
+  {
+   "addr": "0x1400be0a0",
+   "name": "p_oCDtSurfaceParticleEmitter_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_1414775e0 initialized by oCDtSurfaceParticleEmitter::Register."
+  },
+  {
+   "addr": "0x1401c6e50",
+   "name": "p_oCSpawnerGoEntityCollector_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_1414779e0 initialized by oCSpawnerGoEntityCollector::Register."
+  },
+  {
+   "addr": "0x14045e850",
+   "name": "p_oC3dBillboardBeamRenderer_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_1414790f0 initialized by oC3dBillboardBeamRenderer::Register."
+  },
+  {
+   "addr": "0x14059dde0",
+   "name": "p_oCVisualEffectBeam_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_141479d78 initialized by oCVisualEffectBeam::Register."
+  },
+  {
+   "addr": "0x1405b1f40",
+   "name": "p_oC3dBeamEmitter_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_141479ea0 initialized by oC3dBeamEmitter::Register."
+  },
+  {
+   "addr": "0x14061bed0",
+   "name": "p_oC3dParticleEffectorConstraintZone_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_14147a7a0 initialized by oC3dParticleEffectorConstraintZone::Register."
+  },
+  {
+   "addr": "0x14062ae50",
+   "name": "p_oC3dSubParticleRenderer_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_14147a710 initialized by oC3dSubParticleRenderer::Register."
+  },
+  {
+   "addr": "0x14062d930",
+   "name": "p_oC3dBeamEffectorSizeRamp_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_14147a6e0 initialized by oC3dBeamEffectorSizeRamp::Register."
+  },
+  {
+   "addr": "0x14062da10",
+   "name": "p_oC3dBeamEffectorFade_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_14147a888 initialized by oC3dBeamEffectorFade::Register."
+  },
+  {
+   "addr": "0x140794700",
+   "name": "p_oCEntityCpntAnimatedBoneController_GetMetaClass",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Returns DAT_14147bb58 initialized by oCEntityCpntAnimatedBoneController::Register."
+  },
+  {
+   "addr": "0x1404bea40",
+   "name": "p_ConstraintZone_ContainsPoint",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dParticleEffectorConstraintZone::vf7; tests 3D point param_2 against shape enum param_1[10] (box/sphere/cylinder/cone)."
+  },
+  {
+   "addr": "0x1404e58b0",
+   "name": "p_Math_BuildBasisFromForwardUp",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1402c6af0 and oCUIntLightWithDropDown::vf8; normalizes forward/up vectors via 0x1403900a0 and computes orthonormal basis via cross products."
+  },
+  {
+   "addr": "0x1405a4080",
+   "name": "p_BeamVertexBufferVector_Clear",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCBeamGraphic3dObject, oCVisualEffectBeam::vf7, oC3dBeamEffect; frees inner buffers at +0x34 (stride 0x60) and outer vector."
+  },
+  {
+   "addr": "0x1405b1a90",
+   "name": "p_SubParticleRenderer_BuildTransformMatrix",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x14062b610; initializes 4x4 identity matrix and computes sub-particle world transform."
+  },
+  {
+   "addr": "0x1405b25e0",
+   "name": "p_oC3dBeamEffect_UnregisterScheduleSteps",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCVisualEffectBeam::vf7, oC3dBeamEffect::vf4, 0x1405b2ed0; unlinks beam schedule step (700/0x1245f196) from scheduler DAT_14143dda0."
+  },
+  {
+   "addr": "0x1405b2770",
+   "name": "p_oC3dBeamEffect_UpdateEmittersEffectors",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oCTArrayScheduleStep<oC3dBeamEffect, &_UpdateEmittersEffectors>::vf1; steps beam emitters/effectors over active buffer."
+  },
+  {
+   "addr": "0x1405b29a0",
+   "name": "p_oC3dBeamEffect_UpdateRenderers",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oCTArrayScheduleStep<oC3dBeamEffect, &_UpdateRenderers>::vf1; updates beam renderers and bounds via 0x1405b3320."
+  },
+  {
+   "addr": "0x1405b2c40",
+   "name": "p_oC3dBeamEffect_StartAndSchedule",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCVisualEffectBeam::vf9 and oC3dBeamEffect::vf4; allocates/registers update schedule step via 0x1405ccc50."
+  },
+  {
+   "addr": "0x1405b2ed0",
+   "name": "p_oC3dBeamEffect_StopOrReset",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oCVisualEffectBeam::vf9/vf11, oC3dBeamEffect::vf4, 0x1405b29a0; stops emitters/renderers, clears buffers via 0x1405a4080, unregisters via 0x1405b25e0."
+  },
+  {
+   "addr": "0x1405b3320",
+   "name": "p_oC3dBeamEffect_ComputeBounds",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x1405b29a0; initializes AABB (+FLT_MAX/-FLT_MAX) and computes 3D min/max bounds over beam vertices."
+  },
+  {
+   "addr": "0x1405ccc50",
+   "name": "p_oC3dBeamEffect_AllocUpdateEmittersStep",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x1405b2c40; allocates 200-byte oCTArrayScheduleStep<oC3dBeamEffect, _UpdateEmittersEffectors> and initializes two critical sections."
+  },
+  {
+   "addr": "0x14062b1b0",
+   "name": "p_oC3dSubParticleRenderer_ReleaseAllInstances",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dSubParticleRenderer::vf2; locks pool SRWLock DAT_141451988 and releases all active sub-particle instances."
+  },
+  {
+   "addr": "0x14062b610",
+   "name": "p_oC3dSubParticleRenderer_UpdateAndSpawn",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dSubParticleRenderer::vf8; updates/spawns sub-particles via 0x1405b1a90 and Vector_InsertRange."
+  },
+  {
+   "addr": "0x14062c3b0",
+   "name": "p_oC3dBeamEmitter_IntegrateSpringPoint",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dBeamEmitter::vf11; integrates spring-damper force (+0x28 stiffness, +0x2c damping) on pos param_2, target param_3, vel param_4 over dt param_5."
+  },
+  {
+   "addr": "0x14062c610",
+   "name": "p_oC3dBeamEmitter_EmitSegments",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dBeamEmitter::vf11 and vf6; generates beam ribbon segment vertices."
+  },
+  {
+   "addr": "0x14062f140",
+   "name": "p_oC3dBeamEffectorFade_ApplyAlphaScale",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dBeamEffectorFade::vf7; clamps fade param_2 to [0,1] and scales vertex alpha at +0x24 across all beam strips."
+  },
+  {
+   "addr": "0x140635cc0",
+   "name": "p_oC3dSubParticleRenderer_ClearNodes",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by oC3dSubParticleRenderer::vf10/vf2 and 0x14062b1b0; destroys oC3dGraphNode entries via oC3dGraphNode::meta_cb2_impl and frees vector."
+  },
+  {
+   "addr": "0x140636250",
+   "name": "p_oC3dBeamEmitter_InitVertices",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by oC3dBeamEmitter::vf11; default-initializes param_2 0x38-byte beam vertex structs (pos/dir/color/scale=1.0)."
+  },
+  {
+   "addr": "0x14010a880",
+   "name": "p_RefCountedPtr_Release",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by Reward_InitAllRewards, LobbyGs::vf4, oIRenderModule::vf3; atomically decrements refcount at +8, invokes release vftable[1] on 1->0, nulls *param_1."
+  },
+  {
+   "addr": "0x1402393a0",
+   "name": "p_Sort_InsertionByDistance2D",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by _Sort_unchecked<...> in action_only; insertion-sorts entity pointers by 2D XZ Euclidean distance from param_3."
+  },
+  {
+   "addr": "0x14023df80",
+   "name": "p_Vector_ClearAndFree",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by Reward_InitAllRewards; clears vector count, frees *param_1 via Crt_Free, zeroes ptr and capacity +0xc."
+  },
+  {
+   "addr": "0x14033e130",
+   "name": "p_Reward_PopFarthestWithinRadius2D",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by Reward_InitAllRewards; removes all entries within radius param_2 in XZ plane from vector *param_3 and returns the farthest removed entry."
+  },
+  {
+   "addr": "0x1406101d0",
+   "name": "p_SwitchStyleFlag_SetEnabled",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Paired setter beside 0x1406101e0 (@rdata 0x140f61230); sets *(byte*)(param_1+0x10)=1."
+  },
+  {
+   "addr": "0x1406101e0",
+   "name": "p_SwitchStyleFlag_GetEnabled",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by str_GetSwitchEnableStyleJoyRight_SetSwitchEnableStyleJoyRigh; returns *(byte*)(param_1+0x10)."
+  },
+  {
+   "addr": "0x1400c6920",
+   "name": "p_pplx_TaskImpl_CancelWithException",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by EH catch 0x140d62870; builds exception holder via 0x1400c6af0/0x1401104c0, cancels task via vftable[1], releases shared_ptr."
+  },
+  {
+   "addr": "0x1400c6af0",
+   "name": "p_pplx_TaskImpl_GetCreationContext",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x1400c6920; copies task creation context at param_1+0x98 via 0x1400c6190."
+  },
+  {
+   "addr": "0x1400c7170",
+   "name": "p_pplx_TaskCompletionEvent_SetException",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x140b073a0; copies exception_ptr via __ExceptionPtrCopy, propagates exception via 0x140110580, frees temp buffer."
+  },
+  {
+   "addr": "0x14010a520",
+   "name": "p_pplx_TaskCompletionEvent_CancelAll",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Locks CRITICAL_SECTION at +0x18, sets cancel flag +0x71=1, swaps and drains waiting task vector."
+  },
+  {
+   "addr": "0x14014d610",
+   "name": "p_StdFunction_Destroy",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by EH dtor 0x140d654f0; if param_1[7]!=0 invokes _Delete_this at vftable[4] (+0x20) and zeroes param_1[7]."
+  },
+  {
+   "addr": "0x14051aee0",
+   "name": "p_StdVector16_FreeBuffer",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1408c49c0 and Stormancer::PeerFilter::dtor_deleting; frees aligned std::vector buffer (16-byte stride) via Crt_Free."
+  },
+  {
+   "addr": "0x1408c49c0",
+   "name": "p_Stormancer_PeerFilter_Dtor",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by EH dtor 0x140e6bdf0; frees internal vector at param_1+0x10 via 0x14051aee0."
+  },
+  {
+   "addr": "0x1408d9660",
+   "name": "p_Stormancer_PartyService_SyncPartyStateBody",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by std::_Func_impl_no_alloc<...PartyService::syncPartyStateTaskWithRet...>::vf2; locks weak_ptr via 0x14092e140 and executes party sync body."
+  },
+  {
+   "addr": "0x1409455a0",
+   "name": "p_Stormancer_PartyService_HandleSyncError",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by EH catch 0x140df4320; marks state +0x28=1 and chains retry/error continuation via 0x14096b070."
+  },
+  {
+   "addr": "0x14096b070",
+   "name": "p_pplx_Task_Then",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by 0x1409455a0; throws pplx::invalid_operation(\"then() cannot be called on a default constructed task.\") if empty, else creates continuation via 0x1409ae0e0."
+  },
+  {
+   "addr": "0x1409ae0e0",
+   "name": "p_pplx_Task_CreateContinuation",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x14096b070; allocates and links continuation task impl via 0x1400c7390."
+  },
+  {
+   "addr": "0x1409f58b0",
+   "name": "p_pplx_ContinuationTaskHandle_InvokePartySync",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by pplx::details::_PPLTaskHandle<...PartyService...>::vf1; promotes weak_ptr +0x38/+0x40 and invokes party sync continuation."
+  },
+  {
+   "addr": "0x1409fb860",
+   "name": "p_Stormancer_AsyncInitMap_OnException",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by pplx::_Task_impl_base::_AsyncInit<std::unordered_map<...>>::vf3; formats error string and calls 0x140a080a0."
+  },
+  {
+   "addr": "0x140a080a0",
+   "name": "p_pplx_TaskCompletionEvent_SetExceptionLocked",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x1409fb860; locks CRITICAL_SECTION +0x18, stores exception_ptr at +0x160, calls 0x140a182d0."
+  },
+  {
+   "addr": "0x140a182d0",
+   "name": "p_pplx_TaskCompletionEvent_CancelAllLarge",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called exclusively by 0x140a080a0; locks CRITICAL_SECTION +0x18, sets cancel flag +0x171=1, drains waiting task list."
+  },
+  {
+   "addr": "0x140b05440",
+   "name": "p_Stormancer_RpcObserver_OnError",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by str_RPC_failed_An_unknown_error_occured_on_the_server and str_Failed_to_send_rpc_packet_on_route; forwards exception_ptr to observer vftable[3] and unsubscribes."
+  },
+  {
+   "addr": "0x140b073a0",
+   "name": "p_Stormancer_PacketObserver_OnError",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by rxcpp::detail::specific_observer<shared_ptr<Stormancer::Packet<IScenePeer>>>::vf3; formats error string and propagates via 0x1400c7170."
+  },
+  {
+   "addr": "0x140b0e5a0",
+   "name": "p_Stormancer_SendRpcPacket",
+   "kind": "function",
+   "note": "[proposed dash/drcov] Called by Stormancer::RakNetTransport::vf11 and 0x140df4320; serializes/sends Stormancer RPC packet."
+  },
+  {
+   "addr": "0x140c0d090",
+   "name": "p_StdVectorU16_EmplaceReallocate",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC std::vector<uint16_t>::_Emplace_reallocate (1.5x growth, allocates uVar5*2 via Std_AllocateBytes)."
+  },
+  {
+   "addr": "0x140d62870",
+   "name": "p_eh_catch_pplx_TaskCancelWithCurrentException",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH catch funclet; captures __ExceptionPtrCurrentException and calls 0x1400c6920 to cancel pplx task."
+  },
+  {
+   "addr": "0x140d654f0",
+   "name": "p_eh_dtor_StdFunction_140d654f0",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH unwind funclet; if flag bit 0 set at frame+0x20 destroys std::function at frame+0xd0 via 0x14014d610."
+  },
+  {
+   "addr": "0x140df3af0",
+   "name": "p_eh_catch_Stormancer_Rethrow_140df3af0",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH catch funclet; locks weak_ptr, invokes 0x1408d8b10, releases shared_ptr, and rethrows via _CxxThrowException(0,0)."
+  },
+  {
+   "addr": "0x140df4320",
+   "name": "p_eh_catch_Stormancer_PartySync_140df4320",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH catch funclet; handles Stormancer party-sync exception via 0x1409455a0 and 0x140b0e5a0."
+  },
+  {
+   "addr": "0x140e6bd30",
+   "name": "p_eh_dtor_SharedPtr_140e6bd30",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH unwind funclet; if flag bit 0 set at frame+0x40 releases shared_ptr at frame+0x90 via 0x1400fadd0."
+  },
+  {
+   "addr": "0x140e6bdf0",
+   "name": "p_eh_dtor_PeerFilter_140e6bdf0",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH unwind funclet; if flag bit 0 set at frame+0x40 destroys PeerFilter at frame+0x48 via 0x1408c49c0."
+  },
+  {
+   "addr": "0x140e90313",
+   "name": "p_eh_filter_RethrowFH4",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC FH4 EH filter funclet; saves EXCEPTION_POINTERS and calls ExFilterRethrowFH4."
+  },
+  {
+   "addr": "0x140e90342",
+   "name": "p_eh_cleanup_DestructExceptionObject",
+   "kind": "function",
+   "note": "[proposed dash/drcov] MSVC EH cleanup funclet; calls _IsExceptionObjectToBeDestroyed and __DestructExceptionObject on C++ exception 0xe06d7363."
+  }
+ ]
+}
