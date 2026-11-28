@@ -1593,10 +1593,11 @@ impl MapEditor {
             ctx.request_repaint();
         }
         // A check or save finishing.
-        if let Some((kind, rx)) = &self.pending {
-            if let Err(std::sync::mpsc::TryRecvError::Disconnected) = rx.try_recv().as_ref().map(|_| ()).map_err(|e| *e) {
+        // Poll once: try_recv takes the reply, so a second poll would lose it.
+        let polled = self.pending.as_ref().map(|(kind, rx)| (*kind == Pending::Save, rx.try_recv()));
+        if let Some((saving, Err(std::sync::mpsc::TryRecvError::Disconnected))) = polled {
+            {
                 // The backend died mid-request: say so instead of "Saving…" forever.
-                let saving = *kind == Pending::Save;
                 self.pending = None;
                 if saving {
                     self.unsaved |= self.save_dirty;
@@ -1604,9 +1605,8 @@ impl MapEditor {
                 self.save_fail(format!("{} failed: the rsmm backend stopped answering (its last lines are in the Console)", if saving { "Save" } else { "Check" }));
             }
         }
-        if let Some((kind, rx)) = &self.pending {
-            if let Ok(r) = rx.try_recv() {
-                let saving = *kind == Pending::Save;
+        if let Some((saving, Ok(r))) = polled {
+            {
                 self.pending = None;
                 let body = r.json().unwrap_or(Value::Null);
                 if r.ok() {
