@@ -176,6 +176,19 @@ def test_slots_and_kinds_can_be_added_and_removed(path):
 
 
 @needs_corpus
+def test_a_slot_can_be_added_after_every_placeable_slot_is_removed():
+    """A blank chapter removes every masked slot and then places its own; the
+    new slot's class indices must still come from somewhere (was StopIteration)."""
+    raw = _levels()[0].read_bytes()
+    tg = TG.read(raw)
+    for sid in [i for i, s in tg.slots.items() if s.kinds]:
+        TG.remove_slot(tg, sid)
+    TG.add_slot(tg, "40x40", (1.0, 0.0, 2.0), {"Start": True})
+    back = TG.read(TG.write(raw, tg))
+    assert [s.pos for s in back.slots.values() if s.kinds] == [(1.0, 0.0, 2.0)]
+
+
+@needs_corpus
 def test_bad_slot_and_kind_edits_are_refused():
     raw = _levels()[0].read_bytes()
     tg = TG.read(raw)
