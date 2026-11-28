@@ -695,6 +695,7 @@ pub struct MapEditor {
 impl MapEditor {
     pub fn new(cc: &eframe::CreationContext, backend: Backend, opts: Options) -> MapEditor {
         let renderer = cc.wgpu_render_state.as_ref().map(Renderer::new);
+        icons::install(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         let workers = thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8);
         let loader = Loader::new(backend.clone(), workers, move || ctx.request_repaint());

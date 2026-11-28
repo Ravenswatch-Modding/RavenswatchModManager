@@ -115,6 +115,7 @@ def test_frozen_mods_dir_outlives_the_process(monkeypatch, tmp_path):
     monkeypatch.setattr(paths_mod.sys, "frozen", True, raising=False)
     monkeypatch.setattr(paths_mod.sys, "platform", "linux")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # expanduser on Windows
     assert paths_mod.mods_dir() == tmp_path / ".local/share/rsmm/mods/profiles/default"
 
 
