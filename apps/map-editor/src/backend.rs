@@ -35,11 +35,23 @@ impl Response {
     }
 
     /// The `{"error": ...}` message a failed route answers with, or the status.
+    /// The backend's `error` (plus any `detail`), or the raw body: never just a status.
     pub fn error_text(&self) -> String {
-        self.json()
-            .ok()
-            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
-            .unwrap_or_else(|| format!("HTTP {}", self.status))
+        let v = self.json().ok();
+        let field = |k: &str| v.as_ref().and_then(|v| v.get(k)).map(|e| e.as_str().map(str::to_owned).unwrap_or_else(|| e.to_string()));
+        match (field("error"), field("detail")) {
+            (Some(e), Some(d)) => format!("{e}\n{d}"),
+            (Some(e), None) => e,
+            _ => {
+                let body = String::from_utf8_lossy(&self.body);
+                let body = body.trim();
+                if body.is_empty() {
+                    format!("HTTP {} with an empty answer (see the Console)", self.status)
+                } else {
+                    format!("HTTP {}: {}", self.status, body.chars().take(4000).collect::<String>())
+                }
+            }
+        }
     }
 }
 

@@ -72,6 +72,33 @@ pub struct Prefs {
     /// Every colour of the editor (View > Theme…).
     #[serde(default)]
     pub theme: Option<crate::theme::Theme>,
+    /// Environment light edited per chapter (only chapters changed from the shipped values).
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, crate::scene::Environment>,
+    #[serde(default)]
+    pub exposure: Option<f32>,
+    #[serde(default)]
+    pub fly_speed: Option<f32>,
+    /// The tool in hand and its settings.
+    #[serde(default)]
+    pub tools: Option<ToolPrefs>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct ToolPrefs {
+    /// "select", "brush" or "measure".
+    pub tool: String,
+    pub brush_mode: String,
+    pub radius: f32,
+    pub strength: f32,
+    pub level: f32,
+    pub step: f32,
+    pub falloff: String,
+    pub color: [f32; 3],
+    pub scatter_radius: f32,
+    pub scatter_spacing: f32,
+    pub scatter_scale: [f32; 2],
 }
 
 pub fn dir() -> Option<PathBuf> {

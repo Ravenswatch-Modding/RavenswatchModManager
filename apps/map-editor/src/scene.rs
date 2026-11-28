@@ -107,6 +107,15 @@ impl Terrain {
         Vec3::new(self.min.x + (c as f32 + 0.5) * sx, self.h[r * self.n + c], self.min.z + (r as f32 + 0.5) * sz)
     }
 
+    /// Ground height at the point of the map nearest (x, z): off the map, the
+    /// edge's height.
+    pub fn height_clamped(&self, x: f32, z: f32) -> f32 {
+        let (sx, sz) = self.cell();
+        let x = x.clamp(self.min.x + 0.5 * sx, self.max.x - 0.5 * sx);
+        let z = z.clamp(self.min.z + 0.5 * sz, self.max.z - 0.5 * sz);
+        self.height_at(x, z).unwrap_or(0.0)
+    }
+
     /// Ground height under (x, z), bilinear; None off the map.
     pub fn height_at(&self, x: f32, z: f32) -> Option<f32> {
         let (sx, sz) = self.cell();
@@ -484,7 +493,8 @@ impl TerrainLook {
 // ---------------------------------------------------------------------------
 
 /// A chapter's daytime light, as the game data states it (render_look.py).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Environment {
     pub sun_color: [f32; 3],
     pub sun_intensity: f32,

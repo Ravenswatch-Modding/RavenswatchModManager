@@ -187,7 +187,9 @@ pub struct Renderer {
     line_pipe: wgpu::RenderPipeline,
     line_top_pipe: wgpu::RenderPipeline,
     terrain: Option<(wgpu::Buffer, wgpu::Buffer, u32)>,
-    water: Option<(wgpu::Buffer, u32)>,
+    /// Water surface: one vertex per terrain cell, 6 indices per grid quad
+    /// (degenerate where dry), both rewritten in place row by row.
+    water: Option<(wgpu::Buffer, wgpu::Buffer, u32, usize)>,
     water_pipe: wgpu::RenderPipeline,
     /// What the terrain uniform holds, so the material can be switched off
     /// (a tile edited alone stands on plain ground) and back on.
@@ -939,38 +941,58 @@ impl Renderer {
 
     /// Rebuild only the water surface (a water brush dab).
     pub fn update_water(&mut self, t: &Terrain) {
+        self.update_water_rows(t, 0, t.n.saturating_sub(1));
+    }
+
+    /// Rewrite the water surface for terrain rows `r0..=r1` (a water dab, or
+    /// a height dab under water: its depth follows the ground). The buffers
+    /// are made once per terrain, so painting never allocates GPU memory.
+    pub fn update_water_rows(&mut self, t: &Terrain, r0: usize, r1: usize) {
         let n = t.n;
-        let verts: Vec<TerrainVertex> = (0..n * n)
-            .map(|i| TerrainVertex { pos: t.vertex_pos(i / n, i % n).into(), nrm: [0.0, 1.0, 0.0], col: [0.0; 3], uv: grid_uv(i, n) })
-            .collect();
-        // Water: the cells under the painted water surface, at that height.
+        let Some(w) = t.water.as_ref().filter(|_| n >= 2) else {
+            self.water = None;
+            return;
+        };
+        let (r0, r1) = if self.water.as_ref().is_some_and(|x| x.3 == n) { (r0, r1.min(n - 1)) } else { (0, n - 1) };
+        if self.water.as_ref().is_none_or(|x| x.3 != n) {
+            let vb = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("water vb"),
+                size: (n * n * std::mem::size_of::<TerrainVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let count = 6 * (n - 1) * (n - 1);
+            let ib = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("water ib"),
+                size: (count * 4) as u64,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.water = Some((vb, ib, count as u32, n));
+        }
+        let Some((vb, ib, _, _)) = &self.water else { return };
         // `col.x` carries the depth (water minus ground) for the shader.
-        self.water = t.water.as_ref().and_then(|w| {
-            let mut wv: Vec<TerrainVertex> = Vec::new();
-            for r in 0..n - 1 {
-                for c in 0..n - 1 {
-                    let ids = [r * n + c, r * n + c + 1, (r + 1) * n + c, (r + 1) * n + c + 1];
-                    if !ids.iter().any(|&i| w[i] > t.h[i] + 0.02) {
-                        continue;
-                    }
-                    let vtx = |i: usize| {
-                        let p = verts[i].pos;
-                        TerrainVertex { pos: [p[0], w[i], p[2]], nrm: [0.0, 1.0, 0.0], col: [w[i] - t.h[i], 0.0, 0.0], uv: verts[i].uv }
-                    };
-                    for i in [ids[0], ids[1], ids[2], ids[1], ids[3], ids[2]] {
-                        wv.push(vtx(i));
-                    }
+        let verts: Vec<TerrainVertex> = (r0 * n..(r1 + 1) * n)
+            .map(|i| {
+                let p = t.vertex_pos(i / n, i % n);
+                TerrainVertex { pos: [p.x, w[i], p.z], nrm: [0.0, 1.0, 0.0], col: [w[i] - t.h[i], 0.0, 0.0], uv: grid_uv(i, n) }
+            })
+            .collect();
+        self.queue.write_buffer(vb, (r0 * n * std::mem::size_of::<TerrainVertex>()) as u64, bytemuck::cast_slice(&verts));
+        // Quads of rows c0..=c1 use vertex rows r..r+1: one row up too.
+        let (q0, q1) = (r0.saturating_sub(1), r1.min(n - 2));
+        let mut idx: Vec<u32> = Vec::with_capacity((q1 + 1 - q0) * (n - 1) * 6);
+        for r in q0..=q1 {
+            for c in 0..n - 1 {
+                let ids = [r * n + c, r * n + c + 1, (r + 1) * n + c, (r + 1) * n + c + 1];
+                if ids.iter().any(|&i| w[i] > t.h[i] + 0.02) {
+                    idx.extend([ids[0], ids[1], ids[2], ids[1], ids[3], ids[2]].map(|i| i as u32));
+                } else {
+                    idx.extend([0; 6]); // dry: a degenerate quad, drawn as nothing
                 }
             }
-            (!wv.is_empty()).then(|| {
-                let b = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("water vb"),
-                    contents: bytemuck::cast_slice(&wv),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                (b, wv.len() as u32)
-            })
-        });
+        }
+        self.queue.write_buffer(ib, (q0 * (n - 1) * 6 * 4) as u64, bytemuck::cast_slice(&idx));
     }
 
     /// Draw the ground with the chapter's material (true) or plain (false).
@@ -1470,11 +1492,12 @@ impl Renderer {
                     }
                 }
             }
-            if let (Some((wb, n)), true) = (&self.water, f.draw_water) {
+            if let (Some((wb, ib, n, _)), true) = (&self.water, f.draw_water) {
                 rp.set_pipeline(&self.water_pipe);
                 rp.set_bind_group(1, &self.terrain_bg, &[]);
                 rp.set_vertex_buffer(0, wb.slice(..));
-                rp.draw(0..*n, 0..1);
+                rp.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                rp.draw_indexed(0..*n, 0, 0..1);
             }
             if let Some(lb) = &self.line_buf {
                 let n_depth = f.lines.len() as u32;

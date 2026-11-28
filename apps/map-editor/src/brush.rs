@@ -52,8 +52,8 @@ fn cells(t: &Terrain, n: usize, st: &Stroke) -> Vec<(usize, usize, f32)> {
     out
 }
 
-/// One float op on a value in its layer's own units; `src` is the pre-stroke
-/// grid for `smooth`.
+/// One float op on a value in its layer's own units; `mean` is the 3x3 mean
+/// of the pre-stroke grid for `smooth`.
 fn op_value(op: &str, v: f32, target: Option<f32>, w: f32, mean: impl Fn() -> f32) -> f32 {
     match (op, target) {
         ("raise", Some(a)) => v + a * w,
@@ -71,66 +71,88 @@ fn op_value(op: &str, v: f32, target: Option<f32>, w: f32, mean: impl Fn() -> f3
     }
 }
 
-/// Apply a height stroke to the preview heights (metres). Returns the rows
-/// touched (to re-upload), or None if it missed.
-pub fn apply_height(t: &mut Terrain, st: &Stroke) -> Option<(usize, usize)> {
-    let n = t.n;
-    let hits = cells(t, n, st);
-    if hits.is_empty() {
-        return None;
+/// 3x3 mean around (r, c) of an `n` x `n` grid read through `get`.
+fn mean3(n: usize, r: usize, c: usize, get: impl Fn(usize) -> f32) -> f32 {
+    let (mut sum, mut k) = (0.0, 0.0);
+    for rr in r.saturating_sub(1)..(r + 2).min(n) {
+        for cc in c.saturating_sub(1)..(c + 2).min(n) {
+            sum += get(rr * n + cc);
+            k += 1.0;
+        }
     }
+    sum / k
+}
+
+/// Smallest height / water change (metres) a live dab must make to be kept:
+/// scrubbing a converged flatten / smooth / set adds no dabs.
+pub const MIN_METRES: f32 = 0.005;
+
+/// Apply a height stroke to the preview heights (metres). Returns the rows
+/// touched (to re-upload), or None if it missed or no cell moved by `min`
+/// metres (then nothing is written). Replays pass `min = 0`.
+pub fn apply_height(t: &mut Terrain, st: &Stroke, min: f32) -> Option<(usize, usize)> {
+    let n = t.n;
     let target = match (st.op.as_str(), st.amount) {
-        ("flatten", None) => t.height_at(st.x, st.z),
+        // off the map: the edge's height, as the map kind's nearest cell
+        ("flatten", None) => Some(t.height_clamped(st.x, st.z)),
         (_, a) => a,
     };
-    let src = if st.op == "smooth" { Some(t.h.clone()) } else { None };
     let (lo, hi) = (t.min.y, t.max.y);
+    // Two passes: compute against the untouched grid (which is also what
+    // `smooth` reads), write only if the dab does something.
+    let h = &t.h;
+    let new: Vec<(usize, f32)> = cells(t, n, st)
+        .into_iter()
+        .map(|(r, c, w)| {
+            let i = r * n + c;
+            (i, op_value(&st.op, h[i], target, w, || mean3(n, r, c, |j| h[j])).clamp(lo, hi))
+        })
+        .collect();
+    let moved = new.iter().fold(0.0f32, |m, &(i, v)| m.max((v - h[i]).abs()));
+    if new.is_empty() || moved < min {
+        return None;
+    }
     let (mut r0, mut r1) = (usize::MAX, 0);
-    for (r, c, w) in hits {
-        let i = r * n + c;
-        let mean = || {
-            let s = src.as_ref().unwrap();
-            let (mut sum, mut k) = (0.0, 0.0);
-            for rr in r.saturating_sub(1)..(r + 2).min(n) {
-                for cc in c.saturating_sub(1)..(c + 2).min(n) {
-                    sum += s[rr * n + cc];
-                    k += 1.0;
-                }
-            }
-            sum / k
-        };
-        t.h[i] = op_value(&st.op, t.h[i], target, w, mean).clamp(lo, hi);
-        r0 = r0.min(r);
-        r1 = r1.max(r);
+    for (i, v) in new {
+        t.h[i] = v;
+        r0 = r0.min(i / n);
+        r1 = r1.max(i / n);
     }
     Some((r0.saturating_sub(1), (r1 + 1).min(n - 1)))
 }
 
 /// Apply a water stroke to the terrain's water surface (`t.water`, made dry
-/// first if the map had none). Returns whether anything changed.
-pub fn apply_water(t: &mut Terrain, st: &Stroke) -> bool {
+/// first if the map had none). Returns the rows touched, or None if no cell
+/// moved by `min` metres (then nothing is written).
+pub fn apply_water(t: &mut Terrain, st: &Stroke, min: f32) -> Option<(usize, usize)> {
     let n = t.n;
-    let hits = cells(t, n, st);
-    if hits.is_empty() {
-        return false;
-    }
     let lo = t.min.y - 50.0;
-    let w = t.water.get_or_insert_with(|| vec![lo; n * n]);
     let target = st.amount.map(|a| a.max(lo));
-    for (r, c, k) in hits {
-        let i = r * n + c;
-        let cur = w[i];
-        w[i] = op_value(&st.op, cur, target, k, || cur);
+    let cur = |i: usize| t.water.as_ref().map_or(lo, |w| w[i]);
+    let new: Vec<(usize, f32)> = cells(t, n, st)
+        .into_iter()
+        .map(|(r, c, k)| {
+            let i = r * n + c;
+            (i, op_value(&st.op, cur(i), target, k, || cur(i)))
+        })
+        .collect();
+    let moved = new.iter().fold(0.0f32, |m, &(i, v)| m.max((v - cur(i)).abs()));
+    if new.is_empty() || moved < min {
+        return None;
     }
-    true
+    let w = t.water.get_or_insert_with(|| vec![lo; n * n]);
+    let (mut r0, mut r1) = (usize::MAX, 0);
+    for (i, v) in new {
+        w[i] = v;
+        r0 = r0.min(i / n);
+        r1 = r1.max(i / n);
+    }
+    Some((r0, r1))
 }
 
-/// Apply a 0..1 surface stroke to channel `ch` of an RGBA8 grid.
+/// Apply a 0..1 surface stroke to channel `ch` of an RGBA8 grid. Returns
+/// whether any cell changed.
 pub fn apply_channel(t: &Terrain, n: usize, grid: &mut [u8], ch: usize, st: &Stroke) -> bool {
-    let hits = cells(t, n, st);
-    if hits.is_empty() {
-        return false;
-    }
     let get = |g: &[u8], i: usize| g[i * 4 + ch] as f32 / 255.0;
     let target = match (st.op.as_str(), st.amount) {
         ("flatten", None) => {
@@ -140,39 +162,39 @@ pub fn apply_channel(t: &Terrain, n: usize, grid: &mut [u8], ch: usize, st: &Str
         }
         (_, a) => a,
     };
-    let src = if st.op == "smooth" { Some(grid.to_vec()) } else { None };
-    for (r, c, w) in hits {
-        let i = r * n + c;
-        let mean = || {
-            let s = src.as_ref().unwrap();
-            let (mut sum, mut k) = (0.0, 0.0);
-            for rr in r.saturating_sub(1)..(r + 2).min(n) {
-                for cc in c.saturating_sub(1)..(c + 2).min(n) {
-                    sum += get(s, rr * n + cc);
-                    k += 1.0;
-                }
-            }
-            sum / k
-        };
-        let v = op_value(&st.op, get(grid, i), target, w, mean).clamp(0.0, 1.0);
-        grid[i * 4 + ch] = (v * 255.0).round() as u8;
+    // Two passes so `smooth` reads the pre-stroke grid without copying it.
+    let g = &*grid;
+    let new: Vec<(usize, u8)> = cells(t, n, st)
+        .into_iter()
+        .map(|(r, c, w)| {
+            let i = r * n + c;
+            let v = op_value(&st.op, get(g, i), target, w, || mean3(n, r, c, |j| get(g, j))).clamp(0.0, 1.0);
+            (i * 4 + ch, (v * 255.0).round() as u8)
+        })
+        .collect();
+    let mut changed = false;
+    for (i, v) in new {
+        changed |= grid[i] != v;
+        grid[i] = v;
     }
-    true
+    changed
 }
 
 /// Apply a tint stroke to an RGBA8 colour grid.
 pub fn apply_tint(t: &Terrain, n: usize, grid: &mut [u8], st: &Stroke) -> bool {
     let Some(rgb) = st.color.as_deref().and_then(parse_hex) else { return false };
     let amount = st.amount.unwrap_or(0.5);
-    let hits = cells(t, n, st);
-    for &(r, c, w) in &hits {
+    let mut changed = false;
+    for (r, c, w) in cells(t, n, st) {
         let i = (r * n + c) * 4;
         for k in 0..3 {
-            let old = grid[i + k] as f32;
-            grid[i + k] = (old + (rgb[k] as f32 - old) * w * amount).round().clamp(0.0, 255.0) as u8;
+            let old = grid[i + k];
+            let v = (old as f32 + (rgb[k] as f32 - old as f32) * w * amount).round().clamp(0.0, 255.0) as u8;
+            changed |= v != old;
+            grid[i + k] = v;
         }
     }
-    !hits.is_empty()
+    changed
 }
 
 pub fn parse_hex(s: &str) -> Option<[u8; 3]> {
@@ -209,6 +231,34 @@ pub enum Mode {
     Block,
     /// Water at `level` metres (Ctrl: dry the ground under the brush).
     Water,
+}
+
+impl Mode {
+    /// Back from `format!("{mode:?}")` (the saved prefs).
+    pub fn parse(s: &str) -> Option<Mode> {
+        let slot = |p: &str| s.strip_prefix(p)?.strip_suffix(')')?.parse().ok();
+        Some(match s {
+            "Raise" => Mode::Raise,
+            "Lower" => Mode::Lower,
+            "Flatten" => Mode::Flatten,
+            "Smooth" => Mode::Smooth,
+            "Level" => Mode::Level,
+            "Layer" => Mode::Layer,
+            "Tint" => Mode::Tint,
+            "Block" => Mode::Block,
+            "Water" => Mode::Water,
+            _ => slot("Paint(").map(Mode::Paint).or_else(|| slot("Erase(").map(Mode::Erase))?,
+        })
+    }
+}
+
+/// The falloff names a brush offers, as `&'static str`.
+pub fn falloff_name(s: &str) -> &'static str {
+    match s {
+        "linear" => "linear",
+        "constant" => "constant",
+        _ => "smooth",
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -283,7 +333,39 @@ impl Default for Brush {
     }
 }
 
+/// Record a live dab. A raise / lower folds into an earlier identical one at
+/// the same spot when only raises / lowers touched that layer since (they
+/// commute), so scrubbing one place never grows the list.
+/// ponytail: exact except where the folded run hit the layer's clamp.
+pub fn record(strokes: &mut Vec<Stroke>, st: Stroke) {
+    if matches!(st.op.as_str(), "raise" | "lower") {
+        for s in strokes.iter_mut().rev().filter(|s| s.layer == st.layer) {
+            if !matches!(s.op.as_str(), "raise" | "lower") {
+                break;
+            }
+            if (&s.op, s.x, s.z, s.radius, &s.falloff) == (&st.op, st.x, st.z, st.radius, &st.falloff) {
+                if let (Some(a), Some(b)) = (s.amount.as_mut(), st.amount) {
+                    *a += b;
+                    return;
+                }
+            }
+        }
+    }
+    strokes.push(st);
+}
+
 impl Brush {
+    /// Distance between dabs along a drag; dab centres snap to this grid so
+    /// repeat dabs land on the same spot and fold (see [`record`]).
+    pub fn spacing(&self) -> f32 {
+        (self.radius * 0.3).max(0.25)
+    }
+
+    pub fn snap(&self, at: Vec3) -> Vec3 {
+        let s = self.spacing();
+        Vec3::new((at.x / s).round() * s, at.y, (at.z / s).round() * s)
+    }
+
     /// The terrace a `Layer` drag starting on ground at height `h` paints:
     /// the next step above (`down`: below). Ground already on a step moves a
     /// whole step, not onto itself.
@@ -373,6 +455,35 @@ mod tests {
         half.mask.iter_mut().for_each(|w| *w = 0.5);
         b.stamp = Some(half);
         assert!(b.strokes(Vec3::ZERO, false, &[], None).iter().all(|d| (d.amount.unwrap() - b.strength * 0.5).abs() < 1e-3));
+    }
+
+    #[test]
+    fn scrubbing_one_spot_does_not_grow_the_dabs() {
+        let b = Brush::default();
+        let mut strokes = Vec::new();
+        let at = b.snap(Vec3::new(1.03, 0.0, 2.01));
+        for _ in 0..50 {
+            for st in b.strokes(b.snap(at + Vec3::new(0.1, 0.0, 0.0)), false, &[], None) {
+                record(&mut strokes, st);
+            }
+        }
+        assert_eq!(strokes.len(), 1);
+        assert!((strokes[0].amount.unwrap() - 50.0 * b.strength).abs() < 1e-3);
+        // a lower is a different dab; a set on the layer ends the fold
+        record(&mut strokes, b.stroke(at, true, &[], None).unwrap());
+        let mut set = strokes[0].clone();
+        set.op = "set".into();
+        record(&mut strokes, set);
+        record(&mut strokes, b.stroke(at, false, &[], None).unwrap());
+        assert_eq!(strokes.len(), 4);
+    }
+
+    #[test]
+    fn modes_round_trip_through_prefs() {
+        for m in [Mode::Raise, Mode::Layer, Mode::Paint(3), Mode::Erase(1), Mode::Water] {
+            assert_eq!(Mode::parse(&format!("{m:?}")), Some(m));
+        }
+        assert_eq!(Mode::parse("nonsense"), None);
     }
 
     #[test]

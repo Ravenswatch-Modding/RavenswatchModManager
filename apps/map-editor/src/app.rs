@@ -538,6 +538,8 @@ pub struct MapEditor {
     thumb_want: Vec<String>,
     /// The Project item picked with a click (placing is a drag).
     asset_sel: Option<String>,
+    /// Project items picked together (Ctrl / Shift + click, Ctrl+A); holds `asset_sel` too.
+    asset_multi: BTreeSet<String>,
     /// Effects play in the Scene (View menu).
     animate_fx: bool,
     started: Instant,
@@ -570,6 +572,19 @@ pub struct MapEditor {
     zoom_shown: Option<Instant>,
     /// Metres per second while flying (right button + WASD); the wheel sets it.
     fly_speed: f32,
+    /// A fly key went down with the right button held: shortcuts stay off
+    /// until every fly key is up again (key repeat must not Select All).
+    fly_hold: bool,
+    /// The camera flew during this right-button hold: its release is not a
+    /// right-click (no context menu).
+    flew: bool,
+    /// Console: the status last logged.
+    last_status: String,
+    /// Prefs as last written, and when (written at most once a second).
+    prefs_written: (Vec<u8>, Instant),
+    /// Environment light edited per chapter; `env_for` = the chapter `env` belongs to.
+    env_saved: BTreeMap<String, Environment>,
+    env_for: Option<String>,
     /// Where the last Select click landed: clicking there again picks the
     /// next object behind (Godot / Blender click cycling).
     last_click: Option<egui::Pos2>,
@@ -810,7 +825,13 @@ impl MapEditor {
             array_count: 5,
             array_step: Vec3::new(4.0, 0.0, 0.0),
             array_yaw: 0.0,
-            fly_speed: 25.0,
+            fly_speed: prefs.fly_speed.unwrap_or(25.0),
+            fly_hold: false,
+            flew: false,
+            last_status: String::new(),
+            prefs_written: (Vec::new(), Instant::now()),
+            env_saved: prefs.env.clone(),
+            env_for: None,
             last_click: None,
             pick_list: None,
             project_dir: opts.project.clone().unwrap_or_else(|| crate::project::ASSETS.to_owned()),
@@ -818,6 +839,7 @@ impl MapEditor {
             thumbs: HashMap::new(),
             thumb_want: Vec::new(),
             asset_sel: None,
+            asset_multi: BTreeSet::new(),
             animate_fx: true,
             started: Instant::now(),
             scroll_to_sel: None,
@@ -869,7 +891,7 @@ impl MapEditor {
             show_minimap: true,
             min_px: 1.5,
             haze: 0.00025,
-            exposure: 1.0,
+            exposure: prefs.exposure.unwrap_or(1.0),
             shadows: true,
             env_shipped: Environment::default(),
             env: Environment::default(),
@@ -903,6 +925,9 @@ impl MapEditor {
             self_check_sent: false,
             ui_shot_sent: false,
         };
+        if let Some(tp) = prefs.tools.as_ref().filter(|_| !me.headless()) {
+            me.apply_tool_prefs(tp);
+        }
         me.refresh_state(&cc.egui_ctx);
         if !me.headless() {
             me.check_update(&cc.egui_ctx, false);
@@ -937,11 +962,110 @@ impl MapEditor {
         });
     }
 
+    fn prefs_now(&self) -> Prefs {
+        let b = &self.brush;
+        let tool = match self.tool {
+            Tool::Brush => "brush",
+            Tool::Measure => "measure",
+            _ => "select",
+        };
+        Prefs {
+            recent: self.recent.clone(),
+            light_theme: self.theme.light,
+            grid_size: Some(self.grid_size),
+            rot_step: Some(self.rot_step),
+            scale_step: Some(self.scale_step),
+            accent: None,
+            theme: Some(self.theme),
+            env: self.env_saved.clone(),
+            exposure: Some(self.exposure),
+            fly_speed: Some(self.fly_speed),
+            tools: Some(session::ToolPrefs {
+                tool: tool.into(),
+                brush_mode: format!("{:?}", b.mode),
+                radius: b.radius,
+                strength: b.strength,
+                level: b.level,
+                step: b.step,
+                falloff: b.falloff.into(),
+                color: b.color,
+                scatter_radius: self.scatter.radius,
+                scatter_spacing: self.scatter.spacing,
+                scatter_scale: [self.scatter.scale_lo, self.scatter.scale_hi],
+            }),
+        }
+    }
+
+    fn apply_tool_prefs(&mut self, tp: &session::ToolPrefs) {
+        let ok = |v: f32, lo: f32, hi: f32, d: f32| if v.is_finite() && (lo..=hi).contains(&v) { v } else { d };
+        let b = &mut self.brush;
+        b.mode = brush::Mode::parse(&tp.brush_mode).unwrap_or(b.mode);
+        b.radius = ok(tp.radius, 1.0, 120.0, b.radius);
+        b.strength = ok(tp.strength, 0.01, 3.0, b.strength);
+        b.level = ok(tp.level, -1000.0, 1000.0, b.level);
+        b.step = ok(tp.step, 0.5, 8.0, b.step);
+        b.falloff = brush::falloff_name(&tp.falloff);
+        b.color = tp.color;
+        let sc = &mut self.scatter;
+        sc.radius = ok(tp.scatter_radius, 0.5, 200.0, sc.radius);
+        sc.spacing = ok(tp.scatter_spacing, 0.1, 100.0, sc.spacing);
+        sc.scale_lo = ok(tp.scatter_scale[0], 0.01, 100.0, sc.scale_lo);
+        sc.scale_hi = ok(tp.scatter_scale[1], 0.01, 100.0, sc.scale_hi);
+        match tp.tool.as_str() {
+            "brush" => {
+                self.tool = Tool::Brush;
+                self.left_tab = LeftTab::Terrain;
+            }
+            "measure" => self.tool = Tool::Measure,
+            _ => {}
+        }
+    }
+
     fn save_prefs(&self) {
         if self.headless() {
             return;
         }
-        session::save_prefs(&Prefs { recent: self.recent.clone(), light_theme: self.theme.light, grid_size: Some(self.grid_size), rot_step: Some(self.rot_step), scale_step: Some(self.scale_step), accent: None, theme: Some(self.theme) });
+        session::save_prefs(&self.prefs_now());
+    }
+
+    /// Keep the prefs file current: the environment light and the tool in
+    /// hand survive a restart. Checked once a second, written on change.
+    fn persist_prefs(&mut self) {
+        if self.headless() || self.prefs_written.1.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        // The environment shown belongs to `env_for` once that chapter's values came in.
+        if let Some(ch) = self.env_for.clone().filter(|c| Some(c) == self.chapter.as_ref() && self.tile.is_none()) {
+            if self.env != self.env_shipped {
+                self.env_saved.insert(ch, self.env.clone());
+            } else {
+                self.env_saved.remove(&ch);
+            }
+        }
+        let p = self.prefs_now();
+        let bytes = serde_json::to_vec(&p).unwrap_or_default();
+        if bytes != self.prefs_written.0 {
+            session::save_prefs(&p);
+        }
+        self.prefs_written = (bytes, Instant::now());
+    }
+
+    /// A line in the Console, stamped with seconds since start.
+    fn log(&self, line: impl AsRef<str>) {
+        let mut l = self.backend.log.lock().unwrap();
+        l.push(format!("[editor {:7.1}s] {}", self.started.elapsed().as_secs_f32(), line.as_ref()));
+        let excess = l.len().saturating_sub(2000);
+        l.drain(..excess);
+    }
+
+    /// A save / check that could not run: the Save panel shows it with Copy,
+    /// the Console keeps it.
+    fn save_fail(&mut self, msg: String) {
+        self.log(format!("[error] {msg}"));
+        self.play_after_save = false;
+        self.result = Some(Err(msg.clone()));
+        self.status = msg;
+        self.last_status = self.status.clone(); // logged already
     }
 
     fn refresh_state(&self, ctx: &egui::Context) {
@@ -1234,7 +1358,11 @@ impl MapEditor {
                 Event::Env(k, r) if Some(&k) == self.chapter.as_ref() => match r {
                     Ok(e) => {
                         self.env_shipped = e.clone();
-                        self.env = e;
+                        self.env = self.env_saved.get(&k).cloned().unwrap_or(e);
+                        if self.env_saved.contains_key(&k) {
+                            self.log(format!("{k}: your saved environment light (Environment > Reset for the chapter's)"));
+                        }
+                        self.env_for = Some(k);
                     }
                     Err(e) => self.failed_assets.push(format!("environment: {e:#}")),
                 },
@@ -1466,6 +1594,17 @@ impl MapEditor {
         }
         // A check or save finishing.
         if let Some((kind, rx)) = &self.pending {
+            if let Err(std::sync::mpsc::TryRecvError::Disconnected) = rx.try_recv().as_ref().map(|_| ()).map_err(|e| *e) {
+                // The backend died mid-request: say so instead of "Saving…" forever.
+                let saving = *kind == Pending::Save;
+                self.pending = None;
+                if saving {
+                    self.unsaved |= self.save_dirty;
+                }
+                self.save_fail(format!("{} failed: the rsmm backend stopped answering (its last lines are in the Console)", if saving { "Save" } else { "Check" }));
+            }
+        }
+        if let Some((kind, rx)) = &self.pending {
             if let Ok(r) = rx.try_recv() {
                 let saving = *kind == Pending::Save;
                 self.pending = None;
@@ -1501,14 +1640,20 @@ impl MapEditor {
                     } else {
                         self.status = format!("Check passed: {} change(s) build cleanly", changes.len());
                     }
+                    self.log(format!("{} OK: {} change(s)", if saving { "Save" } else { "Check" }, changes.len()));
+                    for c in &changes {
+                        self.log(format!("  {c}"));
+                    }
                     self.result = Some(Ok(changes));
                 } else {
                     if saving {
                         self.unsaved |= self.save_dirty;
                         self.play_after_save = false;
                     }
-                    self.result = Some(Err(r.error_text()));
-                    self.status = if saving { "Save refused — see the Save panel".into() } else { "Check failed".into() };
+                    let e = r.error_text();
+                    self.log(format!("[error] {} failed (HTTP {}): {e}", if saving { "Save" } else { "Check" }, r.status));
+                    self.result = Some(Err(e));
+                    self.status = if saving { "Save refused — see the Save panel (Copy error)".into() } else { "Check failed — see the Save panel".into() };
                 }
                 if self.opts.self_check || self.opts.tile_check {
                     println!("self-check body: {}", self.save_body(false).map(|b| b["scenery"].to_string()).unwrap_or_default());
@@ -2414,6 +2559,34 @@ impl MapEditor {
         }
     }
 
+    /// Place several Project items around `at` in a small square, 4 m apart,
+    /// as one undo step; prefabs go one by one.
+    fn place_many(&mut self, ctx: &egui::Context, entities: &[String], at: Vec3) {
+        let k = (entities.len() as f32).sqrt().ceil().max(1.0) as usize;
+        let mut adds = Vec::new();
+        for (i, e) in entities.iter().enumerate() {
+            let (dx, dz) = ((i % k) as f32 * 4.0, (i / k) as f32 * 4.0);
+            let half = (k - 1) as f32 * 2.0;
+            let (x, z) = (at.x + dx - half, at.z + dz - half);
+            let pos = Vec3::new(x, self.ground_y(x, z).unwrap_or(at.y), z);
+            if e.starts_with(PREFAB) {
+                self.place(ctx, e.clone(), pos);
+                continue;
+            }
+            let Some(level) = self.level_near(pos) else { continue };
+            self.ensure_template(ctx, e);
+            adds.push(Add { uid: 0, entity: e.clone(), level, pos, rot: Quat::IDENTITY, scale: Vec3::ONE, name: String::new(), col: crate::edit::default_cols(e), camp: None, light: None, prefab: None });
+        }
+        if adds.is_empty() {
+            return;
+        }
+        let mut sel = Vec::new();
+        self.change(|e, _| sel = adds.into_iter().map(|a| e.push_add(a)).collect());
+        let n = sel.len();
+        self.select_only(sel);
+        self.status = format!("Placed {n} objects");
+    }
+
     fn ground_y(&self, x: f32, z: f32) -> Option<f32> {
         self.terrain.as_ref()?.height_at(x, z)
     }
@@ -2466,7 +2639,7 @@ impl MapEditor {
             }
         }
         for st in &self.edits.strokes {
-            Self::apply_stroke_to(&mut t, self.look_base.as_ref(), &mut w, c.as_mut(), st);
+            Self::apply_stroke_to(&mut t, self.look_base.as_ref(), &mut w, c.as_mut(), st, 0.0);
         }
         if let Some(r) = &mut self.renderer {
             r.set_terrain(&t);
@@ -2479,35 +2652,36 @@ impl MapEditor {
         self.color_now = c;
     }
 
-    /// Apply one stroke to the preview grids; returns height rows touched.
+    /// Apply one stroke to the preview grids: whether it changed anything,
+    /// and the height rows touched. A height / water stroke moving no cell
+    /// by `min` metres writes nothing (replays pass 0).
     fn apply_stroke_to(
         t: &mut Terrain,
         look: Option<&crate::scene::TerrainLook>,
         weights: &mut [u8],
         color: Option<&mut Vec<u8>>,
         st: &Stroke,
-    ) -> Option<(usize, usize)> {
+        min: f32,
+    ) -> (bool, Option<(usize, usize)>) {
         if st.layer == brush::HEIGHT {
-            return brush::apply_height(t, st);
+            let rows = brush::apply_height(t, st, min);
+            return (rows.is_some(), rows);
         }
         if st.layer == brush::WATER {
-            brush::apply_water(t, st);
-            return None;
+            let rows = brush::apply_water(t, st, min);
+            return (rows.is_some(), rows);
         }
-        let look = look?;
+        let Some(look) = look else { return (false, None) };
         if st.op == "tint" {
-            if let Some(c) = color {
-                brush::apply_tint(t, look.n, c, st);
-            }
-            return None;
+            return (color.is_some_and(|c| brush::apply_tint(t, look.n, c, st)), None);
         }
-        let snapshot = t.clone();
+        let mut changed = false;
         for (ch, src) in look.channel_sources.iter().enumerate() {
             if src.as_deref() == Some(st.layer.as_str()) {
-                brush::apply_channel(&snapshot, look.n, weights, ch, st);
+                changed |= brush::apply_channel(t, look.n, weights, ch, st);
             }
         }
-        None
+        (changed, None)
     }
 
     /// One dab of the current brush at `at`.
@@ -2536,6 +2710,7 @@ impl MapEditor {
         if smooth {
             b.mode = BrushMode::Smooth;
         }
+        let at = b.snap(at);
         let dabs = b.strokes(at, invert, &sources, color_layer.as_deref());
         if dabs.is_empty() {
             if b.stroke(at, invert, &sources, color_layer.as_deref()).is_none() {
@@ -2544,23 +2719,39 @@ impl MapEditor {
             return;
         }
         let Some(t) = &mut self.terrain else { return };
+        // Apply every sub-dab, then upload what changed once.
+        let (mut rows, mut wrows, mut look, mut any) = (None::<(usize, usize)>, None::<(usize, usize)>, false, false);
+        let join = |acc: &mut Option<(usize, usize)>, (r0, r1): (usize, usize)| *acc = Some(acc.map_or((r0, r1), |(a, b)| (a.min(r0), b.max(r1))));
         for st in dabs {
-            let rows = Self::apply_stroke_to(t, self.look_base.as_ref(), &mut self.weights_now, self.color_now.as_mut(), &st);
-            if let Some(r) = &mut self.renderer {
-                match rows {
-                    Some((r0, r1)) => {
-                        r.update_terrain_rows(t, r0, r1);
-                        if t.water.is_some() {
-                            r.update_water(t); // its depth follows the ground
-                        }
-                    }
-                    None if st.layer == brush::WATER => r.update_water(t),
-                    None => r.update_look_maps(&self.weights_now, self.color_now.as_deref()),
+            let (changed, r) = Self::apply_stroke_to(t, self.look_base.as_ref(), &mut self.weights_now, self.color_now.as_mut(), &st, brush::MIN_METRES);
+            if !changed {
+                continue; // a dab that does nothing is not kept
+            }
+            if let Some(r) = r {
+                // a height dab moves the depth of the water above it too
+                join(&mut wrows, r);
+                if st.layer == brush::HEIGHT {
+                    join(&mut rows, r);
                 }
             }
-            self.edits.strokes.push(st);
+            look |= st.layer != brush::HEIGHT && st.layer != brush::WATER;
+            brush::record(&mut self.edits.strokes, st);
+            any = true;
         }
-        self.touched();
+        if let Some(r) = &mut self.renderer {
+            if let Some((r0, r1)) = rows {
+                r.update_terrain_rows(t, r0, r1);
+            }
+            if let (Some((r0, r1)), Some(_)) = (wrows, &t.water) {
+                r.update_water_rows(t, r0, r1);
+            }
+            if look {
+                r.update_look_maps(&self.weights_now, self.color_now.as_deref());
+            }
+        }
+        if any {
+            self.touched();
+        }
     }
 
     // ---- recipe: spots and the run preview --------------------------------------------
@@ -3868,11 +4059,17 @@ impl MapEditor {
         let pointer = resp.hover_pos().or(ctx.input(|i| i.pointer.latest_pos()));
         let ground_at = |terrain: Option<&Terrain>, p: egui::Pos2| -> Option<Vec3> {
             let (o, d) = ray_at(p);
-            terrain.and_then(|t| t.raycast(o, d, 9000.0)).or_else(|| (d.y < -1e-4).then(|| o + d * ((cam.target.y - o.y) / d.y)))
+            terrain.and_then(|t| t.raycast(o, d, 9000.0)).or_else(|| (d.y < -1e-4).then(|| off_map_ground(terrain, o, d, cam.target.y)))
         };
         let hover_ground = pointer.filter(|p| rect.contains(*p)).and_then(|p| ground_at(self.terrain.as_ref(), p));
         if let (Some(entity), Some(g)) = (resp.dnd_release_payload::<String>().filter(|e| !e.starts_with("folder:")), hover_ground) {
-            self.place(&ctx, (*entity).clone(), g);
+            match entity.strip_prefix(MULTI) {
+                Some(list) => {
+                    let all: Vec<String> = list.lines().map(str::to_owned).collect();
+                    self.place_many(&ctx, &all, g);
+                }
+                None => self.place(&ctx, (*entity).clone(), g),
+            }
         }
         // The object under a still cursor, named beside it (re-picked only when the cursor moves).
         let idle = self.modal.is_none() && self.tool == Tool::Select && self.box_start.is_none() && !ctx.input(|i| i.pointer.any_down());
@@ -3974,6 +4171,7 @@ impl MapEditor {
             }
             if mv != Vec3::ZERO {
                 self.camera.fly(mv.normalize() * speed);
+                self.flew |= fly;
             }
         }
         if self.camera != before {
@@ -4051,8 +4249,7 @@ impl MapEditor {
                             self.status = format!("Layer: painting a flat terrace at {:.1} m", self.brush.level);
                         }
                     }
-                    let spacing = (self.brush.radius * 0.3).max(0.25);
-                    if self.last_dab.is_none_or(|l| (l - g).with_y(0.0).length() >= spacing) {
+                    if self.last_dab.is_none_or(|l| (l - g).with_y(0.0).length() >= self.brush.spacing()) {
                         self.dab(g, cmd_key, shift);
                         self.last_dab = Some(g);
                     }
@@ -4167,17 +4364,12 @@ impl MapEditor {
                     ui.label(egui::RichText::new("Drag to paint, Ctrl+drag to erase, Esc to stop").weak());
                 });
         }
-        // Box select.
+        // Box select (drawn over the Scene image, which is painted further down).
+        let mut box_rect = None;
         if let Some(b0) = self.box_start {
             if let Some(p) = pointer {
                 let r = egui::Rect::from_two_pos(b0, p);
-                ui.painter().rect(
-                    r,
-                    0.0,
-                    ui.visuals().selection.bg_fill.gamma_multiply(0.1),
-                    egui::Stroke::new(1.0, ui.visuals().selection.bg_fill),
-                    egui::StrokeKind::Inside,
-                );
+                box_rect = Some(r);
                 if !ctx.input(|i| i.pointer.primary_down()) {
                     self.box_start = None;
                     if let Some(s) = &self.scenery {
@@ -4328,7 +4520,11 @@ impl MapEditor {
                 }
             }
         }
-        if alt && resp.secondary_clicked() && self.modal.is_none() {
+        // Releasing the right button after flying is not a right-click.
+        let after_fly = !ctx.input(|i| i.pointer.secondary_down()) && std::mem::take(&mut self.flew);
+        if after_fly {
+            // swallow this release
+        } else if alt && resp.secondary_clicked() && self.modal.is_none() {
             if let Some(p) = resp.interact_pointer_pos() {
                 let (o, d) = ray_at(p);
                 let all = self.pick_all(o, d);
@@ -4569,6 +4765,10 @@ let lights_now = self.lights_near(self.camera.target);
         }
         self.frame_ms = self.frame_ms * 0.9 + t0.elapsed().as_secs_f32() * 1000.0 * 0.1;
         ui.painter().image(tex, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+        if let Some(r) = box_rect {
+            let c = ui.visuals().selection.bg_fill;
+            ui.painter_at(rect).rect(r, 0.0, c.gamma_multiply(0.15), egui::Stroke::new(1.5, c), egui::StrokeKind::Inside);
+        }
         if let (Some((sr, st)), Some(sc)) = (side_tex, side_cam) {
             let p = ui.painter_at(sr);
             p.image(st, sr, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
@@ -4977,6 +5177,13 @@ let lights_now = self.lights_near(self.camera.target);
             return;
         }
         let rmb = ctx.input(|i| i.pointer.secondary_down());
+        let fly_keys = ctx.input(|i| [egui::Key::W, egui::Key::A, egui::Key::S, egui::Key::D, egui::Key::Q, egui::Key::E].iter().any(|k| i.key_down(*k)));
+        if rmb && fly_keys {
+            self.fly_hold = true;
+        } else if !fly_keys {
+            self.fly_hold = false;
+        }
+        let flying = rmb || self.fly_hold;
         // egui-winit turns Ctrl+C / X / V into clipboard events and drops the
         // key press; Paste only comes when the system clipboard holds
         // something (Copy below puts a line there for that).
@@ -5006,6 +5213,8 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Cmd::Redo)
         } else if cmd && p(egui::Key::Z) {
             Some(Cmd::Undo)
+        } else if flying {
+            None // flying (right button + WASD / Q / E): no shortcut, no Duplicate on Shift+D
         } else if (copy_k || cut_k) && ctx.plugin::<egui::text_selection::LabelSelectionState>().lock().has_selection() {
             None // text is selected: egui copies it, the objects stay put
         } else if copy_k {
@@ -5030,8 +5239,6 @@ let lights_now = self.lights_near(self.camera.target);
                 self.left_tab = LeftTab::Terrain;
             }
             None
-        } else if rmb {
-            None // right button held: WASD / Q / E fly the camera
         } else if alt && p(egui::Key::A) {
             Some(Cmd::DeselectAll)
         } else if p(egui::Key::A) && !cmd && !self.sel.is_empty() && self.sel.len() == self.all_objects().len() {
@@ -5469,11 +5676,16 @@ let lights_now = self.lights_near(self.camera.target);
                 if ui.small_button("Expand").on_hover_text("Open the top sections").clicked() {
                     self.tree_open = Some(true);
                 }
-                if !self.sel.is_empty() {
-                    ui.label(egui::RichText::new(format!("{} selected", self.sel.len())).small().color(ui.visuals().selection.bg_fill));
-                }
             });
         });
+        if !self.sel.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("{} selected", self.sel.len())).small().strong());
+                if ui.small_button("Clear").on_hover_text("Deselect all (Esc)").clicked() {
+                    self.select_only([]);
+                }
+            });
+        }
         self.ui_outliner(ui);
         self.tree_open = None;
     }
@@ -5556,7 +5768,9 @@ let lights_now = self.lights_near(self.camera.target);
                 });
                 egui::ScrollArea::vertical().id_salt("console").stick_to_bottom(true).auto_shrink(false).show(ui, |ui| {
                     for l in self.backend.log.lock().unwrap().iter() {
-                        ui.monospace(l);
+                        let bad = l.contains("[error]") || l.contains("Traceback") || l.contains("Error:") || l.contains("error:");
+                        let t = egui::RichText::new(l).monospace();
+                        ui.label(if bad { t.color(egui::Color32::LIGHT_RED) } else { t });
                     }
                     for l in &self.failed_assets {
                         ui.colored_label(egui::Color32::LIGHT_RED, l);
@@ -7331,7 +7545,19 @@ let lights_now = self.lights_near(self.camera.target);
         let mut rename: Option<String> = None;
         let mut delete_dir: Option<String> = None;
         let mut pick: Option<(String, bool)> = None;
-        let mut remove: Option<usize> = None;
+        let mut remove: Vec<String> = Vec::new();
+        // Items in the order shown (Shift + click ranges), and bulk menu picks.
+        let mut order: Vec<String> = Vec::new();
+        let mut place_all = false;
+        let mut clear_multi = false;
+        let multi = self.asset_multi.clone();
+        let bundle = |e: &str| -> String {
+            if multi.len() > 1 && multi.contains(e) {
+                format!("{MULTI}{}", multi.iter().cloned().collect::<Vec<_>>().join("\n"))
+            } else {
+                e.to_owned()
+            }
+        };
         let mut import = false;
         let mut want: Vec<String> = Vec::new();
         let tile = self.tile_size;
@@ -7401,6 +7627,13 @@ let lights_now = self.lights_near(self.camera.target);
                 ui.separator();
                 let f = self.prop_filter.to_lowercase();
                 let searching = !f.is_empty();
+                if ui.ui_contains_pointer() && !ui.ctx().egui_wants_keyboard_input() {
+                    let (all, esc) = ui.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::A), i.key_pressed(egui::Key::Escape)));
+                    if all {
+                        pick = Some((String::new(), false)); // marker: select every shown item, below
+                    }
+                    clear_multi |= esc;
+                }
                 if ui.ui_contains_pointer() {
                     // Ctrl + wheel arrives as egui's zoom gesture.
                     let z = ui.input(|i| i.zoom_delta());
@@ -7425,12 +7658,13 @@ let lights_now = self.lights_near(self.camera.target);
                         }
                         // The mod's own models, each in its folder.
                         if searching || P::art_dir(&self.project_dir).is_some() {
-                            for (i, m) in self.models.iter_mut().enumerate() {
+                            for m in self.models.iter_mut() {
                                 if if searching { !m.name().to_lowercase().contains(&f) } else { P::folder_of_art(&m.mesh.rel) != self.project_dir } {
                                     continue;
                                 }
                                 let entity = m.entity();
-                                let on = self.asset_sel.as_ref() == Some(&entity);
+                                order.push(entity.clone());
+                                let on = self.asset_sel.as_ref() == Some(&entity) || multi.contains(&entity);
                                 let size = m.hi - m.lo;
                                 let tip = format!(
                                     "{}\n{:.1} × {:.1} × {:.1} m · {}{}\nDrag into the scene to place it. Double-click to preview. Right-click for options.",
@@ -7445,11 +7679,15 @@ let lights_now = self.lights_near(self.camera.target);
                                 if !self.thumbs.contains_key(&entity) && ui.is_rect_visible(r.rect) {
                                     want.push(entity.clone());
                                 }
-                                r.dnd_set_drag_payload(entity.clone());
+                                r.dnd_set_drag_payload(bundle(&entity));
                                 if r.clicked() || r.double_clicked() {
                                     pick = Some((entity.clone(), r.double_clicked()));
                                 }
                                 r.context_menu(|ui| {
+                                    if bulk_menu(ui, &multi, &entity, &mut place_all, &mut clear_multi) && ui.button(format!("Remove the {} models from the mod", multi.iter().filter(|e| e.starts_with(crate::models::PREFIX)).count())).clicked() {
+                                        remove.extend(multi.iter().filter(|e| e.starts_with(crate::models::PREFIX)).cloned());
+                                        ui.close();
+                                    }
                                     if ui.button("Scatter paint").clicked() {
                                         scatter = Some(entity.clone());
                                         ui.close();
@@ -7472,7 +7710,7 @@ let lights_now = self.lights_near(self.camera.target);
                                     }
                                     ui.checkbox(&mut m.solid, "Solid (heroes cannot walk through)");
                                     if ui.button("Remove from the mod").clicked() {
-                                        remove = Some(i);
+                                        remove.push(entity.clone());
                                         ui.close();
                                     }
                                 });
@@ -7493,18 +7731,20 @@ let lights_now = self.lights_near(self.camera.target);
                             if shown > 600 {
                                 break;
                             }
-                            let on = self.asset_sel.as_ref() == Some(&p.entity);
+                            order.push(p.entity.clone());
+                            let on = self.asset_sel.as_ref() == Some(&p.entity) || multi.contains(&p.entity);
                             let icon = if p.scenery { TileIcon::Prop } else { TileIcon::Gameplay };
                             let tip = format!("{}\nDrag into the scene to place it. Double-click to preview.", p.entity);
                             let r = project_tile(ui, &p.name, icon, on, &tip, tile, self.thumbs.get(&p.entity).copied());
                             if !self.thumbs.contains_key(&p.entity) && ui.is_rect_visible(r.rect) {
                                 want.push(p.entity.clone());
                             }
-                            r.dnd_set_drag_payload(p.entity.clone());
+                            r.dnd_set_drag_payload(bundle(&p.entity));
                             if r.clicked() || r.double_clicked() {
                                 pick = Some((p.entity.clone(), r.double_clicked()));
                             }
                             r.context_menu(|ui| {
+                                bulk_menu(ui, &multi, &p.entity, &mut place_all, &mut clear_multi);
                                 if ui.button("Scatter paint").clicked() {
                                     scatter = Some(p.entity.clone());
                                     ui.close();
@@ -7599,7 +7839,11 @@ let lights_now = self.lights_near(self.camera.target);
             }
         }
         if let Some((e, d)) = move_to {
-            if let Some(from) = e.strip_prefix("folder:") {
+            if let Some(list) = e.strip_prefix(MULTI) {
+                let models: Vec<&str> = list.lines().filter(|x| x.starts_with(crate::models::PREFIX)).collect();
+                let errs: Vec<String> = models.iter().filter_map(|m| self.move_model(m, &d).err()).collect();
+                self.status = if errs.is_empty() { format!("Moved {} models to {d}", models.len()) } else { errs.join("; ") };
+            } else if let Some(from) = e.strip_prefix("folder:") {
                 // A folder dragged onto another.
                 let to = format!("{d}/{}", P::leaf(from));
                 if let Err(err) = self.rename_folder(from, &to) {
@@ -7612,7 +7856,8 @@ let lights_now = self.lights_near(self.camera.target);
             }
         }
         self.ui_folder_rename(ui.ctx());
-        if let Some(i) = remove {
+        for e in remove {
+            let Some(i) = self.models.iter().position(|m| m.entity() == e) else { continue };
             // Its placed copies go too (one undo step); its files leave the mod on save.
             let m = self.models.remove(i);
             let e = m.entity();
@@ -7630,6 +7875,7 @@ let lights_now = self.lights_near(self.camera.target);
             }
             self.templates.remove(&e);
             self.thumbs.remove(&e);
+            self.asset_multi.remove(&e);
             if self.asset_sel.as_ref() == Some(&e) {
                 self.asset_sel = None;
             }
@@ -7639,14 +7885,51 @@ let lights_now = self.lights_near(self.camera.target);
             self.unsaved = true;
             self.status = format!("Removed {} from the mod{}; Save deletes its files", m.name(), if placed > 0 { format!(" and {placed} placed copy(s)") } else { String::new() });
         }
+        if clear_multi {
+            self.asset_multi.clear();
+        }
+        if place_all {
+            let at = self.cursor.unwrap_or(self.camera.target);
+            let all: Vec<String> = self.asset_multi.iter().cloned().collect();
+            self.place_many(ui.ctx(), &all, at);
+        }
         if let Some((e, dbl)) = pick {
             let ctx = ui.ctx().clone();
-            self.ensure_template(&ctx, &e);
-            if dbl {
-                self.preview = Some((e.clone(), 0.65, 0.35));
-                self.preview_tex = None;
+            let (ctrl, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+            if e.is_empty() {
+                // Ctrl+A: everything shown
+                self.asset_multi = order.iter().cloned().collect();
+                self.status = format!("{} items selected in the Project", self.asset_multi.len());
+            } else {
+                self.ensure_template(&ctx, &e);
+                if dbl {
+                    self.preview = Some((e.clone(), 0.65, 0.35));
+                    self.preview_tex = None;
+                }
+                let anchor = self.asset_sel.as_ref().and_then(|a| order.iter().position(|x| x == a));
+                match (shift, anchor, order.iter().position(|x| *x == e)) {
+                    (true, Some(a), Some(b)) => {
+                        if !ctrl {
+                            self.asset_multi.clear();
+                        }
+                        self.asset_multi.extend(order[a.min(b)..=a.max(b)].iter().cloned());
+                        // the anchor stays put, so the next Shift + click grows from it
+                    }
+                    _ if ctrl => {
+                        if let Some(a) = self.asset_sel.clone().filter(|_| self.asset_multi.is_empty()) {
+                            self.asset_multi.insert(a); // the single pick joins the set
+                        }
+                        if !self.asset_multi.remove(&e) {
+                            self.asset_multi.insert(e.clone());
+                        }
+                        self.asset_sel = Some(e);
+                    }
+                    _ => {
+                        self.asset_multi = [e.clone()].into();
+                        self.asset_sel = Some(e);
+                    }
+                }
             }
-            self.asset_sel = Some(e);
         }
         self.ui_preview(ui.ctx());
     }
@@ -8510,7 +8793,7 @@ let lights_now = self.lights_near(self.camera.target);
             .map(|a| a.rel.as_str())
             .collect();
         if !waiting.is_empty() {
-            self.status = format!("Still importing {}: try again in a moment", waiting.join(", "));
+            self.save_fail(format!("Still importing {}: try again in a moment", waiting.join(", ")));
             return;
         }
         let saving = kind == Pending::Save;
@@ -8525,31 +8808,45 @@ let lights_now = self.lights_near(self.camera.target);
                             self.staged.insert(MINIMAP_ART.to_owned(), id);
                         }
                         Err(e) => {
-                            self.status = format!("Minimap: {e:#}");
+                            self.save_fail(format!("Minimap upload failed: {e:#}"));
                             return;
                         }
                     }
                 }
                 _ => {
-                    self.status = "This chapter has no minimap rectangle to draw (still loading?)".into();
+                    self.save_fail("This chapter has no minimap rectangle to draw (still loading?), or untick \"Redraw the in-game minimap\"".into());
                     return;
                 }
             }
         }
         let (b, target) = if self.tile.is_some() {
-            let Some((b, notes)) = self.tile_body(saving) else { return };
+            let Some((b, notes)) = self.tile_body(saving) else {
+                self.save_fail("Nothing to save yet: the tile is still loading".into());
+                return;
+            };
             if !notes.is_empty() {
                 self.failed_assets.extend(notes);
             }
             (b, if saving { "/map/api/t3/save" } else { "/map/api/t3/check" })
         } else {
             if self.edits.strokes.len() > 20000 {
-                self.status = format!("{} brush dabs: the map kind takes at most 20000 — undo some, or use a bigger brush", self.edits.strokes.len());
+                self.save_fail(format!("{} brush dabs: the map kind takes at most 20000 — undo some, or use a bigger brush", self.edits.strokes.len()));
                 return;
             }
-            let Some(b) = self.save_body(saving) else { return };
+            let Some(b) = self.save_body(saving) else {
+                self.save_fail("Nothing to save yet: the chapter is still loading".into());
+                return;
+            };
             (b, if saving { "/map/api/save" } else { "/map/api/check" })
         };
+        self.log(format!(
+            "{} → {target}: {} scenery edit(s), {} brush dab(s), {} blocked cell(s), {} KB",
+            if saving { "Save" } else { "Check" },
+            self.edits.scenery_count(),
+            self.edits.strokes.len(),
+            self.edits.blocked.len(),
+            b.to_string().len() / 1024
+        ));
         match self.backend.send("POST", target, Some(&b)) {
             Ok(rx) => {
                 self.pending = Some((kind, rx));
@@ -8559,7 +8856,7 @@ let lights_now = self.lights_near(self.camera.target);
                 }
                 self.status = if saving { "Saving…".into() } else { "Checking…".into() };
             }
-            Err(e) => self.status = format!("{e:#}"),
+            Err(e) => self.save_fail(format!("{} failed: {e:#}", if saving { "Save" } else { "Check" })),
         }
     }
 
@@ -8604,9 +8901,13 @@ let lights_now = self.lights_near(self.camera.target);
                     }
                 }
                 Some(Err(e)) => {
-                    ui.colored_label(egui::Color32::LIGHT_RED, e.to_string());
+                    let e = e.to_string();
+                    egui::ScrollArea::vertical().id_salt("save_err").max_height(160.0).show(ui, |ui| {
+                        ui.add(egui::Label::new(egui::RichText::new(&e).color(egui::Color32::LIGHT_RED).monospace()).selectable(true).wrap());
+                    });
                     if ui.small_button("Copy error").clicked() {
-                        ui.ctx().copy_text(e.to_string());
+                        ui.ctx().copy_text(e);
+                        self.status = "Error copied".into();
                     }
                 }
                 None => {}
@@ -8764,7 +9065,7 @@ let lights_now = self.lights_near(self.camera.target);
     /// The chapter's light, read from its day-cycle manager and fog settings.
     fn ui_env(&mut self, ui: &mut egui::Ui) {
         let e = &mut self.env;
-        ui.label(egui::RichText::new("The chapter's own daytime light. Change it to compare with the game; it is not saved.").small().weak());
+        ui.label(egui::RichText::new("The chapter's own daytime light. Your changes are kept for this chapter in the editor (not in the mod).").small().weak());
         let color = |ui: &mut egui::Ui, label: &str, c: &mut [f32; 3]| {
             ui.horizontal(|ui| {
                 ui.color_edit_button_rgb(c);
@@ -8846,7 +9147,10 @@ let lights_now = self.lights_near(self.camera.target);
                 ui.label(format!("loading {} assets", self.pending_assets));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(&self.status);
+                let r = ui.add(egui::Label::new(&self.status).truncate().sense(egui::Sense::click())).on_hover_text("Click to copy · every message is in the Console");
+                if r.clicked() {
+                    ui.ctx().copy_text(self.status.clone());
+                }
             });
         });
     }
@@ -8876,6 +9180,14 @@ impl eframe::App for MapEditor {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Every status message lands in the Console too, so none is lost.
+        if self.status != self.last_status {
+            if !self.status.is_empty() {
+                self.log(&self.status);
+            }
+            self.last_status = self.status.clone();
+        }
+        self.persist_prefs();
         self.text_copy_menu(&ctx);
         // Window title: what is open, and a dot while there is unsaved work.
         let title = {
@@ -9399,6 +9711,21 @@ fn box_lines(out: &mut Vec<LineVertex>, m: Mat4, lo: Vec3, hi: Vec3, col: [f32; 
 }
 
 /// A circle lying on the ground.
+/// Where a ray that misses the ground meets it past the map's edge: the plane
+/// at the nearest edge's height, so a brush dragged over the edge carries on
+/// outward instead of jumping back onto the map (a plane at the camera's
+/// height lands nearer the camera wherever the edge is lower).
+fn off_map_ground(terrain: Option<&Terrain>, o: Vec3, d: Vec3, y0: f32) -> Vec3 {
+    let plane = |y: f32| o + d * ((y - o.y) / d.y);
+    let mut p = plane(y0);
+    if let Some(t) = terrain {
+        for _ in 0..4 {
+            p = plane(t.height_clamped(p.x, p.z));
+        }
+    }
+    p
+}
+
 fn ring(out: &mut Vec<LineVertex>, c: Vec3, r: f32, col: [f32; 4], ground: impl Fn(f32, f32) -> Option<f32>) {
     const N: usize = 48;
     let at = |k: usize| {
@@ -9442,6 +9769,9 @@ fn folder_glyph(p: &egui::Painter, r: egui::Rect) {
 
 /// One Project tile: an icon over the name, Unity's grid view.
 /// What the Project panel's folder rows / tiles asked for this frame.
+/// Drag payload prefix for several Project items at once (one entity per line).
+const MULTI: &str = "multi:";
+
 #[derive(Default)]
 struct FolderActs {
     move_to: Option<(String, String)>,
@@ -9461,6 +9791,29 @@ impl FolderActs {
 
 /// A folder row or tile: drop a model (or a folder) on it to move it there;
 /// right-click for New folder / Rename / Delete (folders in Assets only).
+/// The bulk part of a Project tile's right-click menu, when it is one of
+/// several picked items. Returns whether it showed (the caller may add more).
+fn bulk_menu(ui: &mut egui::Ui, multi: &BTreeSet<String>, e: &str, place: &mut bool, clear: &mut bool) -> bool {
+    if multi.len() < 2 || !multi.contains(e) {
+        return false;
+    }
+    ui.label(egui::RichText::new(format!("{} selected", multi.len())).strong());
+    if ui.button(format!("Place all {} at the cursor", multi.len())).clicked() {
+        *place = true;
+        ui.close();
+    }
+    if ui.button("Copy their paths").clicked() {
+        ui.ctx().copy_text(multi.iter().cloned().collect::<Vec<_>>().join("\n"));
+        ui.close();
+    }
+    if ui.button("Clear the selection").clicked() {
+        *clear = true;
+        ui.close();
+    }
+    ui.separator();
+    true
+}
+
 fn folder_actions(r: &egui::Response, dir: &str, act: &mut FolderActs) {
     use crate::project as P;
     if P::art_dir(dir).is_none() {
@@ -9470,12 +9823,13 @@ fn folder_actions(r: &egui::Response, dir: &str, act: &mut FolderActs) {
     if dir != P::ASSETS {
         r.dnd_set_drag_payload(format!("folder:{dir}"));
     }
+    let movable = |e: &str| e.starts_with(crate::models::PREFIX) || e.starts_with("folder:") || e.starts_with(MULTI);
     if let Some(e) = r.dnd_release_payload::<String>() {
-        if e.starts_with(crate::models::PREFIX) || e.starts_with("folder:") {
+        if movable(&e) {
             act.move_to = Some(((*e).clone(), dir.to_owned()));
         }
     }
-    if r.dnd_hover_payload::<String>().is_some_and(|e| e.starts_with(crate::models::PREFIX) || e.starts_with("folder:")) {
+    if r.dnd_hover_payload::<String>().is_some_and(|e| movable(&e)) {
         r.ctx.debug_painter().rect_stroke(r.rect, 4.0, egui::Stroke::new(2.0, r.ctx.global_style().visuals.selection.bg_fill), egui::StrokeKind::Outside);
     }
     r.context_menu(|ui| {
@@ -9565,6 +9919,18 @@ fn pretty_tile(name: &str) -> String {
 #[cfg(test)]
 mod gizmo_tests {
     use super::*;
+
+    #[test]
+    fn past_the_edge_the_brush_keeps_going_outward() {
+        // 100 m map whose ground sits at -10; camera height plane at 0.
+        let mut t = Terrain::flat(50.0);
+        t.h.fill(-10.0);
+        let o = Vec3::new(0.0, 40.0, 0.0);
+        let d = (Vec3::new(70.0, -10.0, 0.0) - o).normalize(); // aims 20 m past the +x edge
+        assert!(t.raycast(o, d, 9000.0).is_none());
+        let p = off_map_ground(Some(&t), o, d, 0.0);
+        assert!((p.x - 70.0).abs() < 0.5 && (p.y + 10.0).abs() < 1e-3, "{p}");
+    }
 
     #[test]
     fn axis_drag_follows_the_ray() {
