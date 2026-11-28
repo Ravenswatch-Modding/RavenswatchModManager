@@ -33,11 +33,17 @@ MAX_BODY = 1 << 20
 #: ... and for a file sent whole (a route ending in /api/upload): a body .glb
 #: with its textures runs to tens of MB, and base64 adds a third.
 MAX_UPLOAD = 96 << 20
+#: ... and for a map save / check: up to maps.MAX_STROKES brush dabs at
+#: ~110 bytes each, plus every scenery edit.
+MAX_MAP = 16 << 20
 
 
 def body_limit(target: str) -> int:
     """The largest POST body ``target`` takes."""
-    return MAX_UPLOAD if urlparse(target).path.endswith("/api/upload") else MAX_BODY
+    path = urlparse(target).path
+    if path.endswith("/api/upload"):
+        return MAX_UPLOAD
+    return MAX_MAP if path.startswith("/map/api/") else MAX_BODY
 
 #: Shell tab -> (label, frame URL). Items and Talents are one page on two tabs.
 TABS = {

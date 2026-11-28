@@ -180,7 +180,8 @@ pub struct Renderer {
     terrain_pipe: wgpu::RenderPipeline,
     mesh_pipe: wgpu::RenderPipeline,
     /// Terrain and mesh drawn as lines (`None`: the GPU cannot).
-    wire: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
+    /// The meshes' wireframe overlay (the dense ground grid stays solid).
+    wire: Option<wgpu::RenderPipeline>,
     decal_pipe: wgpu::RenderPipeline,
     vfx_pipe: wgpu::RenderPipeline,
     line_pipe: wgpu::RenderPipeline,
@@ -649,9 +650,9 @@ impl Renderer {
         };
         let mesh_pipeline_vs = |label: &str, vs: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| mesh_pipeline_poly(label, vs, fs, blend, write, wgpu::PolygonMode::Fill);
         // Wireframe view: only where the GPU draws polygons as lines (not GL).
-        let wire = d.features().contains(wgpu::Features::POLYGON_MODE_LINE).then(|| {
-            (terrain_pipeline(wgpu::PolygonMode::Line), mesh_pipeline_poly("mesh wire", "vs_mesh", "fs_mesh", None, true, wgpu::PolygonMode::Line))
-        });
+        // One flat colour over the solid pass, depth tested (hidden edges stay
+        // hidden) and nudged toward the camera (write = false adds the bias).
+        let wire = d.features().contains(wgpu::Features::POLYGON_MODE_LINE).then(|| mesh_pipeline_poly("mesh wire", "vs_mesh", "fs_wire", Some(wgpu::BlendState::ALPHA_BLENDING), false, wgpu::PolygonMode::Line));
         let mesh_pipeline = |label: &str, fs: &str, blend: Option<wgpu::BlendState>, write: bool| mesh_pipeline_vs(label, "vs_mesh", fs, blend, write);
         let mesh_pipe = mesh_pipeline("mesh", "fs_mesh", None, true);
         // Effects glow: added onto what is behind them, never hiding it.
@@ -1435,29 +1436,29 @@ impl Renderer {
                 multiview_mask: None,
             });
             rp.set_bind_group(0, &self.globals_bg, &[]);
+            let wire = self.wire.as_ref().filter(|_| f.view_mode == ViewMode::Wireframe);
             if let (Some((vb, ib, n)), false) = (&self.terrain, f.no_terrain) {
-                rp.set_pipeline(match (&self.wire, f.view_mode) {
-                    (Some((t, _)), ViewMode::Wireframe) => t,
-                    _ => &self.terrain_pipe,
-                });
                 rp.set_bind_group(1, &self.terrain_bg, &[]);
                 rp.set_vertex_buffer(0, vb.slice(..));
                 rp.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                rp.set_pipeline(&self.terrain_pipe);
                 rp.draw_indexed(0..*n, 0, 0..1);
             }
             if let Some(ibuf) = &self.instance_buf {
-                for pass in [0u8, 1, 2] {
+                // Pass 3: the wireframe overlay on the solid meshes (kind 0).
+                for pass in [0u8, 3, 1, 2] {
                     rp.set_pipeline(match pass {
-                        0 => match (&self.wire, f.view_mode) {
-                            (Some((_, m)), ViewMode::Wireframe) => m,
-                            _ => &self.mesh_pipe,
+                        0 => &self.mesh_pipe,
+                        3 => match wire {
+                            Some(m) => m,
+                            None => continue,
                         },
                         1 => &self.decal_pipe,
                         _ => &self.vfx_pipe,
                     });
                     rp.set_vertex_buffer(1, ibuf.slice(..));
                     for &(pi, first, count, kind) in &draws {
-                        if kind != pass {
+                        if kind != pass % 3 {
                             continue;
                         }
                         let key = f.parts[pi].key;

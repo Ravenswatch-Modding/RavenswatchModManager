@@ -88,12 +88,13 @@ fn shade(albedo_in: vec3<f32>, n_in: vec3<f32>, wp: vec3<f32>) -> vec3<f32> {
     var n = normalize(n_in);
     // Meshes are drawn double-sided with unknown winding: light the side we see.
     if (dot(n, to_eye) < 0.0) { n = -n; }
-    // View modes (render::ViewMode): 1 unshaded, 2 lighting only, 3 normals.
+    // View modes (render::ViewMode): 1 unshaded, 2 lighting only, 3 normals,
+    // 4 wireframe (grey like lighting only, the edges drawn over it).
     let mode = i32(g.light_info.y);
     if (mode == 1) { return albedo_in; }
     if (mode == 3) { return n * 0.5 + 0.5; }
     var albedo = albedo_in;
-    if (mode == 2) { albedo = vec3<f32>(0.6); }
+    if (mode == 2 || mode == 4) { albedo = vec3<f32>(0.6); }
     let l = normalize(g.sun_dir.xyz);
     // Lambert: albedo / pi per unit of sun intensity, as a PBR light is.
     var direct = g.sun_color.rgb * (max(dot(n, l), 0.0) * sunlit(wp, n) / 3.14159);
@@ -479,4 +480,11 @@ fn vs_shadow_mesh(
 ) -> @builtin(position) vec4<f32> {
     let m = mat4x4<f32>(m0, m1, m2, m3);
     return g.light_vp * (m * vec4<f32>(pos, 1.0));
+}
+
+// Wireframe overlay (render::ViewMode::Wireframe): every edge in one colour,
+// see-through so a far-off dense prop reads as shaded, not a black blob.
+@fragment
+fn fs_wire() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.06, 0.07, 0.09, 0.45);
 }

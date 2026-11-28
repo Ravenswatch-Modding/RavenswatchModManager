@@ -107,6 +107,17 @@ def test_find_repo_root_frozen_fallback_without_asset_map(monkeypatch, tmp_path)
     assert root.is_dir()
 
 
+def test_frozen_mods_dir_outlives_the_process(monkeypatch, tmp_path):
+    # Onefile: REPO_ROOT is a per-process _MEIPASS. A mod saved by
+    # `rsmm editor --stdio` must be where a later `rsmm enable` looks.
+    from rsmm.engine import paths as paths_mod
+    monkeypatch.delenv("RSMM_MODS_DIR", raising=False)
+    monkeypatch.setattr(paths_mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(paths_mod.sys, "platform", "linux")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert paths_mod.mods_dir() == tmp_path / ".local/share/rsmm/mods/profiles/default"
+
+
 def test_mods_dir_env_override(monkeypatch, tmp_path):
     from rsmm.engine.paths import mods_dir
     target = tmp_path / "custom-mods"

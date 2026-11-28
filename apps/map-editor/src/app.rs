@@ -59,6 +59,8 @@ pub struct Options {
     pub icon_sheet: bool,
     /// Start in the split view (with `ui_snapshot`, to check it).
     pub split: bool,
+    /// `--display <mode>`: start in this View > Display mode (label, any case).
+    pub display: Option<String>,
     /// Start with this gizmo: move, rotate or scale.
     pub gizmo: Option<String>,
     /// Open a pool tile in the POI editor, edit it, run the tile check, quit.
@@ -507,6 +509,9 @@ pub struct MapEditor {
     groups: Vec<(String, Vec<Sel>)>,
     /// Copied objects: entity, level, transform relative to their centre, own collision.
     clipboard: Vec<(String, String, Xf, Option<crate::edit::Add>)>,
+    /// Copied tile spots: group, offset from the copy's pivot (height above
+    /// the ground) and the kinds each allows.
+    spot_clip: Vec<(String, Vec3, BTreeMap<String, bool>)>,
     /// Inspector: a copied transform row (location 0, rotation 1, scale 2).
     xf_clip: Option<(usize, Xf)>,
     /// Inspector name field: one undo step per rename.
@@ -760,6 +765,7 @@ impl MapEditor {
             locked: HashSet::new(),
             groups: Vec::new(),
             clipboard: Vec::new(),
+            spot_clip: Vec::new(),
             xf_clip: None,
             renaming_inspector: false,
             tool: Tool::Select,
@@ -844,7 +850,7 @@ impl MapEditor {
             grid_size: prefs.grid_size.unwrap_or(1.0),
             rot_step: prefs.rot_step.unwrap_or(15.0),
             scale_step: prefs.scale_step.unwrap_or(0.1),
-            view_mode: Default::default(),
+            view_mode: opts.display.as_deref().and_then(|d| crate::render::ViewMode::ALL.into_iter().find(|m| m.label().eq_ignore_ascii_case(d))).unwrap_or_default(),
             split: opts.split,
             side_zoom: 2.5,
             snap_ground: true,
@@ -1402,7 +1408,13 @@ impl MapEditor {
                         .filter_map(|c| c.as_str().map(str::to_owned))
                         .collect();
                     if saving {
-                        self.status = format!("Saved {}", body["path"].as_str().unwrap_or("the mod"));
+                        // The backend names it under `mods/`; show where that is on disk.
+                        let rel = body["path"].as_str().unwrap_or("the mod");
+                        let at = match (self.backend.hello["mods_dir"].as_str(), rel.strip_prefix("mods/")) {
+                            (Some(dir), Some(r)) => std::path::Path::new(dir).join(r).display().to_string(),
+                            _ => rel.to_owned(),
+                        };
+                        self.status = format!("Saved {at}");
                         self.saved_next = body["next"].as_str().map(str::to_owned);
                         let id = self.mod_id.clone();
                         self.remember_recent(&id);
@@ -2081,6 +2093,63 @@ impl MapEditor {
             );
         }
         n
+    }
+
+    /// Something on the system clipboard, or Ctrl+V never reaches the app.
+    fn mark_clipboard(&self, ctx: &egui::Context) {
+        if !self.clip_empty() && !self.headless() {
+            ctx.copy_text(format!("{} map editor object(s)", self.clipboard.len() + self.spot_clip.len()));
+        }
+    }
+
+    fn clip_empty(&self) -> bool {
+        self.clipboard.is_empty() && self.spot_clip.is_empty()
+    }
+
+    /// The selected tile spots into `spot_clip` (whole-map slots stay put).
+    fn copy_spots(&mut self) {
+        let (Some(p), Some(s)) = (self.pivot(), &self.scenery) else { return };
+        self.spot_clip = self
+            .sel
+            .iter()
+            .filter_map(|x| match x {
+                Sel::Spot(id) => self.edits.spot(s, *id).filter(|sp| !sp.whole_map),
+                _ => None,
+            })
+            .map(|sp| {
+                let lift = sp.pos.y - self.ground_y(sp.pos.x, sp.pos.z).unwrap_or(sp.pos.y);
+                (sp.group, Vec3::new(sp.pos.x - p.x, lift, sp.pos.z - p.z), sp.allow)
+            })
+            .collect();
+        if !self.spot_clip.is_empty() {
+            self.status = format!("Copied {} object(s), {} spot(s)", self.clipboard.len(), self.spot_clip.len());
+        }
+    }
+
+    /// Paste objects and spots at `at`, selecting what was pasted.
+    fn paste_all(&mut self, ctx: &egui::Context, at: Vec3) -> usize {
+        let items = self.clipboard.clone();
+        let n = self.paste_items(ctx, items, at);
+        if self.spot_clip.is_empty() {
+            return n;
+        }
+        let spots: Vec<_> = self
+            .spot_clip
+            .iter()
+            .map(|(g, off, allow)| {
+                let (x, z) = (at.x + off.x, at.z + off.z);
+                (g.clone(), Vec3::new(x, self.ground_y(x, z).unwrap_or(at.y) + off.y, z), allow.clone())
+            })
+            .collect();
+        let mut new = Vec::new();
+        self.change(|e, _| new.extend(spots.into_iter().map(|(g, pos, allow)| e.add_spot(g, pos, allow))));
+        if n == 0 {
+            self.sel.clear();
+        }
+        self.active = new.last().copied().or(self.active);
+        self.sel.extend(new.iter().copied());
+        self.dirty = true;
+        n + new.len()
     }
 
     fn copy_selection(&mut self) {
@@ -2915,15 +2984,20 @@ impl MapEditor {
             Cmd::Check => self.submit(Pending::Check),
             Cmd::Undo => self.undo(),
             Cmd::Redo => self.redo(),
-            Cmd::Copy => self.copy_selection(),
+            Cmd::Copy => {
+                self.copy_selection();
+                self.copy_spots();
+                self.mark_clipboard(ctx);
+            }
             Cmd::Cut => {
                 self.copy_selection();
+                self.copy_spots();
+                self.mark_clipboard(ctx);
                 self.run(ctx, Cmd::Delete);
             }
             Cmd::Paste => {
-                let at = self.cursor.or_else(|| Some(self.camera.target)).unwrap();
-                let items = self.clipboard.clone();
-                let n = self.paste_items(ctx, items, at);
+                let at = self.cursor.unwrap_or(self.camera.target);
+                let n = self.paste_all(ctx, at);
                 if n > 0 {
                     self.status = format!("Pasted {n} object(s): move the mouse, click to drop");
                     if !self.headless() {
@@ -2935,8 +3009,8 @@ impl MapEditor {
             Cmd::Duplicate => {
                 let Some(p) = self.pivot() else { return };
                 self.copy_selection();
-                let items = self.clipboard.clone();
-                if self.paste_items(ctx, items, p + Vec3::new(1.0, 0.0, 1.0)) > 0 {
+                self.copy_spots();
+                if self.paste_all(ctx, p + Vec3::new(1.0, 0.0, 1.0)) > 0 {
                     // Blender: the copy follows the mouse until a click.
                     self.begin(ctx, Kind::Grab, false);
                 }
@@ -3884,17 +3958,11 @@ impl MapEditor {
                         _ if in_gizmo_zone(p) => {
                             self.status = "Missed the handle: drag an arrow, a ring or the centre".into();
                         }
-                        // Dragging something else selects it; it moves on the next drag
-                        // (or with G / the gizmo), so a stray drag never moves a neighbour.
-                        Some(h) => {
-                            if shift {
-                                self.sel.insert(h);
-                                self.active = Some(h);
-                            } else {
-                                self.select_only([h]);
-                            }
-                        }
-                        None => self.box_start = Some(p),
+                        // Dragging from anything else draws a selection box (Unity):
+                        // on a full map the ground tiles are under every pixel, so
+                        // a box that only started on empty space never started.
+                        // A stray drag still never moves a neighbour.
+                        _ => self.box_start = Some(p),
                     }
                 }
             }
@@ -4751,10 +4819,12 @@ let lights_now = self.lights_near(self.camera.target);
         // Clipped: the camera's footprint runs far past the box near the horizon.
         let p = ui.painter().with_clip_rect(r.expand(3.0));
         p.rect_filled(r.expand(3.0), 4.0, egui::Color32::from_black_alpha(160));
-        p.image(tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-        // World (x, z) -> minimap; rows run along +Z downward in the texture.
+        // Seen from above like the Top view: +X right, +Z UP. Texture rows run
+        // along +Z, so the picture is flipped; unflipped it was a mirror image
+        // and every turn of the camera went the other way.
+        p.image(tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 1.0), egui::pos2(1.0, 0.0)), egui::Color32::WHITE);
         let to_mm = |x: f32, z: f32| {
-            egui::pos2(r.left() + (x - t.min.x) / (t.max.x - t.min.x) * r.width(), r.top() + (z - t.min.z) / (t.max.z - t.min.z) * r.height())
+            egui::pos2(r.left() + (x - t.min.x) / (t.max.x - t.min.x) * r.width(), r.bottom() - (z - t.min.z) / (t.max.z - t.min.z) * r.height())
         };
         if let Some(s) = &self.scenery {
             for x in &self.sel {
@@ -4763,26 +4833,30 @@ let lights_now = self.lights_near(self.camera.target);
                 }
             }
         }
-        // The camera's footprint: where the four screen corners hit the ground plane.
+        // The camera's footprint: where the four screen corners hit one fixed
+        // ground plane (not the target's height, which flying moves up and
+        // down), cut off past the map's far side where a corner sees the horizon.
         let cam = self.camera;
+        let diag = (t.max - t.min).with_y(0.0).length();
+        let far = (cam.eye() - (t.min + t.max) * 0.5).with_y(0.0).length() + diag;
+        let ground = (t.hmin + t.hmax) * 0.5;
         let corners: Vec<egui::Pos2> = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
             .iter()
-            .filter_map(|&(x, y)| {
+            .map(|&(x, y)| {
                 let (o, d) = cam.ray(x, y, aspect);
-                (d.y < -1e-3).then(|| {
-                    let q = o + d * ((cam.target.y - o.y) / d.y);
-                    to_mm(q.x, q.z)
-                })
+                let flat = d.with_y(0.0);
+                let reach = flat.length().max(1e-4);
+                let k = if d.y < -1e-4 { ((ground - o.y) / d.y).max(0.0) } else { f32::MAX };
+                let q = if k * reach > far { o + flat / reach * far } else { o + d * k };
+                to_mm(q.x, q.z)
             })
             .collect();
-        if corners.len() == 4 {
-            p.add(egui::Shape::closed_line(corners, egui::Stroke::new(1.5, egui::Color32::WHITE)));
-        }
+        p.add(egui::Shape::closed_line(corners, egui::Stroke::new(1.5, egui::Color32::WHITE)));
         p.circle_filled(to_mm(cam.target.x, cam.target.z), 3.0, egui::Color32::WHITE);
         if resp.clicked() || resp.dragged() {
             if let Some(q) = resp.interact_pointer_pos() {
                 let x = t.min.x + (q.x - r.left()) / r.width() * (t.max.x - t.min.x);
-                let z = t.min.z + (q.y - r.top()) / r.height() * (t.max.z - t.min.z);
+                let z = t.min.z + (r.bottom() - q.y) / r.height() * (t.max.z - t.min.z);
                 self.camera.target = Vec3::new(x, t.height_at(x, z).unwrap_or(self.camera.target.y), z);
             }
         }
@@ -4805,7 +4879,7 @@ let lights_now = self.lights_near(self.camera.target);
         item(ui, has, "Duplicate", "Shift+D", Cmd::Duplicate);
         item(ui, has, "Copy", "Ctrl+C", Cmd::Copy);
         item(ui, has, "Cut", "Ctrl+X", Cmd::Cut);
-        item(ui, !self.clipboard.is_empty(), "Paste here", "Ctrl+V", Cmd::Paste);
+        item(ui, !self.clip_empty(), "Paste here", "Ctrl+V", Cmd::Paste);
         item(ui, has, "Delete", "X", Cmd::Delete);
         ui.separator();
         item(ui, has, "Drop to ground", "End", Cmd::DropToGround);
@@ -4831,6 +4905,13 @@ let lights_now = self.lights_near(self.camera.target);
             return;
         }
         let rmb = ctx.input(|i| i.pointer.secondary_down());
+        // egui-winit turns Ctrl+C / X / V into clipboard events and drops the
+        // key press; Paste only comes when the system clipboard holds
+        // something (Copy below puts a line there for that).
+        let ev = |f: fn(&egui::Event) -> bool| ctx.input(|i| i.events.iter().any(f));
+        let copy_k = cmd && p(egui::Key::C) || ev(|e| matches!(e, egui::Event::Copy));
+        let cut_k = cmd && p(egui::Key::X) || ev(|e| matches!(e, egui::Event::Cut));
+        let paste_k = cmd && p(egui::Key::V) || ev(|e| matches!(e, egui::Event::Paste(_) | egui::Event::PasteImage(_)));
         if self.pick_list.is_some() && p(egui::Key::Escape) {
             self.pick_list = None; // Esc closes the Alt+right-click list, nothing else
             return;
@@ -4853,13 +4934,13 @@ let lights_now = self.lights_near(self.camera.target);
             Some(Cmd::Redo)
         } else if cmd && p(egui::Key::Z) {
             Some(Cmd::Undo)
-        } else if cmd && (p(egui::Key::C) || p(egui::Key::X)) && ctx.plugin::<egui::text_selection::LabelSelectionState>().lock().has_selection() {
+        } else if (copy_k || cut_k) && ctx.plugin::<egui::text_selection::LabelSelectionState>().lock().has_selection() {
             None // text is selected: egui copies it, the objects stay put
-        } else if cmd && p(egui::Key::C) {
+        } else if copy_k {
             Some(Cmd::Copy)
-        } else if cmd && p(egui::Key::X) {
+        } else if cut_k {
             Some(Cmd::Cut)
-        } else if cmd && p(egui::Key::V) {
+        } else if paste_k {
             Some(Cmd::Paste)
         } else if cmd && p(egui::Key::D) || shift && p(egui::Key::D) {
             Some(Cmd::Duplicate)
@@ -5104,7 +5185,9 @@ let lights_now = self.lights_near(self.camera.target);
                 item(ui, "Unlock all", "Alt+L", Cmd::UnlockAll);
                 item(ui, "Group", "Ctrl+G", Cmd::Group);
             });
-            ui.menu_button("View", |ui| {
+            // Checkboxes, sliders and typed values: stay open until a click outside.
+            let keep_open = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+            egui::containers::menu::MenuButton::new("View").config(keep_open).ui(ui, |ui| {
                 item(ui, "Frame whole map", "Home", Cmd::FrameAll);
                 item(ui, "Frame selection", "F", Cmd::FrameSelected);
                 ui.separator();
@@ -5494,7 +5577,7 @@ let lights_now = self.lights_near(self.camera.target);
                 });
             }
         }
-        if ui.add_enabled(!self.clipboard.is_empty(), egui::Button::new("Paste at cursor")).clicked() {
+        if ui.add_enabled(!self.clip_empty(), egui::Button::new("Paste at cursor")).clicked() {
             let ctx = ui.ctx().clone();
             self.run(&ctx, Cmd::Paste);
             ui.close();
@@ -6179,10 +6262,16 @@ let lights_now = self.lights_near(self.camera.target);
         self.playing = true;
         self.status = format!("Play in game: applying {id} and starting Ravenswatch…");
         let (cmd, tx, ctx) = (self.backend.cmd.clone(), self.events_tx.clone(), ctx.clone());
+        // The folder the backend saved into: enable / run must look there too.
+        let mods_dir = self.backend.hello["mods_dir"].as_str().map(str::to_owned);
         thread::spawn(move || {
             let rsmm = |args: &[&str]| -> Result<String, String> {
                 let (prog, pre) = cmd.split_first().ok_or("no rsmm command")?;
-                let out = std::process::Command::new(prog).args(pre).args(args).output().map_err(|e| format!("rsmm {}: {e}", args[0]))?;
+                let mut c = std::process::Command::new(prog);
+                if let Some(d) = &mods_dir {
+                    c.env("RSMM_MODS_DIR", d);
+                }
+                let out = c.args(pre).args(args).output().map_err(|e| format!("rsmm {}: {e}", args[0]))?;
                 let text = String::from_utf8_lossy(if out.status.success() { &out.stdout } else { &out.stderr }).trim().to_owned();
                 let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_owned();
                 if out.status.success() { Ok(last) } else { Err(format!("rsmm {}: {}", args[0], if last.is_empty() { out.status.to_string() } else { last })) }
@@ -6261,7 +6350,7 @@ let lights_now = self.lights_near(self.camera.target);
         item(ui, one_add, "Rename", "F2", Cmd::Rename);
         item(ui, has, "Duplicate", "Shift+D", Cmd::Duplicate);
         item(ui, has, "Copy", "Ctrl+C", Cmd::Copy);
-        item(ui, !self.clipboard.is_empty(), "Paste", "Ctrl+V", Cmd::Paste);
+        item(ui, !self.clip_empty(), "Paste", "Ctrl+V", Cmd::Paste);
         item(ui, has, "Delete", "Del", Cmd::Delete);
         ui.separator();
         item(ui, has, "Frame selected", "F", Cmd::FrameSelected);
@@ -8848,7 +8937,7 @@ fn view_name(c: &Camera) -> &'static str {
 }
 
 /// The ground as the in-game minimap picture: `size` pixels across `rect`
-/// (x0, z0, width, depth), row 0 at z0 like the editor's own minimap.
+/// (x0, z0, width, depth), row 0 at z0.
 /// ponytail: height colours and water only (no props); in-game orientation unproven.
 /// The invisible box a click on an effect hits.
 const VFX_PICK: &str = "vfx:pick";

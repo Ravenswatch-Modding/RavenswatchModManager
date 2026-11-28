@@ -49,6 +49,7 @@ fn main() -> eframe::Result<()> {
             "--select" => opts.select = args.next(),
             "--icon-sheet" => opts.icon_sheet = true,
             "--split" => opts.split = true,
+            "--display" => opts.display = args.next(),
             "--gizmo" => opts.gizmo = args.next(),
             "--ui-click" => {
                 if let Some([x, y]) = args.next().and_then(|v| v.split_once(',').and_then(|(a, b)| Some([a.trim().parse().ok()?, b.trim().parse().ok()?]))) {

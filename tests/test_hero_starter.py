@@ -59,6 +59,8 @@ def test_the_body_cap_is_raised_for_uploads_only():
     from rsmm.cli.editor import app
     assert app.body_limit("/hero/api/upload") == app.MAX_UPLOAD > app.MAX_BODY
     assert app.body_limit("/hero/api/save") == app.MAX_BODY
+    # A map save carries up to 20000 brush dabs (~2 MB).
+    assert app.body_limit("/map/api/save") == app.MAX_MAP > 3 << 20
 
 
 def test_each_button_gets_a_move_named_for_it():
