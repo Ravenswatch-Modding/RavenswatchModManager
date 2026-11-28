@@ -44,6 +44,8 @@ pub struct Options {
     /// Make a few scenery edits, run them through /map/api/check, print the
     /// answer and quit (exercises the whole edit -> save document path).
     pub self_check: bool,
+    /// With `tile_check`: go through File > New tile (an emptied tile) instead.
+    pub new_tile: bool,
     /// Snapshot camera: target x, z and distance (else the whole map).
     pub view: Option<[f32; 3]>,
     /// Screenshot the whole window (UI included) once loaded, then quit.
@@ -141,6 +143,8 @@ struct TileSession {
     /// `(entity, pos in tile space, rot, scale)` as the game ships them.
     objects: Vec<(String, Vec3, Quat, Vec3)>,
     built: bool,
+    /// A blank tile: nothing of its base kept; its kinds and ground height.
+    blank: Option<(Vec<String>, f32)>,
 }
 
 /// Tool::Place prefix for a saved prefab.
@@ -519,6 +523,12 @@ pub struct MapEditor {
     guides: std::cell::RefCell<Vec<(Vec3, Vec3)>>,
     /// The ruler: first point, then the second (None while picking it).
     measure: Option<(Vec3, Option<Vec3>)>,
+    /// File > New tile: the tile opened as the base, emptied once it is built.
+    new_tile_pending: Option<(String, Option<(Vec<String>, f32)>)>,
+    /// Tiles tab > New tile: the size and kind picked.
+    new_tile_size: Option<i64>,
+    new_tile_kind: String,
+    new_tile_height: f32,
     /// Save selection as prefab: the name being typed.
     prefab_name: Option<String>,
     /// Object > Array…
@@ -696,6 +706,10 @@ impl MapEditor {
             measure: None,
             show_array: false,
             prefab_name: None,
+            new_tile_pending: None,
+            new_tile_size: None,
+            new_tile_kind: String::new(),
+            new_tile_height: 0.0,
             array_count: 5,
             array_step: Vec3::new(4.0, 0.0, 0.0),
             array_yaw: 0.0,
@@ -1001,6 +1015,8 @@ impl MapEditor {
             edits.load_objects(&o);
         }
         self.export_minimap = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("minimap")).is_some();
+        // The previous mod's surface overrides are not this one's.
+        self.surfaces.clear();
         if let Some(sf) = self.keep_map.as_mut().and_then(|m| m.as_object_mut()).and_then(|m| m.remove("surfaces")) {
             let folder = std::path::PathBuf::from(doc["folder"].as_str().unwrap_or_default());
             for (slot, rel) in sf.as_object().into_iter().flatten() {
@@ -1014,8 +1030,8 @@ impl MapEditor {
                     Err(e) => self.failed_assets.push(format!("{rel}: {e}")),
                 }
             }
-            self.refresh_look();
         }
+        self.refresh_look();
         if let Some(m) = &self.keep_map {
             self.as_map = true;
             self.map_id = m["id"].as_str().unwrap_or_default().to_owned();
@@ -1232,6 +1248,8 @@ impl MapEditor {
                         let ch = doc["chapter"].as_str().unwrap_or_default().to_owned();
                         self.mod_id = id.clone();
                         self.remember_recent(&id);
+                        // A map mod applies to the map session, never a tile tab.
+                        self.switch_tab(0);
                         if self.chapter.as_deref() != Some(&ch) || self.scenery.is_none() {
                             self.open_chapter(ctx, ch);
                             self.mod_id = id;
@@ -1388,6 +1406,10 @@ impl MapEditor {
                 if self.scenery.is_none() || self.terrain.is_none() {
                     return;
                 }
+                if self.opts.new_tile {
+                    let kind = self.pool.iter().find(|x| x.path == t).and_then(|x| x.flags.first().cloned()).unwrap_or_default();
+                    self.new_tile_pending = Some((t.clone(), Some((vec![kind], 1.0))));
+                }
                 self.enter_tile(ctx, t, Vec3::new(10.0, 0.0, 10.0));
             }
             Some(ts) if !(ts.built && !self.props.is_empty() && self.pending_assets == 0) => {
@@ -1402,6 +1424,18 @@ impl MapEditor {
                 let n = self.scenery.as_ref().map(|s| s.obj_xf.len()).unwrap_or(0);
                 println!("tile-check: {} objects in {}", n, ts.tile);
                 let xf0 = self.scenery.as_ref().map(|s| s.obj_xf[0]);
+                if self.opts.new_tile {
+                    // File > New tile: emptied on build; add one prop and check.
+                    let removed = self.edits.removed.len();
+                    assert!(removed > 0 && self.new_tile_pending.is_none(), "a new tile starts empty");
+                    if let (Some(p), Some(x)) = (self.props.first().map(|p| p.entity.clone()), xf0) {
+                        self.place(ctx, p, x.pos);
+                    }
+                    assert!(self.tile.as_ref().is_some_and(|t| t.blank.is_some()), "a blank tile");
+                    println!("new-tile: {removed} objects removed; body {}", self.tile_body(false).map(|b| b.0.to_string()).unwrap_or_default().chars().take(300).collect::<String>());
+                    self.submit(Pending::Check);
+                    return;
+                }
                 if let Some(x) = xf0 {
                     // Moved, turned and resized: the move carries all three.
                     self.set_many(vec![(Sel::Obj(0), Xf { pos: x.pos + Vec3::new(1.0, 0.0, 0.0), rot: Quat::from_rotation_x(0.3) * x.rot, scale: x.scale * 1.5 })]);
@@ -1589,6 +1623,22 @@ impl MapEditor {
             recipe: Value::Object(self.edits.recipe_doc(s, &self.shipped_kinds())),
             strokes: serde_json::to_value(&self.edits.strokes).unwrap_or_default(),
             blocked: self.edits.blocked.iter().copied().collect(),
+            models: Value::Array(
+                self.models
+                    .iter()
+                    .map(|m| {
+                        let mut o = json!({"model": m.mesh.rel, "file": m.mesh.file});
+                        if let Some(t) = &m.texture {
+                            o["texture"] = json!(t.rel);
+                            o["texture_file"] = json!(t.file);
+                        }
+                        if m.solid {
+                            o["collision"] = json!(true);
+                        }
+                        o
+                    })
+                    .collect(),
+            ),
         };
         match session::save_autosave(&a) {
             Ok(()) => self.status = "Autosaved".into(),
@@ -1597,6 +1647,11 @@ impl MapEditor {
     }
 
     fn restore(&mut self, ctx: &egui::Context, a: Autosave) {
+        if self.scenery.is_none() {
+            return;
+        }
+        // Imported models first: recovered `model:` adds need them registered.
+        self.register_mod_models(&a.models, std::path::Path::new(""));
         let Some(s) = &self.scenery else { return };
         let (mut edits, _) = Edits::from_doc(&a.scenery, s);
         let kinds = self.shipped_kinds();
@@ -2267,7 +2322,7 @@ impl MapEditor {
             result: None,
             terrain: None,
             camera: Camera { pitch: 0.85, ..Camera::default() },
-            tile: Some(TileSession { tile: tile.clone(), origin: Vec3::ZERO, objects: Vec::new(), built: false }),
+            tile: Some(TileSession { tile: tile.clone(), origin: Vec3::ZERO, objects: Vec::new(), built: false, blank: None }),
         });
         self.switch_tab(i);
         self.status = format!("Opening tile {name}…");
@@ -2368,6 +2423,7 @@ impl MapEditor {
         if let Some(ts) = &mut self.tile {
             ts.built = true;
         }
+        let fresh = self.new_tile_pending.as_ref().is_some_and(|(p, _)| p == &tile_path);
         self.stage_ground();
         self.camera.target = center.with_y(0.0);
         self.camera.pitch = 0.85;
@@ -2375,6 +2431,46 @@ impl MapEditor {
         self.left_tab = LeftTab::Inspector;
         self.dirty = true;
         self.status = format!("Tile {}: {count} objects", tile_name(&tile_path));
+        if fresh {
+            // New tile: start it empty (blank: nothing of the base at all).
+            let blank = self.new_tile_pending.take().and_then(|(_, b)| b);
+            if let (Some(b), Some(ts)) = (blank.clone(), self.tile.as_mut()) {
+                ts.blank = Some(b);
+            }
+            self.empty_tile();
+        }
+    }
+
+    /// Open tile `path` and empty it (once built; at once if already open).
+    fn start_new_tile(&mut self, ctx: &egui::Context, path: String, blank: Option<(Vec<String>, f32)>) {
+        let open = self.tabs.iter().any(|t| t.tile.as_deref() == Some(path.as_str()));
+        self.new_tile_pending = (!open).then(|| (path.clone(), blank.clone()));
+        self.enter_tile(ctx, path, Vec3::ZERO);
+        if open && self.tile.as_ref().is_some_and(|t| t.built) {
+            if let Some(ts) = self.tile.as_mut() {
+                ts.blank = blank;
+            }
+            self.empty_tile();
+        }
+    }
+
+    /// Remove every object of the open tile but what `clear` keeps (one undo
+    /// step): a tile from scratch, saved as an own copy with `clear = true`.
+    fn empty_tile(&mut self) {
+        let gone: Vec<usize> = self
+            .tile
+            .as_ref()
+            .map(|ts| (0..ts.objects.len()).filter(|&i| ts.blank.is_some() || !TILE_CLEAR_KEEP.iter().any(|k| ts.objects[i].0.contains(k))).collect())
+            .unwrap_or_default();
+        let n = gone.len();
+        self.change(|e, _| {
+            for i in gone {
+                e.moves.remove(&i);
+                e.removed.insert(i);
+            }
+        });
+        self.prune_selection();
+        self.status = format!("Empty tile: {n} objects removed (Ctrl+Z brings them back). Build it, then File > Save As");
     }
 
     /// Close tab `i` (never the map).
@@ -2433,7 +2529,15 @@ impl MapEditor {
         let cleared = ts.objects.len() > 1 && (0..ts.objects.len()).all(|i| self.edits.removed.contains(&i) || TILE_CLEAR_KEEP.iter().any(|k| ts.objects[i].0.contains(k)));
         let own = !moves.is_empty() || !removes.is_empty();
         let mut b = json!({"tile": ts.tile, "places": places, "own": own});
-        if own {
+        if let Some((kinds, h)) = &ts.blank {
+            // A blank tile: everything of the base goes, its own kinds and ground.
+            b["own"] = json!(true);
+            b["copies"] = json!(1);
+            b["blank"] = json!({"kinds": kinds, "height": h});
+            b["clear"] = json!(false);
+            b["remove"] = json!([]);
+            b["move"] = Value::Array(moves);
+        } else if own {
             b["copies"] = json!(1);
             b["clear"] = json!(cleared);
             b["remove"] = if cleared { json!([]) } else { Value::Array(removes) };
@@ -4206,6 +4310,7 @@ let lights_now = self.lights_near(self.camera.target);
         let mut open_chapter: Option<String> = None;
         let mut open_blank: Option<(String, f32)> = None;
         let mut open_mod: Option<String> = None;
+        let mut new_tile: Option<String> = None;
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut egui::Ui, label: &str, key: &str, c: Cmd| {
                 if ui.add(egui::Button::new(label).shortcut_text(key)).clicked() {
@@ -4235,6 +4340,36 @@ let lights_now = self.lights_near(self.camera.target);
                         }
                     }
                 });
+                ui.add_enabled_ui(!self.pool.is_empty() && self.tile.is_none(), |ui| {
+                    ui.menu_button("New tile…", |ui| {
+                        ui.label(egui::RichText::new("An empty tile of this size and kind: build it, then Save As. It spawns where the run puts that kind.").small().weak());
+                        let mut sizes: Vec<i64> = self.pool.iter().map(|t| t.width).collect();
+                        sizes.sort_unstable();
+                        sizes.dedup();
+                        for w in sizes {
+                            ui.menu_button(format!("{w} × {w} m"), |ui| {
+                                // One base per kind: the most common tile of that size and kind.
+                                let mut kinds: std::collections::BTreeMap<String, (String, f32)> = std::collections::BTreeMap::new();
+                                for t in self.pool.iter().filter(|t| t.width == w) {
+                                    for f in &t.flags {
+                                        let e = kinds.entry(f.clone()).or_insert((t.path.clone(), t.pick_weight));
+                                        if t.pick_weight > e.1 {
+                                            *e = (t.path.clone(), t.pick_weight);
+                                        }
+                                    }
+                                }
+                                for (kind, (path, _)) in kinds {
+                                    if ui.button(kind.replace('_', " ")).on_hover_text(format!("Starts from {}", tile_name(&path))).clicked() {
+                                        new_tile = Some(path);
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        }
+                    });
+                })
+                .response
+                .on_disabled_hover_text("Open a chapter's map first (the map tab)");
                 ui.menu_button("Open mod", |ui| {
                     if self.editor_mods.is_empty() {
                         ui.label("No map-editor mods yet");
@@ -4422,6 +4557,9 @@ let lights_now = self.lights_near(self.camera.target);
             self.open_chapter(&ctx, k);
             self.restore_offer = None;
             self.status = "New map: a copy of this chapter. Edit, then File > Save As".into();
+        }
+        if let Some(t) = new_tile {
+            self.start_new_tile(&ctx, t, None);
         }
         if let Some(id) = open_mod {
             if self.unsaved {
@@ -5210,7 +5348,7 @@ let lights_now = self.lights_near(self.camera.target);
             let r = Quat::from_rotation_y((self.array_yaw * k as f32).to_radians());
             let off = self.array_step * k as f32;
             for (e, l, x, src) in &items {
-                let pos = off + r * x.pos.with_y(0.0) + Vec3::Y * (x.pos.y + self.array_step.y * k as f32);
+                let pos = off + r * x.pos.with_y(0.0) + Vec3::Y * x.pos.y;
                 all.push((e.clone(), l.clone(), Xf { pos, rot: r * x.rot, ..*x }, src.clone()));
             }
         }
@@ -5253,7 +5391,8 @@ let lights_now = self.lights_near(self.camera.target);
         use crate::models::{read_glb, Art, Model};
         for o in objects.as_array().into_iter().flatten() {
             let Some(rel) = o["model"].as_str() else { continue };
-            let file = folder.join(rel);
+            // An autosave names the source files outright.
+            let file = o["file"].as_str().map_or_else(|| folder.join(rel), std::path::PathBuf::from);
             if self.models.iter().any(|m| m.mesh.rel == rel && m.mesh.file == file) {
                 continue;
             }
@@ -5264,7 +5403,10 @@ let lights_now = self.lights_near(self.camera.target);
             self.templates.remove(&format!("{}{rel}", crate::models::PREFIX));
             match read_glb(&file) {
                 Ok((bytes, lo, hi)) => {
-                    let texture = o["texture"].as_str().map(|t| Art { rel: t.to_owned(), file: folder.join(t) });
+                    let texture = o["texture"].as_str().map(|t| Art {
+                        rel: t.to_owned(),
+                        file: o["texture_file"].as_str().map_or_else(|| folder.join(t), std::path::PathBuf::from),
+                    });
                     if let Some(t) = &texture {
                         if let Ok(b) = std::fs::read(&t.file) {
                             self.stage_now(t.rel.clone(), b);
@@ -5863,6 +6005,56 @@ let lights_now = self.lights_near(self.camera.target);
             ui.label("Loading the tile pool…");
             return;
         }
+        // A tile of your own: an emptied copy of the most common tile of a
+        // size and kind (the kind decides where the run spawns it).
+        let mut fresh: Option<(String, Option<(Vec<String>, f32)>)> = None;
+        egui::Frame::group(ui.style()).fill(ui.visuals().selection.bg_fill.gamma_multiply(0.15)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new("New tile").strong());
+            let mut sizes: Vec<i64> = self.pool.iter().map(|t| t.width).collect();
+            sizes.sort_unstable();
+            sizes.dedup();
+            let w = *self.new_tile_size.get_or_insert(sizes.first().copied().unwrap_or(40));
+            let mut kinds: std::collections::BTreeMap<String, (String, f32)> = std::collections::BTreeMap::new();
+            for t in self.pool.iter().filter(|t| t.width == w) {
+                for f in &t.flags {
+                    let e = kinds.entry(f.clone()).or_insert((t.path.clone(), t.pick_weight));
+                    if t.pick_weight > e.1 {
+                        *e = (t.path.clone(), t.pick_weight);
+                    }
+                }
+            }
+            if !kinds.contains_key(&self.new_tile_kind) {
+                self.new_tile_kind = kinds.keys().next().cloned().unwrap_or_default();
+            }
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("new_tile_size").selected_text(format!("{w} × {w} m")).show_ui(ui, |ui| {
+                    for sz in &sizes {
+                        ui.selectable_value(&mut self.new_tile_size, Some(*sz), format!("{sz} × {sz} m"));
+                    }
+                });
+                egui::ComboBox::from_id_salt("new_tile_kind").selected_text(self.new_tile_kind.replace('_', " ")).show_ui(ui, |ui| {
+                    for k in kinds.keys() {
+                        ui.selectable_value(&mut self.new_tile_kind, k.clone(), k.replace('_', " "));
+                    }
+                });
+            });
+            let base = kinds.get(&self.new_tile_kind).map(|b| b.0.clone());
+            if w >= 40 {
+                ui.add(egui::Slider::new(&mut self.new_tile_height, -20.0..=20.0).step_by(0.5).text("ground m"));
+            }
+            let ok = base.is_some() && self.tile.is_none();
+            ui.horizontal(|ui| {
+                if ui.add_enabled(ok, egui::Button::new("Create blank tile")).on_hover_text("Nothing of any shipped tile: no objects, no enemies, no invisible walls; flat ground (big tiles); this kind").clicked() {
+                    fresh = base.clone().map(|b| (b, Some((vec![self.new_tile_kind.clone()], self.new_tile_height))));
+                }
+                if ui.add_enabled(ok, egui::Button::new("Empty copy")).on_hover_text("The most common tile of this size and kind, emptied but for its enemies, camp reward and terrain shapes; its own ground").clicked() {
+                    fresh = base.clone().map(|b| (b, None));
+                }
+            });
+            ui.label(egui::RichText::new("Opens in a tab: build it, then Save As. The run spawns it where it puts that kind, beside the shipped tiles.").small().weak());
+        });
+        ui.add_space(6.0);
         ui.add(egui::TextEdit::singleline(&mut self.poi_filter).hint_text("Search tiles…").desired_width(f32::INFINITY));
         let mut sizes: Vec<i64> = self.pool.iter().map(|t| t.width).collect();
         sizes.sort_unstable();
@@ -5906,6 +6098,9 @@ let lights_now = self.lights_near(self.camera.target);
                                         if ui.button("Open").on_hover_text("Edit this tile in its own tab").clicked() {
                                             open = Some(t.path.clone());
                                         }
+                                        if ui.button("New from this").on_hover_text("An empty copy of this tile (same size, kind and ground) to build your own").clicked() {
+                                            fresh = Some((t.path.clone(), None));
+                                        }
                                     });
                                 });
                                 let mut info = t.flags.join(" · ");
@@ -5920,6 +6115,9 @@ let lights_now = self.lights_near(self.camera.target);
         });
         if let Some(path) = open {
             self.enter_tile(&ctx, path, Vec3::ZERO);
+        }
+        if let Some((path, blank)) = fresh {
+            self.start_new_tile(&ctx, path, blank);
         }
     }
 
@@ -6737,18 +6935,7 @@ let lights_now = self.lights_near(self.camera.target);
                         });
                     });
                     if empty_tile {
-                        let gone: Vec<usize> = self.tile.as_ref().map(|ts| {
-                            (0..ts.objects.len()).filter(|&i| !TILE_CLEAR_KEEP.iter().any(|k| ts.objects[i].0.contains(k))).collect()
-                        }).unwrap_or_default();
-                        let n = gone.len();
-                        self.change(|e, _| {
-                            for i in gone {
-                                e.moves.remove(&i);
-                                e.removed.insert(i);
-                            }
-                        });
-                        self.prune_selection();
-                        self.status = format!("Emptied the tile: {n} objects removed (Ctrl+Z brings them back)");
+                        self.empty_tile();
                     }
                     if exit {
                         if self.unsaved {

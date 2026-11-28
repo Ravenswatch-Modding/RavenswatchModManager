@@ -193,6 +193,8 @@ def read(level_bytes: bytes, names: set[str] | None = None) -> Terrain:
             name = p[8:8 + ln].decode("latin-1")
             if names is not None and name not in names:
                 continue
+            if name in layers:
+                continue        # a painted grid of the same name wins (see `fill`)
             cells = array.array("f", [struct.unpack_from("<f", p, _const_value_off(p, name))[0]])
             layers[name] = Layer(name, 1, "const", cells)
         elif cn in (FLOAT_LAYER, COLOR_LAYER):
@@ -395,6 +397,8 @@ def write(level_bytes: bytes, t: Terrain) -> bytes:
         if layer is None:
             continue
         if cn == CONST_LAYER:
+            if layer.kind == "float":
+                continue        # a constant beside the painted grid `read` kept
             if layer.kind != "const":
                 raise TerrainError(f"{name}: a constant layer in the level, {layer.kind} here")
             at = b + 4 + _const_value_off(p, name)

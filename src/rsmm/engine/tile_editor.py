@@ -96,6 +96,18 @@ def _name(ref: str) -> str:
     return ref.rsplit("\\", 1)[-1].removesuffix(".entity.ot")
 
 
+def has_own_ground(tile: str) -> bool:
+    """Does the tile's level carry a terrain of its own (big tiles, rooms)?
+    Small tiles stand on the chapter's ground instead."""
+    from . import terrain as TT
+
+    try:
+        TT.read(_level(tile)[1])
+    except (TT.TerrainError, TileEditError):
+        return False
+    return True
+
+
 def objects_json(tile: str) -> dict:
     """Every object the tile's level stands, in the level's own space (the
     space ``places`` positions are written in)."""
@@ -229,6 +241,19 @@ def clean_edit(edit) -> dict:
             raise TileEditError("add at least one object")
         return out
     out["copies"] = int(_num(edit.get("copies", 1), "copies", 1, 16))
+    blank = edit.get("blank")
+    if blank is not None:
+        # A blank tile: nothing of the donor's content, kind or ground shape.
+        if not isinstance(blank, dict) or set(blank) - {"kinds", "height"}:
+            raise TileEditError("blank is {kinds, height}")
+        kinds = blank.get("kinds")
+        if not isinstance(kinds, list) or not kinds or not all(
+                isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_]+", k) for k in kinds):
+            raise TileEditError("a blank tile needs its kinds (where the run may spawn it)")
+        height = _num(blank.get("height", 0.0), "blank height", -50.0, 50.0)
+        out["blank"] = {"kinds": list(kinds), "height": round(height, 3)}
+        out["clear"] = False                     # blank sinks everything itself
+        edit = {**edit, "clear": False, "remove": []}
     out["clear"] = bool(edit.get("clear"))
     out["remove"] = [] if out["clear"] else [
         _anchor(r, f"removed object {i + 1}") for i, r in enumerate(edit.get("remove") or [])]
@@ -240,7 +265,7 @@ def clean_edit(edit) -> dict:
                    for i, m in enumerate(edit.get("move") or [])]
     if len(out["remove"]) + len(out["move"]) > 512:
         raise TileEditError("at most 512 removed or moved objects per tile")
-    if not (places or out["clear"] or out["remove"] or out["move"]):
+    if not (places or out["clear"] or out["remove"] or out["move"] or out.get("blank")):
         raise TileEditError("nothing to save: add, remove or move an object")
     return out
 
@@ -253,7 +278,16 @@ def _fields(tile: str, edit: dict) -> dict:
     f = {"base": base_of(tile), "chapters": chapters}
     if edit["own"]:
         f.update(own_level=True, copies=edit["copies"])
-        if edit["clear"]:
+        if edit.get("blank"):
+            # Every placement and invisible wall sunk, its own kinds, flat ground.
+            b = edit["blank"]
+            f["clear"] = {"keep": [], "walls": True}
+            f["kinds"] = b["kinds"]
+            # Small tiles sit on the map's ground: only a tile with its own is flattened.
+            if has_own_ground(tile):
+                f["terrain"] = [{"op": "set", "layer": "Terrain Height", "x": 0.0, "z": 0.0,
+                                 "radius": 400.0, "amount": b["height"], "falloff": "constant"}]
+        elif edit["clear"]:
             f["clear"] = True
         elif edit["remove"]:
             f["clear"] = {"remove": edit["remove"]}
@@ -308,6 +342,16 @@ def poi_toml(tile: str, edit) -> str:
         ]
         if edit["clear"]:
             head.append("clear     = true   # every game object but spawners, reward, terrain")
+        if edit.get("blank"):
+            b = edit["blank"]
+            head += ["kinds     = [" + ", ".join(_q(k) for k in b["kinds"]) + "]",
+                     "# A blank tile: every object and invisible wall of the base sunk,",
+                     "# flat ground. Only the base's file structure is reused.",
+                     "", "[clear]", "keep  = []", "walls = true"]
+            if "terrain" in f:
+                head += ["", "[[terrain]]", 'op      = "set"', 'layer   = "Terrain Height"',
+                         "x       = 0", "z       = 0", "radius  = 400",
+                         f"amount  = {b['height']:g}", 'falloff = "constant"']
     else:
         head = [
             "# Objects added to a shipped tile by the rsmm 3D tile editor.",
@@ -373,8 +417,13 @@ def read_edit(text: str) -> tuple[str, dict]:
     biome, stem = base.split("/", 1)
     tile = f"Tiles\\{biome}\\{stem}.tiledef.ot"
     clear = data.get("clear")
+    blank = None
+    if isinstance(clear, dict) and clear.get("walls") is True and clear.get("keep") == []:
+        terrain = data.get("terrain") or [{}]
+        blank = {"kinds": data.get("kinds") or [], "height": terrain[0].get("amount", 0.0)}
     return tile, clean_edit({
         "own": own, "places": data.get("places") or [], "copies": data.get("copies", 1),
         "clear": clear is True,
-        "remove": clear.get("remove", []) if isinstance(clear, dict) else [],
-        "move": data.get("move") or []})
+        "remove": clear.get("remove", []) if isinstance(clear, dict) and not blank else [],
+        "move": data.get("move") or [],
+        **({"blank": blank} if blank else {})})

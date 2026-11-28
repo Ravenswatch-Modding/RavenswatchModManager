@@ -182,3 +182,24 @@ def test_places_and_moves_take_any_rotation_and_scale(tmp_path):
     moved = [p for p in emit(tile2, TE.clean_edit(mv), tmp_path / "b")
              if p.ref == o["entity"] and p.scale == pytest.approx((2, 2, 2))]
     assert moved and moved[0].quat == pytest.approx((0, h, 0, h), abs=1e-4)
+
+
+@needs_game
+def test_blank_tile_keeps_nothing_of_its_base(tmp_path):
+    """A blank tile: every placement sunk (enemies too), its own kinds, flat
+    ground; it reads back from its toml."""
+    from rsmm.engine import level_placements as LP
+    from rsmm.sdk.content import ContentDef
+    from rsmm.sdk.kinds import poi
+
+    tile = "Tiles\\Dark_Hills\\6x6_3Pigs_Material_Crates.tiledef.ot"
+    # a 6x6 tile stands on the map's ground: no height of its own to set
+    edit = {"own": True, "blank": {"kinds": ["Crystal"]},
+            "places": [{"entity": PROP, "pos": [0, 0, 0], "yaw": 0, "scale": 1}]}
+    assert TE.read_edit(TE.poi_toml(tile, edit)) == (tile, TE.clean_edit(edit))
+    fields = TE._fields(tile, TE.clean_edit(edit))
+    assert fields["kinds"] == ["Crystal"] and fields["clear"] == {"keep": [], "walls": True}
+    poi.emit("editor", ContentDef(kind="poi", id=TE.poi_id(tile), fields=fields), tmp_path)
+    standing = [p.ref for lv in tmp_path.rglob("*.level.ot.GameStream.gen")
+                for _i, p in LP.objects(lv.read_bytes()) if p.pos[1] > -500]
+    assert standing == [PROP]

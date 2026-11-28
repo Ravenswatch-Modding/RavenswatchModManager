@@ -263,6 +263,11 @@ def _as_map(body: dict) -> dict | None:
     if minimap is not None and not (isinstance(minimap, str) and ART_PATH.match(minimap)
                                     and minimap.endswith(".png")):
         raise Fail(400, "map.minimap: expected \"art/<name>.png\"")
+    tiling = m.get("tiling") or {}
+    if not isinstance(tiling, dict) or not all(
+            k in ("base", "R", "G", "B", "A") and isinstance(v, (int, float))
+            and not isinstance(v, bool) and 0.005 <= v <= 2.0 for k, v in tiling.items()):
+        raise Fail(400, "map.tiling: expected {layer: repeats per metre, 0.005 .. 2}")
     blank = m.get("blank")
     if blank is not None and (isinstance(blank, bool) or not isinstance(blank, (int, float))):
         raise Fail(400, "map.blank: expected the flat ground's height in metres")
@@ -272,6 +277,7 @@ def _as_map(body: dict) -> dict | None:
             **({"blank": float(blank)} if blank is not None else {}),
             **({"objects": objects} if objects else {}),
             **({"surfaces": dict(surfaces)} if surfaces else {}),
+            **({"tiling": {k: float(v) for k, v in tiling.items()}} if tiling else {}),
             **({"minimap": minimap} if minimap else {}),
             **({"scenery": _as_scenery({"scenery": m.get("scenery")})} if m.get("scenery") else {})}
 

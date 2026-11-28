@@ -38,6 +38,10 @@ pub struct Autosave {
     /// Painted blocked cells.
     #[serde(default)]
     pub blocked: Vec<(i32, i32)>,
+    /// Imported models (`register_mod_models` objects with absolute files),
+    /// so recovered `model:` adds can be rebuilt and staged.
+    #[serde(default)]
+    pub models: Value,
 }
 
 impl Autosave {

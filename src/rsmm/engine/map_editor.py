@@ -890,7 +890,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
     # Ground, objects and scenery a clone carries are loaded by every player
     # from their own copy, like scenery edits; only the recipe is the host's.
     own_levels = as_map is not None and any(
-        as_map.get(k) for k in ("terrain", "objects", "scenery", "surfaces", "minimap")) or (
+        as_map.get(k)
+        for k in ("terrain", "objects", "scenery", "surfaces", "tiling", "minimap")) or (
         as_map is not None and as_map.get("blank") is not None)
     if scenery or own_levels:
         lines += ["# Every player loads the chapter's scenery from their own copy, so",
@@ -930,6 +931,10 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         if as_map.get("surfaces"):
             inner = ", ".join(f"{k} = {_q(v)}" for k, v in sorted(as_map["surfaces"].items()))
             lines.append(f"surfaces = {{ {inner} }}")
+        if as_map.get("tiling"):
+            inner = ", ".join(f"{k} = {_val(float(v))}"
+                              for k, v in sorted(as_map["tiling"].items()))
+            lines.append(f"tiling  = {{ {inner} }}")
         for st in as_map.get("terrain") or []:
             lines += ["", "[[content.terrain]]"]
             lines += [f"{k} = {_q(v) if isinstance(v, str) else _val(v)}" for k, v in st.items()]
@@ -957,6 +962,8 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         **({"objects": list(as_map["objects"])} if as_map.get("objects") else {}),
         **({"scenery": dict(as_map["scenery"])} if as_map.get("scenery") else {}),
         **({"surfaces": dict(as_map["surfaces"])} if as_map.get("surfaces") else {}),
+        **({"tiling": {k: float(v) for k, v in as_map["tiling"].items()}}
+           if as_map.get("tiling") else {}),
         **({"minimap": as_map["minimap"]} if as_map.get("minimap") else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
@@ -1054,6 +1061,8 @@ def _read_first(data: dict) -> dict | None:
                             **({"objects": list(c["objects"])} if c.get("objects") else {}),
                             **({"scenery": dict(c["scenery"])} if c.get("scenery") else {}),
                             **({"surfaces": dict(c["surfaces"])} if c.get("surfaces") else {}),
+                            **({"tiling": {k: float(v) for k, v in c["tiling"].items()}}
+                               if c.get("tiling") else {}),
                             **({"minimap": c["minimap"]} if c.get("minimap") else {})}}
     return None
 

@@ -38,6 +38,10 @@ fn main() -> eframe::Result<()> {
             "--import" => opts.import.extend(args.next().map(Into::into)),
             "--project" => opts.project = args.next(),
             "--tile-check" => opts.tile_check = true,
+            "--new-tile" => {
+                opts.tile_check = true;
+                opts.new_tile = true;
+            }
             "--open-tile" => opts.open_tile = args.next(),
             "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),
             "--select" => opts.select = args.next(),

@@ -704,7 +704,7 @@ def test_a_terrain_layer_takes_the_mods_own_texture(editor, tmp_path):
             "art": {"art/terrain/moss.png": sid, "art/minimap.png": sid},
             "map": {"id": "Mossy", "play": True, "pool": {"add": [], "remove": []}, "place": {},
                     "terrain": [], "surfaces": {"R": "art/terrain/moss.png"},
-                    "minimap": "art/minimap.png"}}
+                    "tiling": {"base": 0.06}, "minimap": "art/minimap.png"}}
     code, out = call("/api/save", body, token=srv.token)
     assert code == 200, out
     assert "surfaces: layer R drawn with art/terrain/moss.png" in json.loads(out)["changes"]
@@ -712,6 +712,7 @@ def test_a_terrain_layer_takes_the_mods_own_texture(editor, tmp_path):
     got = json.loads(call("/api/mod?id=mossy")[1])
     assert got["map"]["surfaces"] == {"R": "art/terrain/moss.png"}
     assert got["map"]["minimap"] == "art/minimap.png"
+    assert got["map"]["tiling"] == {"base": 0.06}
     assert "minimap: art/minimap.png" in json.loads(out)["changes"]
     bad = {**body, "map": {**body["map"], "surfaces": {"R": "../x.png"}}}
     assert call("/api/save", bad, token=srv.token)[0] == 400
