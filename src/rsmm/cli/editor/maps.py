@@ -98,9 +98,18 @@ def _file(req: Request) -> Raw:
     if (not ctype or parts[0] not in FILE_ROOTS or len(parts) < 2 or "\\" in rel
             or any(s in ("", ".", "..") for s in parts)):
         raise Fail(404, "not found")
-    data = MS.asset_bytes(rel)
+    # Kept on disk across launches: without the dev mirror (every player's
+    # machine) each one is a cooked-file decode, ~550 of them per chapter.
+    # Not through app's one-at-a-time gate: these load in parallel.
+    from rsmm.cli.editor import diskcache
+    key = f"map/api/file?{rel}"
+    data = diskcache.get(key) if req.ctx.disk_cache else None
     if data is None:
-        raise Fail(404, "not found")
+        data = MS.asset_bytes(rel)
+        if data is None:
+            raise Fail(404, "not found")
+        if req.ctx.disk_cache:
+            diskcache.put(key, data)
     return Raw(data, ctype, cache=True)
 
 
