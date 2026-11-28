@@ -1,0 +1,200 @@
+//! What the editor keeps between runs: autosave (crash recovery), recent mods,
+//! and the author's view state (hidden / locked objects, groups).
+//!
+//! Stored under the OS config dir (`$XDG_CONFIG_HOME/rsmm-map-editor`,
+//! `%APPDATA%\rsmm-map-editor`). Nothing here is part of a mod: the mod is
+//! only what Save writes through the backend.
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct Group {
+    pub name: String,
+    /// `o<index>` for a shipped object, `a<uid>` for an added one.
+    pub members: Vec<String>,
+}
+
+/// One chapter's unsaved work, written every autosave tick while dirty.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct Autosave {
+    pub chapter: String,
+    pub mod_id: String,
+    pub mod_name: String,
+    pub saved_at: u64,
+    /// The `scenery` save document.
+    pub scenery: Value,
+    pub keep_edits: Value,
+    pub keep_map: Option<Value>,
+    pub hidden: Vec<String>,
+    pub locked: Vec<String>,
+    pub groups: Vec<Group>,
+    #[serde(default)]
+    pub recipe: Value,
+    #[serde(default)]
+    pub strokes: Value,
+    /// Painted blocked cells.
+    #[serde(default)]
+    pub blocked: Vec<(i32, i32)>,
+    /// Imported models (`register_mod_models` objects with absolute files),
+    /// so recovered `model:` adds can be rebuilt and staged.
+    #[serde(default)]
+    pub models: Value,
+}
+
+impl Autosave {
+    /// Anything worth offering back: scenery, groups, keep-edits, brush strokes or recipe changes.
+    pub fn has_edits(&self) -> bool {
+        let some = |v: &Value| match v {
+            Value::Object(o) => !o.is_empty(),
+            Value::Array(a) => !a.is_empty(),
+            Value::Null => false,
+            _ => true,
+        };
+        some(&self.scenery) || !self.groups.is_empty() || some(&self.keep_edits) || self.keep_map.is_some() || some(&self.strokes) || some(&self.recipe) || !self.blocked.is_empty()
+    }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct Prefs {
+    pub recent: Vec<String>,
+    pub light_theme: bool,
+    pub grid_size: Option<f32>,
+    #[serde(default)]
+    pub rot_step: Option<f32>,
+    #[serde(default)]
+    pub scale_step: Option<f32>,
+    /// Accent colour name of the old theme menu; read only to carry it into `theme`.
+    #[serde(default)]
+    pub accent: Option<String>,
+    /// Every colour of the editor (View > Theme…).
+    #[serde(default)]
+    pub theme: Option<crate::theme::Theme>,
+    /// Environment light edited per chapter (only chapters changed from the shipped values).
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, crate::scene::Environment>,
+    #[serde(default)]
+    pub exposure: Option<f32>,
+    #[serde(default)]
+    pub fly_speed: Option<f32>,
+    /// The tool in hand and its settings.
+    #[serde(default)]
+    pub tools: Option<ToolPrefs>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct ToolPrefs {
+    /// "select", "brush" or "measure".
+    pub tool: String,
+    pub brush_mode: String,
+    pub radius: f32,
+    pub strength: f32,
+    pub level: f32,
+    pub step: f32,
+    pub falloff: String,
+    pub color: [f32; 3],
+    pub scatter_radius: f32,
+    pub scatter_spacing: f32,
+    pub scatter_scale: [f32; 2],
+}
+
+pub fn dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let d = base.join("rsmm-map-editor");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
+}
+
+fn autosave_path(chapter: &str) -> Option<PathBuf> {
+    let safe: String = chapter.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+    Some(dir()?.join(format!("autosave-{safe}.json")))
+}
+
+/// Write atomically: a crash mid-write must not destroy the previous autosave.
+fn write_atomic(path: &PathBuf, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(tmp, path)
+}
+
+pub fn save_autosave(a: &Autosave) -> std::io::Result<()> {
+    let p = autosave_path(&a.chapter).ok_or_else(|| std::io::Error::other("no config dir"))?;
+    write_atomic(&p, &serde_json::to_vec_pretty(a)?)
+}
+
+pub fn load_autosave(chapter: &str) -> Option<Autosave> {
+    let p = autosave_path(chapter)?;
+    serde_json::from_slice(&std::fs::read(p).ok()?).ok()
+}
+
+pub fn clear_autosave(chapter: &str) {
+    if let Some(p) = autosave_path(chapter) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+pub fn load_prefs() -> Prefs {
+    dir()
+        .and_then(|d| std::fs::read(d.join("prefs.json")).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_prefs(p: &Prefs) {
+    if let (Some(d), Ok(b)) = (dir(), serde_json::to_vec_pretty(p)) {
+        let _ = write_atomic(&d.join("prefs.json"), &b);
+    }
+}
+
+pub fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+// ---- prefabs: saved groups of objects, shared by every map ----------------------
+
+fn prefab_dir() -> Option<PathBuf> {
+    let d = dir()?.join("prefabs");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d)
+}
+
+/// A prefab's file name from what the author typed.
+pub fn prefab_slug(name: &str) -> String {
+    name.trim().chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
+}
+
+/// Every saved prefab's name, sorted.
+pub fn list_prefabs() -> Vec<String> {
+    let mut out: Vec<String> = prefab_dir()
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.strip_suffix(".json").map(str::to_owned))
+        .collect();
+    out.sort_by_key(|n| n.to_lowercase());
+    out
+}
+
+/// `{"items": [{entity, pos, quat | yaw, scale, collision?, camp?}]}`.
+pub fn save_prefab(name: &str, doc: &Value) -> std::io::Result<()> {
+    let p = prefab_dir().ok_or_else(|| std::io::Error::other("no config dir"))?.join(format!("{}.json", prefab_slug(name)));
+    write_atomic(&p, &serde_json::to_vec_pretty(doc).unwrap_or_default())
+}
+
+pub fn load_prefab(name: &str) -> Option<Value> {
+    let p = prefab_dir()?.join(format!("{}.json", prefab_slug(name)));
+    serde_json::from_slice(&std::fs::read(p).ok()?).ok()
+}
+
+pub fn delete_prefab(name: &str) {
+    if let Some(d) = prefab_dir() {
+        let _ = std::fs::remove_file(d.join(format!("{}.json", prefab_slug(name))));
+    }
+}

@@ -204,10 +204,8 @@ def editor(tmp_path, monkeypatch):
 
 def test_page_embeds_a_token_and_writes_demand_it(editor):
     call, _port, srv = editor
-    code, page = call("/")                     # the map page, at /map/
-    assert code == 200
-    token = re.search(rb'const TOKEN = "([^"]+)"', page).group(1).decode()
-    assert token == srv.token and token != "__RSMM_TOKEN__"
+    assert call("/")[0] == 404                 # API only: the native app has the page
+    token = srv.token
     body = {"chapter": "DarkHills", "mod_id": "x-y", "edits": {}}
     assert call("/api/save", body)[0] == 403
     assert call("/api/save", body, token="wrong")[0] == 403
@@ -367,6 +365,42 @@ def test_a_map_manifest_reads_back_as_its_clone(play):
     assert block["tilegen"] == edits
     assert block["place"]["new0"] == "Avalon/64x64_Ponds_And_Fountains_Camp"
     assert block["terrain"][0]["op"] == "raise"
+
+
+def test_map_scenery_edits_read_back():
+    lv = "Ot/DarkHills/Map_Dark_Hills_Scenery_NorthEast.level.ot.GameStream.gen"
+    sc = {lv: {"moves": {"3": {"entity": "A\\B.entity.ot", "at": [1.0, 2.0, 3.0],
+                                "pos": [4.0, 5.0, 6.0], "quat": [0.0, 0.0, 0.0, 1.0],
+                                "scale": [1.0, 1.0, 1.0]}},
+               "removes": {"7": {"entity": "A\\C.entity.ot", "at": [0.5, 0.0, 0.25]}}}}
+    as_map = {"id": "Hills_X", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "scenery": sc}
+    text = ME.manifest_toml("hills-x", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+
+
+def test_map_objects_read_back():
+    import tomllib
+
+    objs = [{"entity": "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot",
+             "pos": [1.5, 0.0, -2.25], "yaw": 90.0, "scale": 1.0},
+            {"model": "art/hut.glb", "pos": [0.0, 4.0, 0.0], "yaw": 0.0, "scale": 2.0,
+             "collision": [{"kind": "ground", "size": [2, 1, 2], "at": [0, -1, 0]}]}]
+    as_map = {"id": "Built", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "blank": 0.0, "objects": objs}
+    text = ME.manifest_toml("built", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+    assert tomllib.loads(text)["content"][0]["objects"][1]["collision"][0]["kind"] == "ground"
+
+
+def test_a_blank_map_reads_back():
+    import tomllib
+
+    as_map = {"id": "Empty_Hills", "play": True, "pool": {"add": [], "remove": []},
+              "place": {}, "terrain": [], "blank": 4.0}
+    text = ME.manifest_toml("empty", "", _DH, {}, as_map)
+    assert ME.read_manifest(text)["map"] == as_map
+    assert tomllib.loads(text)["content"][0]["blank"] == {"height": 4.0}
 
 
 @pytest.mark.parametrize("map_id", ["", "1abc", "has space", "a-b", "x"])
@@ -556,3 +590,129 @@ def test_a_new_kind_lands_only_in_its_own_new_slots():
     assert any("kind added: Mod_Own_Tiles" in c for c in changes)
     with pytest.raises(ME.MapEditError, match="no kind for"):
         ME.build_level(ch, {"add_kinds": {"Crystal": {"count": 1}}})
+
+
+def test_terrain_json_skips_a_constant_water_layer(monkeypatch):
+    # Avalon stores "Base Water Height" as one constant, not a painted grid;
+    # the terrain route used to fail outright on it ("not a float layer").
+    import array
+
+    from rsmm.engine import terrain as TR
+
+    n = 4
+    flat = TR.Layer("Base Height", n, "float", array.array("f", [0.5] * n * n))
+    water = TR.Layer("Base Water Height", 1, "const", array.array("f", [0.1]))
+    fake = TR.Terrain((-8.0, -50.0, -8.0), (8.0, 50.0, 8.0),
+                      {TR.HEIGHT: flat, "Base Water Height": water})
+    ch = ME.Chapter("Fake", "Ot/Fake/Map_Fake_TileGeneration.level.ot.GameStream.gen")
+    monkeypatch.setattr(ME, "terrain_decoded", lambda c: "x")
+    monkeypatch.setattr(ME, "_shipped", lambda d: b"x")
+    monkeypatch.setattr(TR, "read", lambda data, names=None: fake)
+    ME.terrain_json.cache_clear()
+    try:
+        got = ME.terrain_json(ch, 32)
+    finally:
+        ME.terrain_json.cache_clear()
+    assert "water" not in got and got["grid"] == 32
+
+
+# --------------------------------------------------------------------------
+# importing the mod's own models
+# --------------------------------------------------------------------------
+
+def test_upload_refuses_what_is_not_a_model_or_texture(editor):
+    import base64
+    call, _port, srv = editor
+    def up(name, data):
+        return call("/api/upload", {"name": name, "data": base64.b64encode(data).decode()},
+                    token=srv.token)
+    assert up("x.exe", b"MZ")[0] == 400
+    assert up("x.glb", b"not gltf")[0] == 400
+    assert up("x.png", b"\x89PNG....")[0] == 200
+
+
+def test_art_paths_and_ids_are_checked(editor):
+    call, _port, srv = editor
+    body = {"chapter": "DarkHills", "mod_id": "x-y", "edits": {},
+            "map": {"id": "M", "pool": {}, "objects": []}}
+    for art in ({"../evil.glb": "0" * 32 + ".glb"}, {"art/a.glb": "../../etc/passwd"},
+                {"art/a.glb": "f" * 32 + ".glb"}):
+        code, out = call("/api/check", {**body, "art": art}, token=srv.token)
+        assert code == 400, (art, out)
+
+
+@needs_corpus
+def test_an_imported_model_saves_into_the_mod(editor, tmp_path):
+    import base64
+
+    from test_map_kind import _tetra_glb
+    call, _port, srv = editor
+    glb = base64.b64encode(_tetra_glb()).decode()
+    code, out = call("/api/upload", {"name": "hut.glb", "data": glb}, token=srv.token)
+    assert code == 200
+    sid = json.loads(out)["id"]
+    body = {"chapter": "DarkHills", "mod_id": "my-map", "edits": {}, "art": {"art/hut.glb": sid},
+            "map": {"id": "My_Map", "play": True, "pool": {"add": [], "remove": []}, "place": {},
+                    "terrain": [], "blank": 0.0,
+                    "objects": [{"model": "art/hut.glb", "pos": [1.0, 0.0, 2.0], "yaw": 0.0,
+                                 "scale": 1.0, "name": "Hut"}]}}
+    code, out = call("/api/save", body, token=srv.token)
+    assert code == 200, out
+    assert "objects: 1 placed on the map" in json.loads(out)["changes"]
+    mod = tmp_path / "mods" / "my-map"
+    assert (mod / "art" / "hut.glb").read_bytes() == _tetra_glb()
+    got = json.loads(call("/api/mod?id=my-map")[1])
+    assert got["map"]["objects"][0]["model"] == "art/hut.glb"
+    assert got["folder"] == str(mod.resolve())
+    # Removed in the Project panel: the next save deletes its file; bad paths are refused.
+    (mod / "art" / "old.png").write_bytes(b"x")
+    code, out = call("/api/save", {**body, "drop_art": ["art/old.png"]}, token=srv.token)
+    assert code == 200, out
+    assert not (mod / "art" / "old.png").exists()
+    assert (mod / "art" / "hut.glb").is_file()
+    code, _ = call("/api/save", {**body, "drop_art": ["../manifest.toml"]}, token=srv.token)
+    assert code == 400
+    # Folders: a model in a sub-folder, an empty folder kept, both listed on reopen.
+    nested = {**body, "art": {"art/rocks/hut.glb": sid}, "drop_art": ["art/hut.glb"],
+              "art_dirs": ["art/empty"]}
+    nested["map"] = {**body["map"], "objects": [{**body["map"]["objects"][0],
+                                                 "model": "art/rocks/hut.glb"}]}
+    code, out = call("/api/save", nested, token=srv.token)
+    assert code == 200, out
+    assert (mod / "art" / "rocks" / "hut.glb").is_file()
+    assert not (mod / "art" / "hut.glb").exists()
+    assert (mod / "art" / "empty").is_dir()
+    got = json.loads(call("/api/mod?id=my-map")[1])
+    assert got["art_dirs"] == ["art/empty", "art/rocks"]
+    for bad in ({"art_dirs": ["art/../x"]}, {"art_dirs": ["x"]},
+                {"art": {"art/../hut.glb": sid}}):
+        assert call("/api/save", {**nested, **bad}, token=srv.token)[0] == 400, bad
+
+
+@needs_corpus
+def test_a_terrain_layer_takes_the_mods_own_texture(editor, tmp_path):
+    import base64
+
+    from rsmm.engine import image as IMG
+    call, _port, srv = editor
+    png = IMG.encode_png(8, 8, bytes([40, 160, 60, 255] * 64))
+    code, out = call("/api/upload", {"name": "moss.png", "data": base64.b64encode(png).decode()},
+                     token=srv.token)
+    assert code == 200, out
+    sid = json.loads(out)["id"]
+    body = {"chapter": "DarkHills", "mod_id": "mossy", "edits": {},
+            "art": {"art/terrain/moss.png": sid, "art/minimap.png": sid},
+            "map": {"id": "Mossy", "play": True, "pool": {"add": [], "remove": []}, "place": {},
+                    "terrain": [], "surfaces": {"R": "art/terrain/moss.png"},
+                    "tiling": {"base": 0.06}, "minimap": "art/minimap.png"}}
+    code, out = call("/api/save", body, token=srv.token)
+    assert code == 200, out
+    assert "surfaces: layer R drawn with art/terrain/moss.png" in json.loads(out)["changes"]
+    assert (tmp_path / "mods" / "mossy" / "art" / "terrain" / "moss.png").is_file()
+    got = json.loads(call("/api/mod?id=mossy")[1])
+    assert got["map"]["surfaces"] == {"R": "art/terrain/moss.png"}
+    assert got["map"]["minimap"] == "art/minimap.png"
+    assert got["map"]["tiling"] == {"base": 0.06}
+    assert "minimap: art/minimap.png" in json.loads(out)["changes"]
+    bad = {**body, "map": {**body["map"], "surfaces": {"R": "../x.png"}}}
+    assert call("/api/save", bad, token=srv.token)[0] == 400

@@ -1,8 +1,8 @@
 ---
 // /editor/ — the rsmm editors, running in the browser.
 //
-// The same four editors `rsmm editor` serves locally (items, talents,
-// abilities, maps), driven by the real Python engine in a worker (Pyodide).
+// The same editors `rsmm editor` serves locally (items, talents, hero,
+// abilities), driven by the real Python engine in a worker (Pyodide).
 // The player picks their Ravenswatch folder, and each editor page is shown in
 // a frame whose `fetch` goes to the worker instead of a server: see
 // `rsmm.cli.editor.bridge` for the Python side. Nothing is uploaded, and
@@ -17,7 +17,7 @@ import workerSource from './_worker.js?raw';
 const workerJson = JSON.stringify(workerSource).replaceAll('</', '<\\/');
 const title = 'Web editor · RSMM';
 const description =
-  'Build item, talent, ability and map mods for Ravenswatch in your browser. Runs locally on your own game files.';
+  'Build item, talent, hero and ability mods for Ravenswatch in your browser. Runs locally on your own game files.';
 ---
 <!doctype html>
 <html lang="en">
@@ -113,8 +113,8 @@ const description =
   <section id="start">
     <div class="card">
       <h1>Make Ravenswatch mods in your browser</h1>
-      <p class="lead">Copy and change magical items, retune and rename talents, edit hero abilities
-        and reshape chapter maps. Everything runs on this page, reading your own game files. Nothing is
+      <p class="lead">Copy and change magical items, retune and rename talents, build heroes and edit
+        hero abilities. Everything runs on this page, reading your own game files. Nothing is
         uploaded.</p>
       <ol class="steps">
         <li>Find your game folder: in Steam, right-click <b>Ravenswatch</b> → <b>Manage</b> →
@@ -150,12 +150,11 @@ const TABS = {
   scripts: ["Scripts", "content", "content/?tab=scripts"],
   hero: ["Hero", "hero", "hero/"],
   abilities: ["Abilities", "abilities", "abilities/"],
-  map: ["Map", "map", "map/"],
 };
 // What each tab edits, under its name (the same words as `rsmm editor`'s shell).
 const BLURB = {
   items: "Change or copy magic items", talents: "Hero talent cards & numbers", scripts: "Test grants & block scripts",
-  hero: "Build a hero of your own", abilities: "Hero ability numbers & links", map: "Chapter maps & tiles",
+  hero: "Build a hero of your own", abilities: "Hero ability numbers & links",
 };
 const $ = (id) => document.getElementById(id);
 // Set here, not in the markup: Astro's HTML types do not know the attribute.
@@ -493,7 +492,6 @@ async function warmUp() {
     const q = "?hero=" + encodeURIComponent(h);
     await Promise.all(["talents", "talents/scalable", "talents/damages"].map((p) => get("/content/api/" + p + q)));
   }
-  await get("/map/api/catalog");
 }
 
 async function engineFetch(path, init, idle = false) {

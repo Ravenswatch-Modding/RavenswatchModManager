@@ -89,6 +89,9 @@ class Part:
     swap_rb: bool             # the png came from an uncompressed (R/B-swapped) texture
     color: str | None = None  # flat colour when the material has no texture
     decal: bool = False       # draw the texture on a flat quad, not the mesh
+    vfx: bool = False         # an effect's sprites: camera-facing glowing quads
+    normal: str | None = None  # the material's normal map png, when it has one
+    normal_swap: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -180,7 +183,9 @@ TEXTURE_EDGE = 256
 def _cooked_key(rel: str) -> str | None:
     """Decoded key of the cooked file a page path (``3D/...fbx.glb`` or
     ``3D/....png``) is converted from, when the game ships one."""
-    if not rel.startswith("3D/"):
+    if rel.startswith("FX/") and rel.endswith(".png"):
+        pass                             # an effect's sprite (see `vfx_parts`)
+    elif not rel.startswith("3D/"):
         return None
     path = rel[3:].replace("/", "\\")
     if path.endswith(".fbx.glb"):
@@ -191,10 +196,12 @@ def _cooked_key(rel: str) -> str | None:
         from .asset_map import decoded_to_encoded
 
         shipped = decoded_to_encoded()
+        # Normal maps cook to `.Texture.nrm` (the same header as `.dxt`).
         for ext in (".tga", ".png"):
-            key = rel[:-4] + ext + ".Texture.dxt"
-            if key in shipped:
-                return key
+            for kind in (".Texture.dxt", ".Texture.nrm"):
+                key = rel[:-4] + ext + kind
+                if key in shipped:
+                    return key
     return None
 
 
@@ -222,7 +229,7 @@ def _texture_png(cooked_bytes: bytes) -> bytes:
 
 
 #: Bytes per 4x4 block of the block-compressed formats `icon_decode` reads.
-_BLOCK_BYTES = {"BC1": 8, "BC3": 16}
+_BLOCK_BYTES = {"BC1": 8, "BC3": 16, "BC5": 16, "BC5U": 16}
 
 
 def _skip_blocks(px: bytes, w: int, h: int, fmt: str | None) -> tuple[bytes, int, int]:
@@ -310,13 +317,29 @@ def material_color(mat_path: str) -> str | None:
 
 
 @functools.lru_cache(maxsize=4096)
-def material_albedo(mat_path: str) -> tuple[str | None, bool]:
+def submesh_count(rel: str) -> int:
+    """How many ``submesh_<i>`` nodes the glb at `rel` has (the uncooker
+    writes one per material slot; 0 when it cannot be read)."""
+    import json
+    data = asset_bytes(rel)
+    if not data or data[:4] != b"glTF":
+        return 0
+    try:
+        (n,) = struct.unpack_from("<I", data, 12)
+        doc = json.loads(data[20:20 + n])
+    except (struct.error, ValueError):
+        return 0
+    return sum(1 for nd in doc.get("nodes", []) if str(nd.get("name", "")).startswith("submesh_"))
+
+
+@functools.lru_cache(maxsize=4096)
+def material_albedo(mat_path: str, root: str = "3D") -> tuple[str | None, bool]:
     """``(png path, swap_rb)`` of a material's albedo texture, when one can be drawn."""
-    data = _bytes("3D", mat_path)
+    data = _bytes(root, mat_path)
     if not data:
         return None, False
     texs = [p for r, p in resource_refs(data)
-            if r == "3D" and p.lower().endswith((".tga", ".png"))]
+            if r == root and p.lower().endswith((".tga", ".png"))]
 
     def score(p: str) -> int:
         stem = p.rsplit("\\", 1)[-1].rsplit(".", 1)[0].lower()
@@ -330,17 +353,49 @@ def material_albedo(mat_path: str) -> tuple[str | None, bool]:
     for p in sorted(texs, key=score):
         if score(p) == 99:
             break
-        rel = "3D/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
-        if _uncooked(rel):
-            return rel, _texture_uncompressed(p)
-        if _cooked_key(rel):
-            return rel, False            # decoded from the install, true colours
+        found = _texture_rel(root, p)
+        if found[0]:
+            return found
+    return None, False
+
+
+def _texture_rel(root: str, p: str) -> tuple[str | None, bool]:
+    rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
+    if _uncooked(rel):
+        return rel, _texture_uncompressed(p)
+    if _cooked_key(rel):
+        return rel, False                # decoded from the install, true colours
+    return None, False
+
+
+@functools.lru_cache(maxsize=4096)
+def material_normal(mat_path: str, root: str = "3D") -> tuple[str | None, bool]:
+    """``(png path, swap_rb)`` of a material's normal map (``*_nrm`` / ``*_normal``), if any."""
+    data = _bytes(root, mat_path)
+    if not data:
+        return None, False
+    for r, p in resource_refs(data):
+        stem = p.rsplit("\\", 1)[-1].rsplit(".", 1)[0].lower()
+        is_map = p.lower().endswith((".tga", ".png"))
+        if r == root and is_map and stem.endswith(("_nrm", "_normal")):
+            found = _texture_rel(root, p)
+            if found[0]:
+                return found
     return None, False
 
 
 # --------------------------------------------------------------------------
 # transforms
 # --------------------------------------------------------------------------
+
+def part_json(p: Part) -> dict:
+    """A part as the editors read it (``normal`` only when the material has one)."""
+    out = {"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
+           "color": p.color, "decal": p.decal, "vfx": p.vfx}
+    if p.normal:
+        out["normal"], out["normal_swap"] = p.normal, p.normal_swap
+    return out
+
 
 def trs(pos, quat, scale) -> Matrix:
     """Column-major matrix from translation, quaternion (x, y, z, w) and scale."""
@@ -368,29 +423,216 @@ def mul(a: Matrix, b: Matrix) -> Matrix:
 # entities
 # --------------------------------------------------------------------------
 
+#: Sprites one effect previews with, at most (each emitter is one sprite cloud).
+MAX_VFX_SPRITES = 6
+#: Particles the editor draws per sprite (`apps/map-editor` shader.wgsl `vs_billboard`).
+VFX_PARTICLES = 8
+
+
+#: FX material inputs that are shader helpers, not the sprite's shape.
+_FX_HELPERS = ("square_", "noise", "\\patterns\\", "flowmap", "gradient", "ramp")
+
+
+@functools.lru_cache(maxsize=1024)
+def _fx_sprite(mat_path: str, root: str) -> tuple[str | None, bool]:
+    """The texture an effect material draws its particles with: the first
+    that is not a helper (a grey square, a noise or flow pattern)."""
+    data = _bytes(root, mat_path)
+    if not data:
+        return None, False
+    texs = [p for r, p in resource_refs(data) if r == root and p.lower().endswith((".tga", ".png"))]
+    texs.sort(key=lambda p: any(h in p.lower() for h in _FX_HELPERS))
+    for p in texs:
+        rel = f"{root}/" + p.replace("\\", "/").rsplit(".", 1)[0] + ".png"
+        if _uncooked(rel):
+            return rel, _texture_uncompressed(p)
+        if _cooked_key(rel):
+            return rel, False
+    return None, False
+
+
+def _curve_ends(curve) -> tuple[float, float] | None:
+    """First and last value of an effect curve (``keys`` of ``[t, v, ...]``)."""
+    keys = [k for k in (curve or {}).get("keys") or [] if isinstance(k, list) and len(k) >= 2]
+    return (float(keys[0][1]), float(keys[-1][1])) if keys else None
+
+
+def _particle_params(emitter: dict, effectors: list, rend: dict):
+    """``(size m, colour, params)`` of one particle system, for the editor's
+    animated preview (`apps/map-editor` shader.wgsl ``vs_billboard``):
+
+    ``params`` = life s, speed m/s, share alive, end size x, start size x,
+    flipbook cells across, first frame, last frame, emission box x / y / z
+    (half extents, m), pivot v, turn range (rad, ``range_88``). Read from the
+    emitter (``range_80`` size, ``range_8`` lifetime, ``value_14`` rate,
+    ``value_d0`` speed, ``vec_d8`` box), the renderer's ``uv_4c`` pivot and
+    the effectors before it. A preview: forces, damping, and the game's own
+    curves are not simulated."""
+    def mid(key, lo, hi, default):
+        v = emitter.get(key)
+        x = sum(v) / len(v) if isinstance(v, list) and v else default
+        return min(hi, max(lo, float(x)))
+
+    size = mid("range_80", 0.02, 6.0, 0.5)
+    life = mid("range_8", 0.1, 8.0, 1.0)
+    rate = float(emitter.get("value_14") or 1.0)
+    alive = min(1.0, max(0.12, rate * life / VFX_PARTICLES))
+    speed = min(10.0, max(0.0, float(emitter.get("value_d0") or 0.0)))
+    box = [min(4.0, abs(float(b))) for b in (emitter.get("vec_d8") or [0.0, 0.0, 0.0])[:3]]
+    by = {o.cls.replace("oC3dParticleEffector", "").replace("Settings", ""): o.fields or {}
+          for o in effectors}
+    s0, s1 = 1.0, 1.0
+    if "SizeRamp" in by:
+        ends = _curve_ends(by["SizeRamp"].get("size"))
+        scale = float(by["SizeRamp"].get("scale") or 1.0)
+        if ends:
+            s0, s1 = max(0.05, ends[0] * scale), max(0.05, ends[1] * scale)
+    cells, f0, f1 = 1.0, 0.0, 0.0
+    grid = by.get("SubImageIndex", {}).get("grid_60")
+    if isinstance(grid, list) and len(grid) == 2 and grid[1] > 0:
+        f0, f1 = float(grid[0]), float(grid[1])
+        cells = float(math.ceil(math.sqrt(f1 + 1)))
+    color = _ramp_color(by.get("ColorRamp", {}).get("ramp"))
+    if color is None and emitter.get("color_kind") == 1:
+        c = emitter.get("color_start") or []
+        color = _ramp_color({"keys": [[0.0, *c[:3], 1.0]]}) if len(c) >= 3 else None
+    pivot = (rend.get("uv_4c") or [0.5, 0.5])[1]
+    turn = max(abs(float(x)) for x in (emitter.get("range_88") or [0.0]))
+    return size, color, [life, speed, alive, s1, s0, cells, f0, f1, *box, float(pivot),
+                         min(6.3, turn)]
+
+
+def _ramp_color(ramp) -> str | None:
+    """An emitter's colour over life (keys ``[t, r, g, b, a]``, HDR) as one
+    ``#rrggbb``: its first half averaged, brightest channel scaled to 1."""
+    keys = [k for k in (ramp or {}).get("keys") or [] if isinstance(k, list) and len(k) >= 4]
+    early = [k for k in keys if k[0] <= 0.5] or keys[:1]
+    if not early:
+        return None
+    rgb = [sum(k[i] for k in early) / len(early) for i in (1, 2, 3)]
+    top = max(rgb)
+    if top <= 0:
+        return None
+    return "#" + "".join(f"{round(min(1.0, c / top) * 255):02x}" for c in rgb)
+
+
+#: Effects a prop plays on an event, not while it stands there: the editor
+#: shows only the idle ones (fire, glow, smoke loops).
+_EVENT_FX = ("destruct", "explos", "explod", "snuff", "trail", "hit", "impact", "death",
+             "_die", "spawn", "appear", "disappear", "_open", "break", "pickup", "activat",
+             "_end", "_start", "launch", "shot", "ping", "reveal", "collect", "heal")
+
+
+def idle_effect(path: str) -> bool:
+    low = path.lower().rsplit("\\", 1)[-1]
+    return not any(w in low for w in _EVENT_FX)
+
+
+@functools.lru_cache(maxsize=2048)
+def vfx_parts(path: str) -> tuple[tuple[Part, Matrix], ...]:
+    """An effect (``FX`` root, ``*.vfx.ot``) as a few sprites: each billboard
+    emitter's texture, placed over its emission box and sized by its spawn
+    radius. A preview, not the game's simulation (no motion, ramps or timing)."""
+    from . import vfx_codec as V
+
+    data = _bytes("FX", path)
+    if not data:
+        return ()
+    try:
+        objs = V.decode(data).objects
+    except Exception:  # noqa: BLE001 — an effect the codec cannot read only draws nothing
+        return ()
+    out: list[tuple[Part, Matrix]] = []
+    # An effect lists each particle system as its effectors (colour, size,
+    # alpha, flipbook ...), then its emitter, then its renderer.
+    pending: list = []
+    emitter = None
+    for o in objs:
+        if o.cls == "oC3dParticleEmitterSettings":
+            emitter, effectors, pending = o.fields or {}, pending, []
+            continue
+        if o.cls.startswith("oC3dParticleEffector"):
+            pending.append(o)
+            continue
+        if o.cls != "oI3dBillboardParticleRendererSettings" or emitter is None:
+            continue
+        rend = o.fields or {}
+        tex, swap = _fx_sprite(rend.get("material", ""), rend.get("material_root") or "FX")
+        fx = _particle_params(emitter, effectors, rend) if tex else None
+        emitter = None
+        if fx is None:
+            continue
+        size, color, params = fx
+        m = (size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, 0.0, size, 0.0, 0.0, 0.0, 0.0, 1.0)
+        mesh = f"vfx:{tex}?" + ",".join(f"{v:.4g}" for v in params)
+        out.append((Part(mesh, tex, swap, color, False, True), m))
+        if len(out) >= MAX_VFX_SPRITES:
+            break
+    return tuple(out)
+
+
 @functools.lru_cache(maxsize=8192)
 def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
-    """What entity `ref` (an ``EntitySettings`` path) draws, in its own space."""
+    """What entity `ref` (an ``EntitySettings`` path) draws, in its own space:
+    its meshes (or its children's) plus its effects' sprites."""
     if depth > MAX_DEPTH or ref.lower().startswith(_HELPER_ENTITIES):
         return ()
     data = _bytes("EntitySettings", ref)
     if not data:
         return ()
+    fx = tuple(p for path in _idle_effects(ref) for p in vfx_parts(path))
+    return _entity_meshes(ref, data, depth) + fx[:MAX_VFX_SPRITES]
+
+
+@functools.lru_cache(maxsize=8192)
+def _idle_effects(ref: str, depth: int = 0) -> tuple[str, ...]:
+    """The idle effects an entity plays, its child entities' included (a
+    torch's flame lives in a child): each path once, in order."""
+    data = _bytes("EntitySettings", ref) if depth <= MAX_DEPTH else None
+    if not data:
+        return ()
+    out: list[str] = []
+    for r, path in resource_refs(data):
+        if r == "FX" and path.lower().endswith(".vfx.ot") and idle_effect(path):
+            out.append(path)
+        elif r == "EntitySettings" and path.lower() != ref.lower():
+            out.extend(_idle_effects(path, depth + 1))
+    return tuple(dict.fromkeys(out))
+
+
+def _entity_meshes(ref: str, data: bytes, depth: int) -> tuple[tuple[Part, Matrix], ...]:
     refs = resource_refs(data)
 
     own: list[tuple[Part, Matrix]] = []
     meshes = 0
     mesh: str | None = None
-    tex: tuple[str | None, bool] = (None, False)
-    color: str | None = None
+    mats: list[str] = []
+    seen: set[str] = set()
 
     def flush():
-        if not mesh:
+        if not mesh or mesh in seen:
+            return                       # a mesh named again (skeleton / anim refs) draws once
+        seen.add(mesh)
+        if mesh == _DECAL_MESH:
+            tex = next((t for t in map(material_albedo, mats) if t[0]), (None, False))
+            if tex[0]:
+                own.append((Part(mesh, tex[0], tex[1], None, True), IDENTITY))
+            return                       # a decal with nothing to show draws nothing
+        if len(mats) > 1 and submesh_count(mesh) == len(mats):
+            # One material per sub-mesh, in order (166/166 sampled scenery
+            # meshes): each slot drawn with its own texture.
+            for i, m in enumerate(mats):
+                tex = material_albedo(m)
+                nrm = material_normal(m)
+                own.append((Part(f"{mesh}#{i}", tex[0], tex[1],
+                                 None if tex[0] else material_color(m),
+                                 normal=nrm[0], normal_swap=nrm[1]), IDENTITY))
             return
-        decal = mesh == _DECAL_MESH
-        if decal and not tex[0]:
-            return                       # a decal with nothing to show
-        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color, decal), IDENTITY))
+        tex = next((t for t in map(material_albedo, mats) if t[0]), (None, False))
+        color = next((c for c in map(material_color, mats) if c), None)
+        nrm = next((n for n in map(material_normal, mats) if n[0]), (None, False))
+        own.append((Part(mesh, tex[0], tex[1], None if tex[0] else color,
+                         normal=nrm[0], normal_swap=nrm[1]), IDENTITY))
 
     for root, path in refs:
         low = path.lower()
@@ -402,10 +644,9 @@ def entity_parts(ref: str, depth: int = 0) -> tuple[tuple[Part, Matrix], ...]:
             skip = ("_lod" in name or "_anim_" in name or "\\animations\\" in low
                     or rel.startswith(_HELPER_MESHES))
             mesh = rel if not skip and available(rel) else None
-            tex, color = (None, False), None
-        elif root == "3D" and low.endswith(".mat.ot") and mesh and tex[0] is None:
-            tex = material_albedo(path)
-            color = color or material_color(path)
+            mats = []
+        elif root == "3D" and low.endswith(".mat.ot") and mesh:
+            mats.append(path)
     flush()
     if own or meshes:
         return tuple(own)                # an entity with meshes of its own stops here
@@ -476,8 +717,7 @@ def to_json(parts: list[tuple[Part, Matrix]]) -> dict:
         for a in mats:
             a.byteswap()
     return {
-        "parts": [{"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
-                   "color": p.color, "decal": p.decal} for p in order],
+        "parts": [part_json(p) for p in order],
         "matrices": [base64.b64encode(a.tobytes()).decode("ascii") for a in mats],
         "instances": len(parts),
     }

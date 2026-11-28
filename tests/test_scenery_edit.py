@@ -69,15 +69,21 @@ def test_apply_moves_sinks_and_adds(chapter, shipped):
                 }
             },
             "removes": {str(b): {"entity": pb.ref, "at": list(pb.pos)}},
-            "adds": [{"entity": prop, "pos": list(pa.pos), "yaw": 0, "scale": 1}],
+            "adds": [{"entity": prop, "pos": list(pa.pos), "yaw": 0, "scale": 1},
+                     {"entity": prop, "pos": list(pa.pos), "quat": [0, 0, 2, 2],
+                      "scale": [1, 2, 3]}],
         },
     )
     after = LP.objects(out)
-    assert len(after) == len(objs) + 1 and len(notes) == 3
+    assert len(after) == len(objs) + 2 and len(notes) == 4
+    # Any rotation (normalised) and per-axis scale for an added object.
+    tilted = after[-1][1]
+    assert tilted.quat == pytest.approx((0, 0, 0.5 ** 0.5, 0.5 ** 0.5), abs=1e-5)
+    assert tilted.scale == pytest.approx((1, 2, 3))
     got = dict(after)
     assert got[b].pos[1] == pytest.approx(pb.pos[1] - SE.SINK)
     assert got[a].scale == (1.5, 1.5, 1.5)
-    assert after[-1][1].ref == prop
+    assert after[-2][1].ref == prop
 
 
 @needs_game

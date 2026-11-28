@@ -22,7 +22,7 @@ Fields:
     ``removes`` (table)          ``{ "<object id>" = { entity, at } }`` — sinks
                                  the object far under the map (it stops showing
                                  and blocking); true removal is not proven yet.
-    ``adds``    (array)          ``[{ entity, pos = [x, y, z], yaw, scale }]`` —
+    ``adds``    (array)          ``[{ entity, pos = [x, y, z], yaw | quat, scale }]`` —
                                  only entities the chapter already places, so its
                                  resource cache preloads them.
 """

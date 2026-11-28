@@ -109,8 +109,7 @@ def scenery_json(chapter) -> dict:
         "entities": list(entities),
         "objects": {"count": len(o_id), "level": _b64(o_level), "id": _b64(o_id),
                     "entity": _b64(o_ent), "xf": _b64(o_xf)},
-        "parts": [{"mesh": p.mesh, "texture": p.texture, "swap_rb": p.swap_rb,
-                   "color": p.color, "decal": p.decal} for p in order],
+        "parts": [MS.part_json(p) for p in order],
         "matrices": [_b64(m) for m in mats],
         "owners": [_b64(o) for o in owners],
     }
@@ -167,15 +166,26 @@ def _yaw_quat(deg: float) -> tuple[float, float, float, float]:
     return (0.0, math.sin(h), 0.0, math.cos(h))
 
 
-def apply(chapter, level: str, edits: dict) -> tuple[bytes, list[str]]:
+def _quat(v, what: str) -> tuple[float, float, float, float]:
+    q = _vec(v, 4, what)
+    n = math.sqrt(sum(x * x for x in q))
+    if not math.isfinite(n) or n < 1e-6:
+        raise SceneryEditError(f"{what}: not a rotation")
+    return tuple(x / n for x in q)
+
+
+def apply(chapter, level: str, edits: dict, raw: bytes | None = None) -> tuple[bytes, list[str]]:
     """``(new level bytes, what changed)`` for one scenery level.
 
     ``edits``: ``moves = {id: {entity, at, pos, quat | yaw, scale}}``,
-    ``removes = {id: {entity, at}}``, ``adds = [{entity, pos, yaw, scale}]``.
+    ``removes = {id: {entity, at}}``, ``adds = [{entity, pos, quat | yaw, scale}]``
+    (``scale`` one number or ``[x, y, z]``).
+    ``raw`` edits those bytes instead of the shipped level (a map clone's own
+    copy of it, whose objects keep the shipped ids and positions).
     """
     if level not in levels(chapter):
         raise SceneryEditError(f"{level} is not one of {chapter.key}'s scenery levels")
-    raw = corpus.read(level)
+    raw = corpus.read(level) if raw is None else raw
     shipped = dict(LP.objects(raw))
     changes: dict[int, tuple] = {}
     notes: list[str] = []
@@ -226,12 +236,14 @@ def apply(chapter, level: str, edits: dict) -> tuple[bytes, list[str]]:
                     f"add {i + 1}: {str((a or {}).get('entity'))!r} is not an entity "
                     f"{chapter.key} already places, so its cache may not preload it")
             pos = _vec(a.get("pos"), 3, f"add {i + 1} pos")
-            scale = float(a.get("scale", 1.0))
-            if not 0.05 <= scale <= 20:
-                raise SceneryEditError(f"add {i + 1}: scale {scale} is outside 0.05..20")
-            out = LP.add_placement(out, a["entity"], pos=pos,
-                                   quat=_yaw_quat(float(a.get("yaw", 0.0))),
-                                   scale=(scale,) * 3)
+            quat = (_quat(a["quat"], f"add {i + 1} quat") if "quat" in a
+                    else _yaw_quat(float(a.get("yaw", 0.0))))
+            scale = a.get("scale", 1.0)
+            scale = ((float(scale),) * 3 if isinstance(scale, (int, float))
+                     else _vec(scale, 3, f"add {i + 1} scale"))
+            if not all(0.05 <= k <= 20 for k in scale):
+                raise SceneryEditError(f"add {i + 1}: scale {list(scale)} is outside 0.05..20")
+            out = LP.add_placement(out, a["entity"], pos=pos, quat=quat, scale=scale)
             notes.append(f"add {a['entity'].rsplit(chr(92), 1)[-1]}")
     if out == raw:
         raise SceneryEditError("nothing to change")

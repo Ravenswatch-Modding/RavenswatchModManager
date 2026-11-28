@@ -1,0 +1,139 @@
+name: Map editor
+
+# Builds of the native map editor (apps/map-editor): the editor binary with
+# the frozen rsmm CLI beside it (the editor finds `rsmm[.exe]` in its own
+# folder), zipped per OS as a workflow artifact. Each build carries the run
+# number as its build number (RSMM_EDITOR_BUILD), which its updater compares.
+#
+# Run by hand with `publish` ticked, it also signs the zips and puts them on
+# the rolling `map-editor` release, where every editor's updater finds them
+# (scripts/publish_map_editor.sh).
+on:
+  push:
+    branches: [feat/native-map-editor]
+    paths:
+      - 'apps/map-editor/**'
+      - 'src/rsmm/**'
+      - 'scripts/build-sidecar.py'
+      - '.github/workflows/map-editor.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/map-editor/**'
+      - '.github/workflows/map-editor.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish this build to the editors'' updater (the rolling map-editor release)'
+        type: boolean
+        default: false
+      notes:
+        description: 'What changed (shown on the Update button)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: map editor ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-24.04, not -latest: the binary needs the build host's glibc
+        # or newer, and -latest (glibc 2.43) will not start on Debian 13 /
+        # Ubuntu 24.04.
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Linux window / input headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Rust tests
+        working-directory: apps/map-editor
+        run: cargo test --release --locked
+
+      - name: Build the editor
+        working-directory: apps/map-editor
+        env:
+          RSMM_EDITOR_BUILD: ${{ github.run_number }}
+        run: cargo build --release --locked
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build the rsmm CLI it runs
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          pip install -e .
+          python scripts/build-sidecar.py
+
+      - name: Package
+        shell: bash
+        run: |
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          mkdir -p pkg
+          cp "apps/map-editor/target/release/rsmm-map-editor$ext" pkg/
+          cp apps/desktop/src-tauri/binaries/rsmm-*"$ext" "pkg/rsmm$ext"
+          [ -z "$ext" ] && chmod +x pkg/*
+          {
+            echo "RSMM map editor build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::8})"
+            echo
+            echo "Run rsmm-map-editor$ext. rsmm$ext beside it is the CLI it reads game data through."
+            echo "Ravenswatch must be installed (or set RSMM_GAME_DIR). Guide: https://docs.rsmm.me/guides/map-editor/"
+          } > pkg/README.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: rsmm-map-editor-${{ runner.os }}
+          path: pkg/
+          if-no-files-found: error
+
+  # Manual, ticked `publish` only: every editor that checks for updates gets
+  # this. The signing key is the loader channel's repo secret.
+  publish:
+    name: publish to the editor updater
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse other refs
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat/native-map-editor'
+        run: |
+          echo "::error::the map editor publishes from main or feat/native-map-editor only ($GITHUB_REF)"
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v7
+        with:
+          path: art
+      # Flat zips: the updater writes only the editor, rsmm and the readme.
+      - name: Zip per OS
+        run: |
+          mkdir out
+          (cd art/rsmm-map-editor-Linux && zip -X ../../out/rsmm-map-editor-linux.zip *)
+          (cd art/rsmm-map-editor-Windows && zip -X ../../out/rsmm-map-editor-windows.zip *)
+      - name: Sign and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NOTES: ${{ inputs.notes }}
+        run: scripts/publish_map_editor.sh out --build "$GITHUB_RUN_NUMBER" --notes "$NOTES"

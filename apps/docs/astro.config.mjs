@@ -112,6 +112,7 @@ export default defineConfig({
             { label: 'Make your first mod', slug: 'getting-started/first-mod' },
             { label: 'Set up the modding tools', slug: 'getting-started/modding-tools' },
             { label: 'Web editor (in your browser)', slug: 'guides/web-editor' },
+            { label: 'Map editor', slug: 'guides/map-editor' },
             { label: 'First mod, by kind', slug: 'guides/first-mod-by-kind' },
             { label: 'Example mods', slug: 'guides/examples' },
           ],

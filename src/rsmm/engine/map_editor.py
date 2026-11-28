@@ -229,10 +229,30 @@ def to_json(tg: TG.TileGen) -> dict:
 #: Cells per side sent to the page. The painted height is 1024; 256 keeps the
 #: payload near 300 KB and the mesh at 65k vertices while slopes stay readable.
 TERRAIN_GRID = 256
-#: Grids the page may ask for: 512 for the 3D view, where models must sit on the ground.
-TERRAIN_GRIDS = (256, 512)
+#: Grids the page may ask for. The native editor draws 1024, the painted grid
+#: itself: at 512 the terraces' 4 m cliffs are smoothed and ~100 Dark Hills
+#: objects at cliff edges look up to 3 m in the air.
+TERRAIN_GRIDS = (256, 512, 1024)
 _TERRAIN_SUFFIX = "_Terrain.level.ot.GameStream.gen"
 _TERRAIN_LAYERS = {TR.HEIGHT, "LD Path", "LD Block", "Base Water Height"}
+
+
+def minimap_rect(chapter: Chapter) -> tuple[float, float, float, float] | None:
+    """The world rectangle the chapter's minimap picture covers (its gameplay
+    level's ``Minimap`` object), or None."""
+    from . import corpus
+    from . import level_placements as LP
+    from . import prop_cook as PC
+
+    root = corpus.read(chapter.decoded.replace("_TileGeneration", ""))
+    if not root:
+        return None
+    for r in PC._refs_doc("oCGameStream", root)[1]["asset_refs"]:
+        if r.endswith(".level.ot") and "_Gameplay" in r:
+            got = LP.minimap_rect(corpus.read(PC.level_cooked_path(r)) or b"")
+            if got:
+                return got
+    return None
 
 
 def terrain_decoded(chapter: Chapter) -> str | None:
@@ -284,7 +304,9 @@ def terrain_json(chapter: Chapter, n: int = TERRAIN_GRID) -> dict:
     for key, name in (("path", "LD Path"), ("block", "LD Block")):
         if name in tr.layers:
             out[key] = _b64(TR.resample(tr.layers[name], n), 0.0, 1.0, 8)
-    if "Base Water Height" in tr.layers:
+    # Avalon stores its water height as one constant, not a painted grid.
+    water_layer = tr.layers.get("Base Water Height")
+    if water_layer is not None and water_layer.kind == "float":
         water = [y0 + v * (y1 - y0) for v in TR.resample(tr.layers["Base Water Height"], n)]
         out["water"] = {"min": lo, "max": hi, "u16": _b64(water, lo, hi, 16)}
     return out
@@ -865,7 +887,13 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         'tags        = ["maps", "generation"]',
     ]
     scenery = {lv: e for lv, e in (scenery or {}).items() if any(e.get(k) for k in _SCENERY_KEYS)}
-    if scenery:
+    # Ground, objects and scenery a clone carries are loaded by every player
+    # from their own copy, like scenery edits; only the recipe is the host's.
+    own_levels = as_map is not None and any(
+        as_map.get(k)
+        for k in ("terrain", "objects", "scenery", "surfaces", "tiling", "minimap")) or (
+        as_map is not None and as_map.get("blank") is not None)
+    if scenery or own_levels:
         lines += ["# Every player loads the chapter's scenery from their own copy, so",
                   "# everyone in the lobby needs this mod at the same version.",
                   'multiplayer_scope = "deterministic-shared"']
@@ -896,9 +924,29 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
         if as_map.get("place"):
             inner = ", ".join(f"{_q(k)} = {_q(v)}" for k, v in as_map["place"].items())
             lines.append(f"place   = {{ {inner} }}")
+        if as_map.get("blank") is not None:
+            lines.append(f"blank   = {{ height = {_val(float(as_map['blank']))} }}")
+        if as_map.get("minimap"):
+            lines.append(f"minimap = {_q(as_map['minimap'])}")
+        if as_map.get("surfaces"):
+            inner = ", ".join(f"{k} = {_q(v)}" for k, v in sorted(as_map["surfaces"].items()))
+            lines.append(f"surfaces = {{ {inner} }}")
+        if as_map.get("tiling"):
+            inner = ", ".join(f"{k} = {_val(float(v))}"
+                              for k, v in sorted(as_map["tiling"].items()))
+            lines.append(f"tiling  = {{ {inner} }}")
         for st in as_map.get("terrain") or []:
             lines += ["", "[[content.terrain]]"]
             lines += [f"{k} = {_q(v) if isinstance(v, str) else _val(v)}" for k, v in st.items()]
+        for ob in as_map.get("objects") or []:
+            lines += ["", "[[content.objects]]"]
+            lines += [f"{k} = {_toml_value(v)}" for k, v in ob.items()]
+        # The base's own objects, moved / sunk on the clone's copy of their level.
+        for level, e in sorted((as_map.get("scenery") or {}).items()):
+            for section in ("moves", "removes"):
+                for oid, spec in sorted((e.get(section) or {}).items(), key=lambda kv: int(kv[0])):
+                    lines += ["", f'[content.scenery.{_q(level)}.{section}."{int(oid)}"]']
+                    lines += [f"{k} = {_toml_value(v)}" for k, v in spec.items()]
         lines += _edit_lines("content.tilegen", edits)
     for level, e in sorted(scenery.items()):
         lines += _scenery_lines(chapter, level, e)
@@ -909,7 +957,14 @@ def manifest_toml(mod_id: str, name: str, chapter: Chapter, edits: dict,
     want_map = None if as_map is None else {
         "id": as_map["id"], "play": bool(as_map.get("play")),
         "pool": {k: list((as_map.get("pool") or {}).get(k) or []) for k in ("add", "remove")},
-        "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or [])}
+        "place": dict(as_map.get("place") or {}), "terrain": list(as_map.get("terrain") or []),
+        **({"blank": float(as_map["blank"])} if as_map.get("blank") is not None else {}),
+        **({"objects": list(as_map["objects"])} if as_map.get("objects") else {}),
+        **({"scenery": dict(as_map["scenery"])} if as_map.get("scenery") else {}),
+        **({"surfaces": dict(as_map["surfaces"])} if as_map.get("surfaces") else {}),
+        **({"tiling": {k: float(v) for k, v in as_map["tiling"].items()}}
+           if as_map.get("tiling") else {}),
+        **({"minimap": as_map["minimap"]} if as_map.get("minimap") else {})}
     if (back is None or back["chapter"] != chapter.key
             or not _same_edits(back["edits"], edits) or back["map"] != want_map
             or _norm_json(back.get("scenery") or {}) != _norm_json(scenery)):
@@ -924,6 +979,17 @@ _SCENERY_KEYS = ("moves", "removes", "adds")
 def _norm_json(v):
     import json
     return json.loads(json.dumps(v, sort_keys=True))
+
+
+def _toml_value(v) -> str:
+    """A string, number, bool, list or inline table, as TOML."""
+    if isinstance(v, str):
+        return _q(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_value(x)}" for k, x in v.items()) + " }"
+    return _val(v)
 
 
 def _scenery_lines(chapter: Chapter, level: str, e: dict) -> list[str]:
@@ -990,8 +1056,23 @@ def _read_first(data: dict) -> dict | None:
                             "pool": {k: [_pool_path(n, biome) for n in pool.get(k) or []]
                                      for k in ("add", "remove")},
                             "place": dict(c.get("place") or {}),
-                            "terrain": list(c.get("terrain") or [])}}
+                            "terrain": list(c.get("terrain") or []),
+                            **_blank_of(c),
+                            **({"objects": list(c["objects"])} if c.get("objects") else {}),
+                            **({"scenery": dict(c["scenery"])} if c.get("scenery") else {}),
+                            **({"surfaces": dict(c["surfaces"])} if c.get("surfaces") else {}),
+                            **({"tiling": {k: float(v) for k, v in c["tiling"].items()}}
+                               if c.get("tiling") else {}),
+                            **({"minimap": c["minimap"]} if c.get("minimap") else {})}}
     return None
+
+
+def _blank_of(c: dict) -> dict:
+    """``{"blank": height}`` when a map declaration starts from an empty map."""
+    b = c.get("blank")
+    if b is None or b is False:
+        return {}
+    return {"blank": float(b.get("height", 0.0)) if isinstance(b, dict) else 0.0}
 
 
 def read_manifest_edits(text: str) -> tuple[str, dict] | None:

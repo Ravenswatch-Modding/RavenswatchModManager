@@ -51,7 +51,8 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
         "imports", "repoint_pools", "casts",
     }),
     "boss": frozenset({"base", "becomes", "name"}),
-    "map": frozenset({"base", "chapter", "tribe", "pool", "tilegen", "place", "terrain"}),
+    "map": frozenset({"base", "chapter", "tribe", "pool", "tilegen", "place", "terrain",
+                      "blank", "objects", "scenery", "surfaces", "minimap", "tiling"}),
     "hero": frozenset({
         "base", "name", "description", "model", "transform", "albedo", "mra",
         "normal", "portrait", "own_entity", "weapons", "animations", "outfits",

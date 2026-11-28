@@ -764,3 +764,55 @@ def sink_walls(level_bytes: bytes, names: list[str] | None = None,
     new_sec = bytes(sec[:_INNER_OFF]) + bytes(out)
     cf.sections[-1] = cooked.Section(payload=new_sec)
     return cooked.emit(cf), sunk
+
+
+SPAWNER_CLASS = "oCEntitySpawnerGo"
+
+
+def sink_all(level_bytes: bytes, depth: float = 1000.0) -> tuple[bytes, int]:
+    """Move EVERY object a level stands ``depth`` metres under the map, in place:
+    all spawners, including the ones that own settings objects of their own
+    (collision volumes, which `set_transforms` refuses), and every static wall.
+    Nothing is renumbered and the file keeps its size. Returns ``(bytes, count)``.
+
+    An owner spawner keeps its transform at the same structural offset as a
+    plain placement (2378 of 2379 in the shipped levels, and all 138 in the
+    chapters' Collisions levels), so only its position's Y is rewritten, after
+    `_transform_at` has accepted the bytes there; a spawner it rejects is
+    refused rather than guessed at.
+    """
+    cf, sec, inner = _inner(level_bytes)
+    g = _graph(inner)
+    names = _class_names(g)
+    out = bytearray(inner)
+    n = 0
+    for oid, (begin, _end, p) in enumerate(g.objects):
+        if names[g.class_idx[oid]] != SPAWNER_CLASS:
+            continue
+        o = _transform_off(p)
+        got = None if o is None else _transform_at(p, o)
+        if got is None:
+            raise LevelPlacementError(f"spawner {oid}: no transform where one should be")
+        struct.pack_into("<f", out, begin + 4 + o + 4, got[0][1] - depth)
+        n += 1
+    new_sec = bytes(sec[:_INNER_OFF]) + bytes(out)
+    cf.sections[-1] = cooked.Section(payload=new_sec)
+    sunk_bytes, walls_sunk = sink_walls(cooked.emit(cf), None, depth)
+    return sunk_bytes, n + len(walls_sunk)
+
+
+def minimap_rect(level: bytes) -> tuple[float, float, float, float] | None:
+    """The world rectangle a gameplay level's minimap picture covers:
+    ``(x0, z0, width, depth)`` in metres, or None when the level has no
+    ``Minimap`` object. Read from the four floats 22 bytes after the object's
+    name (Dark Hills -225, -220, 450, 450; Storm Island -205, -215, 420, 440)."""
+    import struct as _st
+
+    i = level.find(b"_Mini_Map.png")
+    j = level.rfind(b"Minimap", 0, i) if i > 0 else -1
+    if j < 0 or j + 22 + 16 > len(level):
+        return None
+    x0, z0, w, h = _st.unpack_from("<4f", level, j + 22)
+    if not (all(abs(v) < 5000 for v in (x0, z0)) and 10 < w < 5000 and 10 < h < 5000):
+        return None
+    return x0, z0, w, h

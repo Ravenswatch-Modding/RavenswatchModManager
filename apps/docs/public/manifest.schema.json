@@ -509,14 +509,20 @@
             "then": {
               "properties": {
                 "base": {},
+                "blank": {},
                 "chapter": {},
                 "id": {},
                 "kind": {},
+                "minimap": {},
+                "objects": {},
                 "place": {},
                 "pool": {},
+                "scenery": {},
                 "schema_version": {},
+                "surfaces": {},
                 "terrain": {},
                 "tilegen": {},
+                "tiling": {},
                 "tribe": {},
                 "when": {}
               },

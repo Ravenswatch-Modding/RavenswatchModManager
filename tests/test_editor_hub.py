@@ -28,7 +28,7 @@ def stubbed(monkeypatch):
 
 @pytest.fixture
 def local(tmp_path, stubbed):
-    srv = server.serve(0, tab="map", mods=tmp_path)
+    srv = server.serve(0, tab="abilities", mods=tmp_path)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = srv.server_address[1]
 
@@ -84,7 +84,6 @@ SAVE = {"tab": "items", "mod": "x", "create": True,
 @pytest.mark.parametrize("path, needle", [
     ("/content/?tab=talents", b"Item &amp; Talent Editor"),
     ("/abilities/", b"Ability Editor"),
-    ("/map/", b"Map Editor"),
 ])
 def test_each_page_is_served_whole(call, path, needle):
     status, page, headers = call("GET", path)
@@ -96,6 +95,12 @@ def test_each_page_is_served_whole(call, path, needle):
     # Mounted under /<editor>/ locally and under <base> in the web editor, a
     # page reaches its API only through relative URLs.
     assert b'"/api/' not in page and b"`/api/" not in page and b'import("/' not in page
+
+
+def test_the_map_mount_is_api_only(call):
+    """The map editor is the native app; /map/ serves its API and no page."""
+    assert call("GET", "/map/")[0] == 404
+    assert call("GET", "/map/api/state")[0] == 200
 
 
 def test_api_calls_reach_the_right_editor(call):
@@ -158,7 +163,7 @@ def test_the_shell_lists_every_tab_and_opens_on_the_asked_one(local):
     assert status == 200
     for key, (_label, url) in app.TABS.items():
         assert f'"{key}"'.encode() in page and url.encode() in page
-    assert b'|| "map")' in page
+    assert b'|| "abilities")' in page
     assert "frame-src 'self'" in headers["Content-Security-Policy"]
 
 
@@ -205,7 +210,7 @@ def test_a_wrong_game_dir_stops_the_editor_before_it_serves(tmp_path, monkeypatc
     assert "RSMM_GAME_DIR" not in os.environ
 
 
-@pytest.mark.parametrize("page", ["content.html", "abilities.html", "map.html"])
+@pytest.mark.parametrize("page", ["content.html", "abilities.html"])
 def test_every_tab_reports_its_unsaved_work_to_the_shell(page):
     """The shell's tab dots and its close question ask each page through
     rsmmUnsaved(); a page that never calls tellShell() would leave a dot stale."""
@@ -244,7 +249,7 @@ def test_other_methods_are_refused(bridge):
 # --- commands ------------------------------------------------------------------------
 
 @pytest.mark.parametrize("alias, tab", [("item-editor", "items"), ("talent-editor", "talents"),
-                                        ("ability-editor", "abilities"), ("map-editor", "map")])
+                                        ("ability-editor", "abilities")])
 def test_the_old_commands_open_their_tab(alias, tab):
     from rsmm.cli import _dispatch
     assert _dispatch.LEGACY[alias] == ("rsmm.cli.cmd_editor", ["--tab", tab])

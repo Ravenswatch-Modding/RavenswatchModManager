@@ -358,7 +358,7 @@ bytes verbatim as section payload, giving a byte-level edit path today.
 
 ### `rsmm editor`
 
-One local page with four editors, each on its own tab. Each one reads your own
+One local page with the item, talent, hero and ability editors, each on its own tab. Each one reads your own
 install when the page asks for something, and each saves an ordinary mod that
 `rsmm apply` installs. Nothing from the game is bundled with the editor. The
 same editors also run in the browser with no install:
@@ -369,27 +369,27 @@ same editors also run in the browser with no install:
 | **Items** | a copy of a shipped magical item with its own id, name, text, rarity, icon, values and the stat each effect gives (`kind = "item"`) |
 | **Talents** | changed talent values (`kind = "talent"`, one block per entity file) and renamed talent cards (`kind = "skill"`) |
 | **Abilities** | `[[content.abilities]]` steps for a custom hero: every number an ability uses, plus a graph for re-pointing links and copying parts |
-| **Map** | a chapter's map-generation recipe (`kind = "tilegen"`) on a 3D view of its terrain |
 
 ```sh
 ./rsmm editor                      # serve on 127.0.0.1:8765 and open a browser
-./rsmm editor --tab map            # open on another tab: items, talents, abilities, map
+./rsmm editor --tab abilities      # open on another tab: items, talents, scripts, hero, abilities, save
 ./rsmm editor --port 9000          # pick the port (falls back to a free one)
 ./rsmm editor --no-browser         # just print the URL
 ./rsmm editor --game-dir "D:\SteamLibrary\steamapps\common\Ravenswatch"   # when it isn't found
 ./rsmm restore --all && ./rsmm apply   # install what you saved
 ```
 
-`item-editor`, `talent-editor`, `ability-editor` and `map-editor` still work:
-each opens this editor on its tab.
+`item-editor`, `talent-editor` and `ability-editor` still work: each opens
+this editor on its tab. Maps are edited in the native map editor
+(`apps/map-editor`, built with `cargo run --release` there), which runs this
+CLI as `rsmm editor --stdio` for its data.
 
 The tab bar names the install the editor reads. When none is found, every tab
 says so and shows the `--game-dir` command to start it with; the folder can be
 Ravenswatch itself or `DarkTalesResources` inside it (`RSMM_GAME_DIR` works
 too). A dot on a tab means it holds changes that are in no mod yet. Item,
 talent, test-grant and ability changes are kept in your browser until you save
-them; Map changes are not, so closing the page with unsaved Map changes asks
-first.
+them.
 
 **Items and Talents.** *Check* builds the blocks with the real kind builders,
 so it reports exactly what `rsmm apply` would refuse. *Add to mod* appends them
@@ -400,16 +400,6 @@ new ones.
 
 **Abilities.** The page never writes a mod: press *Copy manifest code* and paste
 the steps under your custom hero's `[[content]]` block (`kind = "hero"`).
-
-**Map.** The page shows every tile slot of a chapter on a 3D (or top-down) view of
-its painted terrain: height, design paths, blocked ground and water. Each slot
-is coloured by whether the selected tile can land there in the selected
-scenario. You can change how many of each tile kind the generator places,
-their minimum spacing, which footprints each kind fits, the per-flag quotas,
-and which kinds each slot may hold. Saving writes `mods/<id>/manifest.toml` with
-one `tilegen` declaration, which reopens in the editor. The `tilegen` kind is
-⚠️ experimental: the recipe round-trips byte-identically, but an edited recipe
-has not yet been shown to change what generates.
 
 The server answers only loopback hosts, and every write needs a token that
 exists only in the pages it served.

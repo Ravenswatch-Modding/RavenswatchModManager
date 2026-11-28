@@ -269,6 +269,29 @@
             },
             "minItems": 3,
             "maxItems": 3
+          },
+          "quat": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            ]
           }
         }
       }
@@ -312,10 +335,30 @@
             "maxItems": 3
           },
           "scale": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            ]
           },
           "yaw": {
             "type": "number"
+          },
+          "quat": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
           }
         }
       }

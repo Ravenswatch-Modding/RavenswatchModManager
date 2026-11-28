@@ -1,10 +1,10 @@
 ---
 title: Web editor
-description: Build item, talent, ability and map mods in your browser, from your own game files, with nothing to install.
+description: Build item, talent, hero and ability mods in your browser, from your own game files, with nothing to install.
 ---
 
 The [web editor](/editor/) is `rsmm editor` running in
-your browser. It has the same five tabs (Items, Talents, Scripts, Abilities, Map) and
+your browser. It has the same tabs (Items, Talents, Scripts, Hero, Abilities) and
 the same checks, and it saves the same mods. You need no Python, no CLI and no
 desktop app to use it. Installing the mod it gives you still takes one of those.
 
@@ -33,7 +33,9 @@ desktop app to use it. Installing the mod it gives you still takes one of those.
 | **Scripts** | everything: test grants (items, talents and XP handed out when a run starts), for every hero or one |
 | **Hero** | heroes written from scratch: rig and body, buttons, talents, ultimate cards, projectiles, effects, animations, slots and memoirs; *Check*; save (only the changed lines of the hero's block are rewritten). *Build check* works too, but runs slowly in a browser |
 | **Abilities** | everything: numbers, the graph, *Save to mod* (by default an in-place edit of the shipped hero, or a separate custom hero built on it, as you choose; saved changes load back when you pick the mod; *New mod…* asks for the same details as the other tabs and makes the mod and its block when you press *Create mod…*; *Open a mod folder…* brings a saved mod back), *Copy manifest code* |
-| **Map** | the recipe, the spots, the 3D terrain, and the chapter's scenery and tiles drawn with the game's own models and textures, read from your install |
+
+Maps are not edited here: the [map editor](/guides/map-editor/) is a native
+desktop app (`apps/map-editor`), built for chapters too big for a browser.
 
 To keep working on a mod you saved earlier, press *Open a mod folder…* and
 pick that mod's folder. The editor reads its `manifest.toml`, its `init.lua` and

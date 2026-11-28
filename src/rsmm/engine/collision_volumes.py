@@ -154,6 +154,26 @@ def add_volumes(entity_bytes: bytes, volumes: list[Volume], *, name: str = "",
     return ef.to_bytes()
 
 
+def set_volumes(entity_bytes: bytes, volumes: list[Volume], *, name: str = "",
+                seed: str = "") -> bytes:
+    """``entity_bytes`` (a collision-only entity such as :data:`DONOR`) with
+    exactly ``volumes``: its own volume records rewritten in order, the rest
+    appended. A record left over is parked as a tiny ground box far under the
+    map, since a component cannot be removed."""
+    ef = EntityFile(entity_bytes, name)
+    # Only box records are rewritten (other shapes lay out bytes_3 differently).
+    own = [(n, v["shape"] == SHAPE_BOX) for n, v in read_volumes(entity_bytes)]
+    boxes = [n for n, box in own if box]
+    for comp, v in zip(boxes, volumes, strict=False):
+        _write(ef, comp, v)
+    # ponytail: the rest are parked far under the map, not removed (no
+    # EntityFile.remove); a remove would drop them for good.
+    for comp in [n for n, box in own if not box] + boxes[len(volumes):]:
+        for idx, val in zip(POS, (0.0, -5000.0, 0.0), strict=True):
+            ef.set_value(comp, f"obj_4[{idx}]", val)
+    return add_volumes(ef.to_bytes(), volumes[len(boxes):], name=name, seed=seed)
+
+
 def read_volumes(entity_bytes: bytes) -> list[tuple[str, dict]]:
     """Every collision volume on an entity, decoded (for tests and `rsmm`
     inspection): name -> {group, mask, shape, half, pos, rot}."""

@@ -26,7 +26,8 @@ The desktop app does **not** reimplement the CLI — it bundles the Python CLI a
 |------|---------|
 | Desktop app (Tauri dev) | `pnpm dev` (= `turbo run dev --filter=desktop`). **Not `npm run dev`** — that makes corepack fetch the pinned `pnpm@9.12.0`, and turbo swallows corepack's confirm prompt, so the run stops dead after `! Corepack is about to download …` with no window and no error. `export COREPACK_ENABLE_DOWNLOAD_PROMPT=0` in your shell rc; it recurs on a fresh clone or an nvm version switch. |
 | Desktop app w/ local CLI | `pnpm --filter desktop dev:with-cli` (puts repo root on PATH so it uses `./rsmm` not the bundled sidecar) |
-| Item / talent / ability / map editor | `rsmm editor [--tab items\|talents\|abilities\|map]` (local page); the same editors run in the browser at `docs.rsmm.me/editor/` |
+| Item / talent / hero / ability editor | `rsmm editor [--tab items\|talents\|hero\|abilities]` (local page); the same editors run in the browser at `docs.rsmm.me/editor/` |
+| Map editor (native) | `cd apps/map-editor && cargo run --release` (Rust + wgpu; drives `rsmm editor --stdio`, whose `/map/api/*` routes stay in `src/rsmm/cli/editor/maps.py`) |
 | Lint Python | `ruff check .` (config in `pyproject.toml` — `src/loader/third_party` excluded) |
 | Fast Python tests | `pnpm test:python:fast` (= `pytest -n auto -m "not slow"`; heavy corpus-scan tests are auto-marked `slow`) |
 | Loader Lua SDK spec | `lua tests/lua/rsmm_spec.lua` (also wrapped as `pytest tests/test_loader_lua.py`) — engine-faithful mocks; extend it when touching `rsmm.lua` engine-call paths |

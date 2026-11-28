@@ -10,7 +10,9 @@ A response is stored under a FINGERPRINT of everything it depends on, so a
 stale answer is never served: a game update (exe + pristine manifest), any
 apply or restore (the state file), a rebuilt asset map, an edited mirror, or a
 different rsmm build each name a different directory, and the old one is
-deleted when a new one is made. Only 200 JSON answers are stored.
+deleted when a new one is made. Only 200 answers are stored: JSON from
+``CACHED`` routes, and the map editor's converted meshes and textures
+(``maps._file``).
 
 The local editor turns this on; the web editor (Pyodide, an in-memory disk)
 does not. Nothing here is needed for correctness: any I/O error simply

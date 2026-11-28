@@ -13,7 +13,11 @@ only exist on a clone. The page is ``pages/map.html``.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import re
 import secrets
+import shutil
 import tempfile
 import tomllib
 from pathlib import Path
@@ -22,15 +26,18 @@ from rsmm.cli.editor import tiles as _tiles  # the 3D tile mode's routes
 from rsmm.cli.editor.app import Fail, Raw, Request, asset_dir
 from rsmm.engine import map_editor as ME
 from rsmm.engine import map_scene as MS
+from rsmm.engine import render_look as RL
 from rsmm.engine import scenery_edit as SE
+from rsmm.engine import terrain_look as TL
 
 MOUNT = "map"
-PAGE = "map.html"
+#: No page: the map editor is the native app (`apps/map-editor`), which drives
+#: these routes over `rsmm editor --stdio`.
 
-#: three.js, vendored so the page works offline (and in the web editor).
+#: three.js, vendored for the Hero tab's 3D preview (here and in the web editor).
 STATIC_FILES = {"three.module.min.js": "text/javascript; charset=utf-8"}
-#: What /api/file serves: meshes and textures under 3D/, nothing else.
-FILE_ROOT = "3D"
+#: What /api/file serves: meshes and textures under 3D/, effect sprites under FX/.
+FILE_ROOTS = ("3D", "FX")
 FILE_TYPES = {".glb": "model/gltf-binary", ".png": "image/png"}
 NEXT_STEP = "rsmm restore --all && rsmm apply"
 #: Brush dabs one save may carry; a long painting session is a few thousand.
@@ -88,12 +95,21 @@ def _file(req: Request) -> Raw:
     rel = req.arg("path")
     parts = rel.split("/")
     ctype = FILE_TYPES.get(Path(rel).suffix.lower())
-    if (not ctype or parts[0] != FILE_ROOT or len(parts) < 2 or "\\" in rel
+    if (not ctype or parts[0] not in FILE_ROOTS or len(parts) < 2 or "\\" in rel
             or any(s in ("", ".", "..") for s in parts)):
         raise Fail(404, "not found")
-    data = MS.asset_bytes(rel)
+    # Kept on disk across launches: without the dev mirror (every player's
+    # machine) each one is a cooked-file decode, ~550 of them per chapter.
+    # Not through app's one-at-a-time gate: these load in parallel.
+    from rsmm.cli.editor import diskcache
+    key = f"map/api/file?{rel}"
+    data = diskcache.get(key) if req.ctx.disk_cache else None
     if data is None:
-        raise Fail(404, "not found")
+        data = MS.asset_bytes(rel)
+        if data is None:
+            raise Fail(404, "not found")
+        if req.ctx.disk_cache:
+            diskcache.put(key, data)
     return Raw(data, ctype, cache=True)
 
 
@@ -117,6 +133,23 @@ def _terrain(req: Request, ch: ME.Chapter) -> dict:
     return ME.terrain_json(ch, grid)
 
 
+def _look(req: Request, ch: ME.Chapter) -> dict:
+    """The ground's material and blend weights (the native editor draws it)."""
+    try:
+        # The rectangle the in-game minimap picture covers, for File > Export minimap.
+        return {**TL.look_json(ch), "minimap_rect": ME.minimap_rect(ch)}
+    except TL.LookError as e:
+        raise Fail(404, str(e)) from e
+
+
+def _environment(req: Request, ch: ME.Chapter) -> dict:
+    """Sun, ambient and fog by day (the native editor lights the scene with it)."""
+    try:
+        return RL.environment_json(ch)
+    except RL.RenderLookError as e:
+        raise Fail(404, str(e)) from e
+
+
 def _mod(req: Request) -> dict:
     mod_id = req.arg("id")
     if not ME.valid_mod_id(mod_id):
@@ -127,7 +160,85 @@ def _mod(req: Request) -> dict:
     if not got:
         raise Fail(404, f"{mod_id} is not a map-editor mod")
     name = tomllib.loads(text).get("mod", {}).get("name", "")
-    return {**got, "name": name}
+    # The folder, so the editor can preview the mod's own models from disk.
+    root = req.ctx.mods_dir / mod_id
+    # Every folder under art/, empty ones included: the Project panel's Assets tree.
+    dirs = sorted(d.relative_to(root).as_posix() for d in (root / "art").rglob("*")
+                  if d.is_dir() and ART_DIR.match(d.relative_to(root).as_posix()))
+    return {**got, "name": name, "folder": str(root.resolve()), "art_dirs": dirs}
+
+
+# --------------------------------------------------------------------------
+# the mod's own art (models and textures the editor imported)
+# --------------------------------------------------------------------------
+
+#: Where an imported file waits until a save copies it into ``mods/<id>/art``.
+STAGING = Path(tempfile.gettempdir()) / "rsmm-map-editor-staging"
+#: A staged file's id: content hash + extension.
+_STAGED_ID = re.compile(r"^[0-9a-f]{32}\.(glb|png)$")
+#: Where a model or texture lives in a mod: ``art/[<folder>/...]<name>.glb|png``
+#: (the Project panel's folders, up to 6 deep; every part starts alphanumeric,
+#: so none is ``..``).
+_ART_SEG = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}"
+ART_PATH = re.compile(rf"^art/(?:{_ART_SEG}/){{0,6}}{_ART_SEG}\.(glb|png)$")
+ART_DIR = re.compile(rf"^art(?:/{_ART_SEG}){{1,7}}$")
+_MAGIC = {"glb": b"glTF", "png": b"\x89PNG"}
+
+
+def _upload(req: Request) -> dict:
+    """Stage one imported ``.glb`` / ``.png`` (``{name, data: base64}``)."""
+    ext = Path(str(req.body.get("name", ""))).suffix.lower().lstrip(".")
+    if ext not in _MAGIC:
+        raise Fail(400, "only .glb models and .png textures can be imported")
+    try:
+        data = base64.b64decode(str(req.body.get("data", "")), validate=True)
+    except ValueError:
+        raise Fail(400, "data: expected base64") from None
+    if not data.startswith(_MAGIC[ext]):
+        raise Fail(400, f"that is not a .{ext} file")
+    sid = f"{hashlib.sha256(data).hexdigest()[:32]}.{ext}"
+    STAGING.mkdir(parents=True, exist_ok=True)
+    (STAGING / sid).write_bytes(data)
+    return {"id": sid}
+
+
+def _as_art(body: dict) -> dict[str, Path]:
+    """``{"art/<name>": staged id}`` -> ``{"art/<name>": staged file}``."""
+    art = body.get("art") or {}
+    if not isinstance(art, dict):
+        raise Fail(400, "art: expected {path: staged id}")
+    out = {}
+    for rel, sid in art.items():
+        if not isinstance(rel, str) or not ART_PATH.match(rel):
+            raise Fail(400, f"art: {rel!r} is not art/[folder/]<name>.glb or .png")
+        if not isinstance(sid, str) or not _STAGED_ID.match(sid) or not (STAGING / sid).is_file():
+            raise Fail(400, f"art: {rel} was not imported in this session; import it again")
+        out[rel] = STAGING / sid
+    return out
+
+
+def _dropped_art(body: dict, art: dict[str, Path]) -> list[str]:
+    """``drop_art``: the mod's own files the author removed in the Project panel."""
+    drop = body.get("drop_art") or []
+    ok = isinstance(drop, list) and all(isinstance(r, str) and ART_PATH.match(r) for r in drop)
+    if not ok:
+        raise Fail(400, "drop_art: expected a list of art/[folder/]<name>.glb or .png")
+    return [r for r in drop if r not in art]
+
+
+def _art_dirs(body: dict) -> list[str]:
+    """``art_dirs``: the Project panel's folders, kept even while empty."""
+    dirs = body.get("art_dirs") or []
+    if not isinstance(dirs, list) or not all(isinstance(d, str) and ART_DIR.match(d) for d in dirs):
+        raise Fail(400, "art_dirs: expected a list of art/<folder>[/<folder>...]")
+    return dirs
+
+
+def _put_art(art: dict[str, Path], root: Path) -> None:
+    for rel, src in art.items():
+        dest = root / Path(*rel.split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
 
 
 def _as_map(body: dict) -> dict | None:
@@ -149,9 +260,35 @@ def _as_map(body: dict) -> dict | None:
     if not isinstance(terrain, list) or len(terrain) > MAX_STROKES or not all(
             isinstance(st, dict) for st in terrain):
         raise Fail(400, f"map.terrain: expected at most {MAX_STROKES} brush strokes")
+    objects = m.get("objects") or []
+    if not isinstance(objects, list) or not all(isinstance(o, dict) for o in objects):
+        raise Fail(400, "map.objects: expected a list of objects")
+    surfaces = m.get("surfaces") or {}
+    if not isinstance(surfaces, dict) or not all(
+            k in ("base", "R", "G", "B", "A") and isinstance(v, str) and ART_PATH.match(v)
+            and v.endswith(".png") for k, v in surfaces.items()):
+        raise Fail(400, "map.surfaces: expected {layer: \"art/<name>.png\"}")
+    minimap = m.get("minimap")
+    if minimap is not None and not (isinstance(minimap, str) and ART_PATH.match(minimap)
+                                    and minimap.endswith(".png")):
+        raise Fail(400, "map.minimap: expected \"art/<name>.png\"")
+    tiling = m.get("tiling") or {}
+    if not isinstance(tiling, dict) or not all(
+            k in ("base", "R", "G", "B", "A") and isinstance(v, (int, float))
+            and not isinstance(v, bool) and 0.005 <= v <= 2.0 for k, v in tiling.items()):
+        raise Fail(400, "map.tiling: expected {layer: repeats per metre, 0.005 .. 2}")
+    blank = m.get("blank")
+    if blank is not None and (isinstance(blank, bool) or not isinstance(blank, (int, float))):
+        raise Fail(400, "map.blank: expected the flat ground's height in metres")
     return {"id": str(m.get("id", "")).strip(), "play": bool(m.get("play")),
             "pool": {k: list(pool.get(k) or []) for k in ("add", "remove")},
-            "place": place, "terrain": terrain}
+            "place": place, "terrain": terrain,
+            **({"blank": float(blank)} if blank is not None else {}),
+            **({"objects": objects} if objects else {}),
+            **({"surfaces": dict(surfaces)} if surfaces else {}),
+            **({"tiling": {k: float(v) for k, v in tiling.items()}} if tiling else {}),
+            **({"minimap": minimap} if minimap else {}),
+            **({"scenery": _as_scenery({"scenery": m.get("scenery")})} if m.get("scenery") else {})}
 
 
 def _as_scenery(body: dict) -> dict:
@@ -184,7 +321,8 @@ def _scenery_changes(ch: ME.Chapter, scenery: dict) -> list[str]:
 
 
 def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
-             scenery: dict | None = None) -> list[str]:
+             scenery: dict | None = None, art: dict[str, Path] | None = None,
+             mod_root: Path | None = None) -> list[str]:
     """What saving would change, proven to cook before anything is written.
 
     A clone is proven by the `map` kind itself, on the very manifest text the
@@ -201,18 +339,35 @@ def _changes(ch: ME.Chapter, edits: dict, as_map: dict | None,
     block = tomllib.loads(text)["content"][0]
     fields = {k: v for k, v in block.items() if k not in ("kind", "id")}
     with tempfile.TemporaryDirectory() as out:
+        # The mod's art, where the map kind looks for it: what this save brings,
+        # over what an earlier save already put in the mod.
+        if mod_root is not None and (mod_root / "art").is_dir():
+            shutil.copytree(mod_root / "art", Path(out) / "art")
+        _put_art(art or {}, Path(out))
         map_kind.emit("map-check", ContentDef("map", block["id"], fields), Path(out))
     pool = as_map["pool"]
     return (changes + [f"pool: + {p}" for p in pool["add"]]
             + [f"pool: - {p}" for p in pool["remove"]]
             + [f"place: {t} on slot {k}" for k, t in as_map["place"].items()]
-            + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else []))
+            + ([f"blank: flat ground at {as_map['blank']:g} m, the base's scenery and "
+                f"invisible walls cleared"] if as_map.get("blank") is not None else [])
+            + ([f"terrain: {len(as_map['terrain'])} brush strokes"] if as_map["terrain"] else [])
+            + ([f"objects: {len(as_map['objects'])} placed on the map"]
+               if as_map.get("objects") else [])
+            + ([f"minimap: {as_map['minimap']}"] if as_map.get("minimap") else [])
+            + [f"surfaces: layer {k} drawn with {v}"
+               for k, v in sorted((as_map.get("surfaces") or {}).items())]
+            + [f"scenery: {len(e.get('moves') or {})} moved, {len(e.get('removes') or {})} "
+               f"removed in the map's own {lv.rsplit('/', 1)[-1].split('.', 1)[0]}"
+               for lv, e in sorted((as_map.get("scenery") or {}).items())])
 
 
 def _check(req: Request) -> dict:
     ch = _chapter(str(req.body.get("chapter", "")))
+    mod_id = str(req.body.get("mod_id", "")).strip().lower()
+    root = req.ctx.mods_dir / mod_id if ME.valid_mod_id(mod_id) else None
     return {"changes": _changes(ch, req.body.get("edits") or {}, _as_map(req.body),
-                                _as_scenery(req.body))}
+                                _as_scenery(req.body), _as_art(req.body), root)}
 
 
 def _save(req: Request) -> dict:
@@ -224,18 +379,33 @@ def _save(req: Request) -> dict:
         raise Fail(400, "mod id: use 2-64 lower-case letters, digits, '-' or '_'")
     as_map = _as_map(body)
     scenery = _as_scenery(body)
-    changes = _changes(ch, edits, as_map, scenery)  # prove it cooks before writing
+    art = _as_art(body)
+    drop = _dropped_art(body, art)
+    dirs = _art_dirs(body)
+    folder = req.ctx.mods_dir / mod_id
+    changes = _changes(ch, edits, as_map, scenery, art, folder)  # prove it cooks before writing
     if not changes:
         raise Fail(400, "nothing to save: every value matches the shipped recipe")
     name = str(body.get("name", "")).strip()[:80]
     text = ME.manifest_toml(mod_id, name, ch, edits, as_map, scenery)
-    folder = req.ctx.mods_dir / mod_id
     man = folder / "manifest.toml"
     if man.is_file() and not man.read_text(encoding="utf-8").startswith(ME.EDITOR_MARK):
         raise Fail(409, f"mods/{mod_id} already exists and was not made by the map "
                         f"editor; pick another id")
     folder.mkdir(parents=True, exist_ok=True)
     tmp = man.with_name(f"manifest.toml.{secrets.token_hex(4)}.tmp")
+    _put_art(art, folder)
+    for rel in drop:
+        gone = folder / Path(*rel.split("/"))
+        gone.unlink(missing_ok=True)
+        # A folder the move or removal left empty goes too, unless the author keeps it.
+        d = gone.parent
+        while d != folder / "art" and d.is_dir() and not any(d.iterdir()) \
+                and d.relative_to(folder).as_posix() not in dirs:
+            d.rmdir()
+            d = d.parent
+    for d in dirs:
+        (folder / Path(*d.split("/"))).mkdir(parents=True, exist_ok=True)
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(man)
     return {"path": f"mods/{mod_id}/manifest.toml", "changes": changes, "next": NEXT_STEP}
@@ -244,7 +414,8 @@ def _save(req: Request) -> dict:
 #: GET routes whose answer depends only on game data (see diskcache).
 CACHED = frozenset({
     "/api/scene", "/api/tiles", "/api/catalog", "/api/layers", "/api/layer",
-    "/api/tile", "/api/terrain", "/api/scenery", "/api/scenery/props",
+    "/api/tile", "/api/terrain", "/api/terrain/look", "/api/environment",
+    "/api/scenery", "/api/scenery/props",
 }) | _tiles.CACHED
 
 ROUTES = {
@@ -253,6 +424,8 @@ ROUTES = {
     ("GET", "/static/*"): _static,
     ("GET", "/api/file"): _file,
     ("GET", "/api/terrain"): _drawn(_terrain),
+    ("GET", "/api/terrain/look"): _drawn(_look),
+    ("GET", "/api/environment"): _drawn(_environment),
     ("GET", "/api/scene"): _drawn(lambda req, ch: ME.scene_json(ch)),
     ("GET", "/api/tiles"): _drawn(lambda req, ch: {"tiles": ME.tile_pool_json(ch)}),
     ("GET", "/api/catalog"): lambda req: {"tiles": ME.tile_catalog_json()},
@@ -262,6 +435,7 @@ ROUTES = {
     ("GET", "/api/mod"): _mod,
     ("POST", "/api/check"): _check,
     ("POST", "/api/save"): _save,
+    ("POST", "/api/upload"): _upload,
     ("GET", "/api/scenery"): _drawn(lambda req, ch: SE.scenery_json(ch)),
     ("GET", "/api/scenery/props"): _drawn(lambda req, ch: {"props": SE.chapter_props(ch)}),
     **_tiles.ROUTES,

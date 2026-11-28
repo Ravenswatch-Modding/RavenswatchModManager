@@ -966,7 +966,10 @@ def poi_json_schema() -> dict:
                                "yaw": num}}},
             "move": {"type": "array", "items": {
                 "type": "object", "required": ["entity", "pos"], "additionalProperties": False,
-                "properties": {"entity": s, "at": xyz, "pos": xyz}}},
+                "properties": {"entity": s, "at": xyz, "pos": xyz,
+                               "quat": {"type": "array", "items": num, "minItems": 4,
+                                        "maxItems": 4},
+                               "scale": {"anyOf": [num, xyz]}}}},
             "swaps":{"type": "object", "minProperties": 1,
                       "additionalProperties": entity},
             "places": {"type": "array", "minItems": 1, "items": {
@@ -977,7 +980,10 @@ def poi_json_schema() -> dict:
                                          entity]},
                     "pos": {"type": "array", "items": num,
                             "minItems": 3, "maxItems": 3},
-                    "scale": num, "yaw": num}}},
+                    "scale": {"anyOf": [num, {"type": "array", "items": num,
+                                              "minItems": 3, "maxItems": 3}]},
+                    "yaw": num,
+                    "quat": {"type": "array", "items": num, "minItems": 4, "maxItems": 4}}}},
             "icon": s,
             "replaces": entity,
             "entity_base": entity,
@@ -1693,8 +1699,10 @@ def _move_objects(level: bytes, defn: ContentDef, before=None) -> bytes:
                 isinstance(v, (int, float)) and not isinstance(v, bool) for v in raw)):
             raise ContentError(f"poi {defn.id}: move[{i}].pos needs three numbers")
         pos = tuple(float(v) for v in raw)
+        xf = _place_xf(defn, f"move[{i}]", mv) if ("quat" in mv or "scale" in mv) else None
         for oid, _pl in hits:
-            out_changes[oid] = (pos, now[oid].quat, now[oid].scale)
+            out_changes[oid] = (pos, xf["quat"] if xf and "quat" in mv else now[oid].quat,
+                                xf["scale"] if xf and "scale" in mv else now[oid].scale)
     return LP.set_transforms(level, out_changes)
 
 
@@ -2029,8 +2037,7 @@ def _validated_places(defn: ContentDef) -> list[dict]:
             if len(pos) != 3:
                 raise ContentError(f"poi {defn.id}: places[{i}].pos needs 3 numbers")
             out.append({"entity": pickup, "pos": tuple(float(v) for v in pos),
-                        "scale": float(item.get("scale", 1.0)),
-                        "yaw": float(item.get("yaw", 0.0))})
+                        **_place_xf(defn, f"places[{i}]", item)})
             continue
         part = _part_name(ent)
         if part is not None and part not in ((defn.fields.get("prop") or {}).get("parts") or {}):
@@ -2071,9 +2078,34 @@ def _validated_places(defn: ContentDef) -> list[dict]:
             raise ContentError(f"poi {defn.id}: places[{i}].pos needs 3 numbers")
         out.append({"entity": ent,
                     "pos": tuple(float(v) for v in pos),
-                    "scale": float(item.get("scale", 1.0)),
-                    "yaw": float(item.get("yaw", 0.0))})
+                    **_place_xf(defn, f"places[{i}]", item)})
     return out
+
+
+def _place_xf(defn: ContentDef, what: str, item: dict) -> dict:
+    """A placement's rotation and scale: ``quat = [x, y, z, w]`` or ``yaw``
+    (degrees about +Y), and ``scale`` as one number or ``[x, y, z]``."""
+    try:
+        if "quat" in item:
+            if "yaw" in item:
+                raise ContentError(f"poi {defn.id}: {what}: give yaw or quat, not both")
+            q = tuple(float(v) for v in item["quat"])
+            n = math.sqrt(sum(v * v for v in q)) if len(q) == 4 else 0.0
+            if not (math.isfinite(n) and n > 1e-6):
+                raise ContentError(f"poi {defn.id}: {what}.quat is not a rotation")
+            quat = tuple(v / n for v in q)
+        else:
+            half = math.radians(float(item.get("yaw", 0.0))) / 2.0
+            quat = (0.0, math.sin(half), 0.0, math.cos(half))
+        sc = item.get("scale", 1.0)
+        scale = ((float(sc),) * 3 if isinstance(sc, (int, float)) and not isinstance(sc, bool)
+                 else tuple(float(v) for v in sc))
+    except (TypeError, ValueError):
+        raise ContentError(f"poi {defn.id}: {what}: quat = [x, y, z, w], yaw and scale "
+                           "are numbers (scale may be [x, y, z])") from None
+    if len(scale) != 3 or not all(math.isfinite(v) and 0.01 <= v <= 100 for v in scale):
+        raise ContentError(f"poi {defn.id}: {what}.scale must be 0.01..100")
+    return {"quat": quat, "scale": scale}
 
 
 def _validated_swaps(defn: ContentDef, base: str,
@@ -3612,19 +3644,14 @@ def _emit_cloned_level(mod_id: str, defn: ContentDef, out_dir: Path,
             mod_id, defn, out_dir, written)
         _log.info("poi %s/%s: mod-owned prop entity %s", mod_id, defn.id, own_prop)
     for item in places:
-        # yaw only: a POI stands upright by definition, and a full quaternion
-        # in a toml file is a footgun no author asked for.
-        half = math.radians(item["yaw"]) / 2.0
         own = item["entity"] == PLACES_OWN_PROP
         part = _part_name(item["entity"])
         entity = (own_prop if own else _part_entity_ref(mod_id, defn, part) if part
                   else item["entity"])
         for ent in [entity, *(_extra_entity_refs(mod_id, defn) if own else [])]:
-            level = LP.add_placement(
-                level, ent, pos=item["pos"],
-                quat=(0.0, math.sin(half), 0.0, math.cos(half)),
-                scale=(item["scale"],) * 3)
-            _log.info("poi %s: placed %s at %s scale %.2f", defn.id,
+            level = LP.add_placement(level, ent, pos=item["pos"], quat=item["quat"],
+                                     scale=item["scale"])
+            _log.info("poi %s: placed %s at %s scale %s", defn.id,
                       ent.split("\\")[-1], item["pos"], item["scale"])
     level = _rename_level_pair(level, defn, mod_id)
     # Several teleporters of one side and id (a room with more than one way
@@ -3802,13 +3829,10 @@ def _emit_replacing_base(mod_id: str, defn: ContentDef, out_dir: Path,
                     own_prop = _emit_prop_art(mod_id, defn, out_dir, written)[0]
                 entity = own_prop
                 extras = _extra_entity_refs(mod_id, defn)
-            half = math.radians(item["yaw"]) / 2.0
             for ent in [entity, *extras]:
-                level = LP.add_placement(
-                    level, ent, pos=item["pos"],
-                    quat=(0.0, math.sin(half), 0.0, math.cos(half)),
-                    scale=(item["scale"],) * 3)
-                _log.info("poi %s: added %s to the shipped level at %s scale %.2f",
+                level = LP.add_placement(level, ent, pos=item["pos"], quat=item["quat"],
+                                         scale=item["scale"])
+                _log.info("poi %s: added %s to the shipped level at %s scale %s",
                           defn.id, ent.split("\\")[-1], item["pos"], item["scale"])
         _write(out_dir, PC.level_cooked_path(level_ref), level, written)
 

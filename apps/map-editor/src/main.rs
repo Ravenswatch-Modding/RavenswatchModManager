@@ -1,0 +1,106 @@
+//! RSMM Map Editor: a native map creator and editor for Ravenswatch mods.
+//!
+//! The game data side (decoding chapters, proving an edit cooks, writing the
+//! mod) is the `rsmm` CLI, run as `rsmm editor --stdio`; this binary is the
+//! viewport and the tools. See README.md.
+
+mod app;
+mod assets;
+mod backend;
+mod camera;
+mod edit;
+mod icons;
+mod models;
+mod project;
+mod outliner;
+mod path;
+mod brush;
+mod bvh;
+mod recipe;
+mod session;
+mod theme;
+mod update;
+mod render;
+mod scene;
+
+use eframe::egui;
+use eframe::egui_wgpu;
+use eframe::wgpu;
+
+fn main() -> eframe::Result<()> {
+    let mut args = std::env::args().skip(1);
+    let mut rsmm = None;
+    let mut opts = app::Options::default();
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--rsmm" => rsmm = args.next(),
+            "--chapter" => opts.chapter = args.next(),
+            "--snapshot" => opts.snapshot = args.next().map(Into::into),
+            "--self-check" => opts.self_check = true,
+            "--empty" => opts.empty = true,
+            "--import" => opts.import.extend(args.next().map(Into::into)),
+            "--project" => opts.project = args.next(),
+            "--tile-check" => opts.tile_check = true,
+            "--new-tile" => {
+                opts.tile_check = true;
+                opts.new_tile = true;
+            }
+            "--open-tile" => opts.open_tile = args.next(),
+            "--ui-snapshot" => opts.ui_snapshot = args.next().map(Into::into),
+            "--select" => opts.select = args.next(),
+            "--icon-sheet" => opts.icon_sheet = true,
+            "--split" => opts.split = true,
+            "--display" => opts.display = args.next(),
+            "--gizmo" => opts.gizmo = args.next(),
+            "--ui-click" => {
+                if let Some([x, y]) = args.next().and_then(|v| v.split_once(',').and_then(|(a, b)| Some([a.trim().parse().ok()?, b.trim().parse().ok()?]))) {
+                    opts.ui_clicks.push([x, y]);
+                }
+            }
+            "--view" => {
+                let v: Vec<f32> = args.next().unwrap_or_default().split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if v.len() == 3 {
+                    opts.view = Some([v[0], v[1], v[2]]);
+                }
+            }
+            "-h" | "--help" => {
+                println!("rsmm-map-editor [--rsmm <path to rsmm>] [--chapter <key>] [--snapshot <out.png>]\n\nRuns `rsmm editor --stdio` for game data.");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+    let cmd = backend::find_rsmm(rsmm);
+    let backend = match backend::Backend::start(&cmd) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("rsmm-map-editor: {e:#}\n(tried: {})", cmd.join(" "));
+            std::process::exit(1);
+        }
+    };
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("RSMM Map Editor")
+            .with_inner_size([1680.0, 1000.0])
+            .with_min_inner_size([900.0, 560.0]),
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options: {
+            // A laptop's discrete GPU, not the integrated one.
+            let mut cfg = egui_wgpu::WgpuConfiguration::default();
+            if let egui_wgpu::WgpuSetup::CreateNew(c) = &mut cfg.wgpu_setup {
+                c.power_preference = wgpu::PowerPreference::HighPerformance;
+                // The Wireframe view, where the GPU has it.
+                let base = c.device_descriptor.clone();
+                c.device_descriptor = std::sync::Arc::new(move |a| {
+                    let mut d = base(a);
+                    d.required_features |= a.features() & wgpu::Features::POLYGON_MODE_LINE;
+                    d
+                });
+            }
+            cfg
+        },
+        ..Default::default()
+    };
+    eframe::run_native("RSMM Map Editor", options, Box::new(move |cc| Ok(Box::new(app::MapEditor::new(cc, backend, opts)))))
+}

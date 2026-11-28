@@ -117,7 +117,7 @@ def test_scene_and_tile_endpoints(server):
     code, _h, body = server("/api/tile?chapter=DarkHills&path=" + urllib.parse.quote(camp["path"]))
     assert code == 200 and json.loads(body)["instances"] > 0
     assert server("/api/tile?chapter=DarkHills&path=Tiles%5CNope.tiledef.ot")[0] == 404
-    mesh = scene["parts"][0]["mesh"]
+    mesh = next(p["mesh"] for p in scene["parts"] if not p.get("vfx"))
     code, _headers, body = server("/api/file?path=" + urllib.parse.quote(mesh))
     assert code == 200 and body[:4] == b"glTF"
 
@@ -140,13 +140,21 @@ def no_mirror(install_only, monkeypatch, tmp_path):
 
     monkeypatch.setattr(MS, "DATA_DIR", tmp_path)
     monkeypatch.setattr(ME, "DATA_DIR", tmp_path)
-    cached = (MS.entity_parts, MS.level_parts, MS.material_albedo, MS.asset_bytes,
-              ME.scene_json, ME.tile_json, ME.tile_pool_json)
+    cached = (MS.entity_parts, MS.level_parts, MS.material_albedo, MS.material_normal,
+              MS.asset_bytes, ME.scene_json, ME.tile_json, ME.tile_pool_json)
     for f in cached:
         f.cache_clear()
     yield ME
     for f in cached:
         f.cache_clear()
+
+
+def test_scenery_parts_carry_their_normal_maps(no_mirror):
+    scene = no_mirror.scene_json(no_mirror.find_chapter("DarkHills"))
+    normals = sorted({p["normal"] for p in scene["parts"] if p.get("normal")})
+    assert len(normals) > 20
+    assert all(n.lower().endswith(("_nrm.png", "_normal.png")) for n in normals)
+    assert MS.asset_bytes(normals[0])[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_models_and_textures_come_from_the_install_alone(no_mirror):
@@ -168,3 +176,39 @@ def test_models_and_textures_come_from_the_install_alone(no_mirror):
 
     assert MS.asset_bytes("3D/Scenery/Nope.fbx.glb") is None
     assert MS.asset_bytes("3D/../../asset_map.json.glb") is None
+
+
+def test_effect_sprites_are_idle_tinted_and_animated():
+    """The editor's effect preview: event effects (a torch breaking) stay
+    out, colour comes from the colour ramp, life / density ride on the matrix."""
+    assert MS.idle_effect("Settings\\FX\\Common_FX\\Torch_Fire_01.vfx.ot")
+    assert not MS.idle_effect("Settings\\FX\\Common_FX\\Torch_Fire_01_destruction.vfx.ot")
+    assert not MS.idle_effect("Settings\\FX\\Common_FX\\Destructible_Explosion_Small.vfx.ot")
+    # HDR orange fading to black: the first half, brightest channel at 1
+    ramp = {"keys": [[0.0, 3.0, 2.5, 1.2, 1.0], [0.2, 0.96, 0.26, 0.0, 1.0], [1.0, 0, 0, 0, 1]]}
+    assert MS._ramp_color(ramp) == "#ffb24d"
+    assert MS._ramp_color(None) is None
+    assert MS._ramp_color({"keys": [[0.0, 0, 0, 0, 1]]}) is None
+
+
+_TORCH = "DarkHills\\Objects_DarkHills\\Destructible_Torch_A.entity.ot"
+
+
+@pytest.mark.skipif(not (MS.available("FX/Textures/Fire/Flame_Mask_01.png")
+                         and MS._bytes("EntitySettings", _TORCH)), reason="needs the game")
+def test_a_torch_shows_its_flame():
+    parts = [(p, m) for p, m in MS.entity_parts(_TORCH) if p.vfx]
+    assert any(p.texture == "FX/Textures/Fire/Flame_Mask_01.png" and p.color for p, _ in parts)
+    for _p, m in parts:
+        size, life, alive = m[0], m[5] / m[0], m[10] / m[0]
+        assert size > 0 and 0.3 <= life <= 6.0 and 0.15 <= alive <= 1.0
+
+
+def test_bc5_normal_blocks_decode_red_and_green():
+    from rsmm.engine import icon_decode as ID
+
+    # Red: endpoints 255 / 0, every index 0 -> 255. Green: 0 / 128, every index 1 -> 128.
+    idx1 = int("001" * 16, 2).to_bytes(6, "little")  # 3-bit index 1 for all 16 texels
+    block = bytes([255, 0]) + bytes(6) + bytes([0, 128]) + idx1
+    rgba = ID.decode_to_rgba(block, 4, 4, "BC5U")
+    assert {tuple(rgba[i:i + 4]) for i in range(0, 64, 4)} == {(255, 128, 255, 255)}

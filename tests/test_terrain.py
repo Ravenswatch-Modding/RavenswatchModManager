@@ -281,3 +281,17 @@ def test_render_zone_ambient_is_set_in_place():
     out = LP.set_ambient(lv, (0.4, 0.38, 0.42))
     assert len(out) == len(lv) and len(LP.objects(out)) == len(LP.objects(lv))
     assert struct.pack("<3f", 0.4, 0.38, 0.42) in out
+
+
+@needs_corpus
+@pytest.mark.parametrize("key", ["Avalon", "Storm_Island"])
+def test_water_strokes_write_where_a_constant_shares_the_grids_name(key):
+    """Storm Island and Avalon carry a constant AND a painted `Base Water
+    Height`: the grid takes the strokes, the constant is left as shipped."""
+    raw = ME._shipped(ME.terrain_decoded(ME.find_chapter(key)))
+    t = TR.read(raw, {"Base Water Height"})
+    assert t.layers["Base Water Height"].kind == "float"
+    TR.apply_strokes(t, [{"op": "set", "layer": "Base Water Height", "x": 0, "z": 0,
+                          "radius": 20, "amount": 2.0, "falloff": "constant"}])
+    back = TR.read(TR.write(raw, t), {"Base Water Height"}).layers["Base Water Height"]
+    assert list(back.cells) == list(t.layers["Base Water Height"].cells)

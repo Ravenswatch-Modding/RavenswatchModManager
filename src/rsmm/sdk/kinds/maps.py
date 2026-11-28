@@ -40,6 +40,52 @@ Fields:
                                   amount, falloff, layer }]`` — see
                                   `rsmm.engine.terrain.apply_strokes`. Mesh,
                                   collision and navmesh follow at load.
+    ``blank``    (true or ``{ height = <m> }``, optional) start from an EMPTY
+                                  map instead of the base's landscape: the
+                                  ground flat at ``height`` metres (default 0;
+                                  the shipped chapters build in 4 m terraces),
+                                  no water, ``LD Block`` cleared, and every
+                                  scenery object, ramp stamp, invisible wall
+                                  and collision volume of the base sunk under
+                                  the map (`level_placements.sink_all`) on
+                                  levels of the clone's own. The chapter's
+                                  fixed enemy camps are sunk too; other
+                                  gameplay objects (day/night manager,
+                                  teleporters, boss spawner) that stood on
+                                  the old ground are re-seated on the new one. The
+                                  recipe's slots stay (a run needs its start
+                                  and boss) and sit on the flat ground;
+                                  ``terrain`` strokes paint on top of it.
+                                  ⚠ Unplaytested.
+    ``objects``  (array, optional) things to stand on the map, in a scenery
+                                  level of the clone's own (the base chapter
+                                  never sees them): ``[[content.objects]]``
+                                  with ``pos = [x, y, z]``, ``yaw`` (degrees)
+                                  or ``quat = [x, y, z, w]`` (any rotation),
+                                  ``scale`` (one number or ``[x, y, z]``)
+                                  and EITHER ``entity`` (a shipped
+                                  prop, e.g.
+                                  ``"DarkHills\\SceneryObjects_DarkHills\\Rock_A.entity.ot"``)
+                                  OR ``model`` (a ``.glb`` in the mod, metres,
+                                  Y up, drawn exactly as authored) with an
+                                  optional ``texture`` (a ``.png`` in the mod)
+                                  and ``collision`` (boxes, as the ``poi``
+                                  kind's; without them a model is walked
+                                  through). Each distinct model becomes one
+                                  prop entity of the mod's own, cloned from a
+                                  plain ruin block. OR ``collider = true``
+                                  with ``collision``: an invisible wall or
+                                  walkable floor (boxes only, cloned from the
+                                  collision-only ``Pontoon_8x7``). An enemy
+                                  camp the base map places (its Gameplay
+                                  level's ``*_Enemy_Camp_Wandering``) can be
+                                  placed too: the base map's cache preloads
+                                  it. ⚠ Unplaytested.
+    ``scenery``  (table, optional) moves and removes of the base's own
+                                  objects, ``{ "<level decoded path>" = { moves,
+                                  removes } }`` as the ``scenery`` kind takes
+                                  them, applied to the CLONE's copy of that
+                                  level, so the base chapter is untouched.
     ``tilegen``  (table, optional) the clone's generation recipe, same
                                   vocabulary as the ``tilegen`` kind (``kinds``,
                                   ``quotas``, ``slots``, ``fill``) but applied
@@ -64,17 +110,22 @@ chapter generated 140 tiles and none of them the shrine (was 6).
 """
 from __future__ import annotations
 
+import json
+import math
 import re
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
 from ...engine import corpus
 from ...engine import enemy_pools as EP
+from ...engine import level_placements as LP
 from ...engine import map_cook as MC
 from ...engine import map_editor as ME
 from ...engine import map_pool as MP
 from ...engine import prop_cook as PC
 from ...engine import rsc_cache as RC
+from ...engine import scenery_edit as SE
 from ...engine import terrain as TR
 from ...engine import tile_cook as TC
 from ...engine import tilegen as TG
@@ -261,12 +312,455 @@ def _copy_cache(src_cache: bytes, p: _Placed) -> set[str]:
     return (set(RC.parse(src_cache)) - {RC.entry_for(p.src_rel)}) | {RC.entry_for(p.rel)}
 
 
-def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
-           folder: str, swaps: dict[str, str]) -> dict:
-    """Lay `strokes` on the base terrain; re-seat the recipe's slots on it.
+#: A scenery or collision sublevel a blank map empties, by the part of its
+#: stem it keeps in the clone's name (``Map_Dark_Hills_Scenery_NorthEast`` ->
+#: ``Scenery_NorthEast``). The scenery PARENT (``..._Scenery``) is cloned anyway.
+_EMPTIED = re.compile(r"_((?:Scenery_.+)|Collisions)$")
+_GAMEPLAY = re.compile(r"_(Gameplay(?:_.+)?)$")
+#: How close (metres) to the old ground a gameplay object must stand to be
+#: re-seated on the new ground; anything else is left where it was.
+_ON_GROUND = 1.0
 
-    Adds the terrain and scenery clones to `swaps` and returns their bytes."""
-    if not isinstance(strokes, list) or not strokes:
+
+def _stem(ref: str) -> str:
+    return ref.rsplit("\\", 1)[-1].removesuffix(".level.ot")
+
+
+def _blank_height(map_id: str, blank) -> float | None:
+    if blank is None or blank is False:
+        return None
+    if blank is True:
+        return 0.0
+    if isinstance(blank, dict) and set(blank) <= {"height"}:
+        h = blank.get("height", 0.0)
+        if isinstance(h, (int, float)) and not isinstance(h, bool) and math.isfinite(h):
+            return float(h)
+    raise ContentError(f"map {map_id}: 'blank' is true or {{ height = <metres> }}")
+
+
+#: Layers a blank map zeroes: no water (0 = the box floor) and nothing marked
+#: blocked. Each may be missing from a terrain; Storm Island and Avalon carry
+#: water twice (`terrain.fill`).
+_BLANK_ZERO = ("Base Water Height", "LD Block")
+
+
+def _unpaint(level: bytes) -> bytes:
+    """No painted surfaces (every surface layer 0 = the base material, which
+    also leaves the terrain's grass and pebble scatter nothing to spawn on) and
+    a white vertex colour (a plain multiply). Height-like layers are left to
+    `_blank_ground` / `_BLANK_ZERO`."""
+    t = TR.read(level)
+    names = [n for n, ly in t.layers.items() if n not in TR.METRE_LAYERS
+             and n not in _BLANK_ZERO and ly.kind in ("float", "rgba")]
+    t = TR.read(level, set(names))
+    for ly in t.layers.values():
+        if ly.kind == "rgba":
+            ly.cells = b"\xff" * len(ly.cells)
+        else:
+            for i in range(len(ly.cells)):
+                ly.cells[i] = 0.0
+    return TR.write(level, t) if t.layers else level
+
+
+def _blank_ground(map_id: str, t: TR.Terrain, height: float) -> None:
+    """Flat ground at `height`."""
+    lo, hi = t.box_min[1], t.box_max[1]
+    if not lo < height < hi:
+        raise ContentError(f"map {map_id}: blank height {height:g} m is outside the "
+                           f"terrain's {lo:g}..{hi:g} m")
+    cells = t.layers[TR.HEIGHT].cells
+    v = (height - lo) / (hi - lo)
+    for i in range(len(cells)):
+        cells[i] = v
+
+
+#: The chapter's fixed enemy camps (Gameplay level, 61-105 per chapter): a
+#: blank map has none. The day/night manager, teleporters and the boss
+#: spawner in the same level stay.
+_ENEMY_CAMP = re.compile(r"_Enemy_Camp[^\\]*\.entity\.ot$", re.I)
+
+
+def _reseat(raw: bytes, old: TR.Terrain, new: TR.Terrain,
+            sink: re.Pattern | None = None) -> bytes | None:
+    """`raw` with every object that stood on `old` ground standing on `new`,
+    and every object whose entity matches `sink` sunk under the map."""
+    moves = {}
+    for oid, pl in LP.objects(raw):
+        x, y, z = pl.pos
+        if sink is not None and sink.search(pl.ref):
+            moves[oid] = ((x, y - SE.SINK, z), pl.quat, pl.scale)
+            continue
+        if abs(y - old.height_at(x, z)) <= _ON_GROUND:
+            ny = new.height_at(x, z)
+            if abs(ny - y) > 0.01:
+                moves[oid] = ((x, ny, z), pl.quat, pl.scale)
+    return LP.set_transforms(raw, moves) if moves else None
+
+
+#: The prop a mod's own model is cloned from: a plain, static, one-mesh,
+#: one-material ruin block (the `poi` kind's proven donor).
+_MODEL_DONOR = "DarkHills\\SceneryObjects_DarkHills\\Wall_Ruins_Block_Small_A.entity.ot"
+_MODEL_MATERIAL = "Scenery\\DarkHills\\M_Walls_Ruins.mat.ot"
+_OBJECT_KEYS = {"entity", "model", "collider", "texture", "collision", "pos", "yaw", "quat",
+                "scale", "name", "camp", "light", "prefab"}
+#: A light prop's tunable numbers (``light = {radius, intensity}``): value
+#: components on the entity, or the ancestor, that carries its omni light.
+#: ``intensity`` is the omni light's intensity factor (the point light ships
+#: 6, lanterns 10 .. 40), spelled two ways in the game data.
+_LIGHT_VALUES = {"radius": ("Omni Light Radius",),
+                 "intensity": ("Omni Light Intensity Factor Value",
+                               "Omni Light Itensity Factor Value")}
+#: An enemy camp's spawn settings (``camp = {difficulty, power}``): the
+#: component that rolls its group, and the difficulty definitions it can name.
+_CAMP_SELECTOR = "Enemy camp entity selector to spawn"
+CAMP_DIFFICULTIES = ("Very_Easy", "Easy", "Medium", "Advanced", "Hard", "Very_Hard")
+#: What a collider (`collider = true`: collision boxes, nothing drawn) is
+#: cloned from: a shipped collision-only entity.
+_COLLIDER_DONOR = "DarkHills\\Objects_DarkHills\\Pontoon_8x7.entity.ot"
+_MAX_OBJECTS = 4000
+
+
+@dataclass
+class _Object:
+    ref: str                                   # the placed entity
+    pos: tuple[float, float, float]
+    quat: tuple[float, float, float, float]
+    scale: tuple[float, float, float]
+
+
+def _objects(map_id: str, objects, out_dir: Path, written: list[Path],
+             base_cache: list[str] = ()) -> tuple[list[_Object], set[str]]:
+    """Validate `objects`, emit an entity per distinct own model, and return
+    the placements plus the cache lines everything placed reaches."""
+    from . import poi as P
+
+    if not isinstance(objects, list) or len(objects) > _MAX_OBJECTS:
+        raise ContentError(f"map {map_id}: 'objects' is a list of at most "
+                           f"{_MAX_OBJECTS} tables")
+    out: list[_Object] = []
+    seeds: set[str] = set()
+    borrow: set[str] = set()
+    own: dict[str, str] = {}                   # model key -> entity ref
+    camp_lines: list[str] = []                 # difficulty definitions a camp names
+    for n, o in enumerate(objects):
+        what = f"map {map_id}: objects[{n}]"
+        if not isinstance(o, dict) or set(o) - _OBJECT_KEYS:
+            raise ContentError(f"{what}: keys are {sorted(_OBJECT_KEYS)}")
+        if [k in o for k in ("entity", "model", "collider")].count(True) != 1:
+            raise ContentError(f"{what}: give exactly one of 'entity', 'model' or 'collider'")
+        if "collider" in o and (o["collider"] is not True or not o.get("collision")
+                                or "texture" in o):
+            raise ContentError(f"{what}: a collider is `collider = true` with a non-empty "
+                               "'collision' list (and no texture)")
+        if "yaw" in o and "quat" in o:
+            raise ContentError(f"{what}: give 'yaw' or 'quat', not both")
+        try:
+            pos = tuple(float(v) for v in o["pos"])
+            yaw = math.radians(float(o.get("yaw", 0.0)))
+            quat = (tuple(float(v) for v in o["quat"]) if "quat" in o
+                    else (0.0, math.sin(yaw / 2), 0.0, math.cos(yaw / 2)))
+            sc = o.get("scale", 1.0)
+            scale = ((float(sc),) * 3 if isinstance(sc, (int, float))
+                     else tuple(float(v) for v in sc))
+        except (KeyError, TypeError, ValueError):
+            raise ContentError(f"{what}: pos = [x, y, z], yaw a number, quat = [x, y, z, w], "
+                               "scale a number or [x, y, z]") from None
+        norm = math.sqrt(sum(v * v for v in quat)) if len(quat) == 4 else 0.0
+        finite = all(math.isfinite(v) for v in (*pos, yaw, *scale, norm))
+        if len(pos) != 3 or len(scale) != 3 or not finite or norm < 1e-6 \
+                or not all(0.01 <= k <= 100 for k in scale):
+            raise ContentError(f"{what}: pos = [x, y, z], quat a rotation, scale 0.01..100")
+        quat = tuple(v / norm for v in quat)
+        # The map editor's link to the prefab this object was placed from
+        # (`prefab = {name, instance}`): editor bookkeeping, never cooked.
+        pf = o.get("prefab")
+        if pf is not None and not (isinstance(pf, dict) and isinstance(pf.get("name"), str)
+                                   and isinstance(pf.get("instance"), int)
+                                   and not isinstance(pf.get("instance"), bool)):
+            raise ContentError(f"{what}: prefab = {{name = \"...\", instance = <int>}}")
+        if ("camp" in o or "light" in o) and "entity" not in o:
+            raise ContentError(f"{what}: 'camp' / 'light' settings go on a shipped 'entity'")
+        if "entity" in o:
+            ref = str(o["entity"])
+            if not ref.endswith(".entity.ot") or not corpus.exists(PC.entity_cooked_path(ref)):
+                raise ContentError(f"{what}: {ref!r} is not a shipped entity")
+            if any(k in o for k in ("texture", "collision")):
+                raise ContentError(f"{what}: texture and collision belong to a 'model'")
+            borrow.add(ref)
+            if o.get("light"):
+                key = json.dumps(["light", ref, o["light"]], sort_keys=True)
+                if key not in own:
+                    own[key] = _own_light(map_id, len(own), ref, o["light"], what, out_dir, written)
+                ref = own[key]
+            elif o.get("camp"):
+                key = json.dumps(["camp", ref, o["camp"]], sort_keys=True)
+                if key not in own:
+                    own[key], lines_extra = _own_camp(map_id, len(own), ref, o["camp"], what,
+                                                      out_dir, written)
+                    camp_lines.extend(lines_extra)
+                ref = own[key]
+        elif "collider" in o:
+            key = json.dumps(["collider", o["collision"]], sort_keys=True)
+            ref = own.get(key)
+            if ref is None:
+                ref = own[key] = _own_collider(map_id, len(own), o, what, out_dir, written)
+        else:
+            key = json.dumps([o["model"], o.get("texture"), o.get("collision")], sort_keys=True)
+            ref = own.get(key)
+            if ref is None:
+                ref = own[key] = _own_prop(map_id, len(own), o, what, out_dir, written)
+            borrow.add(_MODEL_DONOR)
+        seeds.add(ref)
+        out.append(_Object(ref, pos, quat, scale))
+    if not out:
+        return out, set()
+    # Index lines for the walk: the caches of tiles that already place each
+    # shipped entity (or the donor), plus this mod's own files.
+    by_entity = P._tile_cache_by_placed_entity()
+    # The base map's own cache preloads what its levels place (the Gameplay
+    # level's wandering enemy camps, which no tile places); the clone keeps it.
+    lines: list[str] = list(base_cache)
+    in_base = {ln.split("|")[1] for ln in base_cache if ln.count("|") == 2}
+    for ent in sorted(borrow):
+        cache = by_entity.get(ent)
+        blob = corpus.read(cache) if cache else None
+        if blob is None:
+            if ent in in_base:
+                continue
+            raise ContentError(f"map {map_id}: no shipped tile places {ent}, so its "
+                               f"preload closure is unknown; pick a prop a tile uses")
+        lines += RC.parse(blob)
+    lines += [RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith(("EntitySettings/", "3D/"))]
+    index = {ln.split("|")[1]: ln for ln in lines if ln.count("|") == 2}
+    seen, extra = P._reachable(sorted(seeds), lines, out_dir)
+    missing = sorted(seeds - seen - {r for r in seeds if PC.entity_cooked_path(r) in extra})
+    if missing:
+        raise ContentError(f"map {map_id}: cannot preload {missing}")
+    return out, ({index[p] for p in seen if p in index} | {RC.entry_for(c) for c in extra}
+                 | set(camp_lines))
+
+
+def _own_prop(map_id: str, k: int, o: dict, what: str, out_dir: Path,
+              written: list[Path]) -> str:
+    """Cook one model (+ texture, + collision) into a prop entity of the mod's."""
+    from ...engine import collision_volumes as CV
+    from ...engine import entity_strings as ES
+    from . import poi as P
+
+    def write(decoded: str, data: bytes) -> None:
+        dest = out_dir / Path(*decoded.split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        written.append(dest)
+
+    tag = f"{map_id}_Obj{k}"
+    donor_ent = _read(PC.entity_cooked_path(_MODEL_DONOR), "the model donor prop")
+    donor_meshes = sorted(s for _sec, _off, s in ES.list_strings(donor_ent)
+                          if s.lower().endswith(".fbx"))
+    src = P._mod_source(out_dir, o["model"], map_id, f"{what}.model")
+    mesh_ref = f"{P._asset_dir(donor_meshes[0])}/{tag}.fbx".replace("/", "\\")
+    write(PC.art_cooked_path(mesh_ref),
+          PC.cook_model(src.read_bytes(), P._donor_geometry(donor_meshes[0], map_id),
+                        # Exactly as authored, bound whole to the donor's one bone
+                        # (a scenery prop never bends; nearest-vertex weights would
+                        # only warn about a pose it does not have).
+                        transform={"fit": "rig", "skin": "rigid"}))
+    swaps = dict.fromkeys(donor_meshes, mesh_ref)
+    if o.get("texture"):
+        mat = _read(PC.art_cooked_path(_MODEL_MATERIAL), "the model donor material")
+        alb = [r for r in P._material_refs(mat) if r.lower().rsplit(".", 1)[0].endswith("_alb")]
+        if len(alb) != 1:
+            raise ContentError(f"map {map_id}: the donor material has {len(alb)} albedo maps")
+        art = P._asset_dir(_MODEL_MATERIAL)
+        tex_ref = f"{art}/T_{tag}_ALB.tga".replace("/", "\\")
+        tsrc = P._mod_source(out_dir, o["texture"], map_id, f"{what}.texture")
+        write(PC.art_cooked_path(tex_ref), PC.cook_texture(tsrc.read_bytes()))
+        mat_ref = f"{art}/M_{tag}.mat.ot".replace("/", "\\")
+        write(PC.art_cooked_path(mat_ref), PC.clone_material(mat, {alb[0]: tex_ref}))
+        swaps[_MODEL_MATERIAL] = mat_ref
+    ent_ref = f"{P._asset_dir(_MODEL_DONOR)}/{tag}.entity.ot".replace("/", "\\")
+    ent = PC.clone_prop_entity(donor_ent, swaps, ent_ref)
+    if o.get("collision"):
+        try:
+            ent = CV.add_volumes(ent, CV.parse(o["collision"], f"{what}.collision"),
+                                 name=tag, seed=tag)
+        except CV.CollisionError as e:
+            raise ContentError(str(e)) from e
+    write(PC.entity_cooked_path(ent_ref), ent)
+    return ent_ref
+
+
+def _own_light(map_id: str, k: int, ref: str, light, what: str, out_dir: Path,
+               written: list[Path]) -> str:
+    """A copy of light prop `ref` with its own ``radius`` (m) / ``intensity``.
+
+    Each number is set where it is nearest to `ref` (a lantern overrides its
+    model's radius; its intensity lives on the model): the entities from
+    `ref` up to the farthest one touched are copied, each parent link
+    repointed to the copy, so only this map's copies change."""
+    from ...engine import entity_strings as ES
+    from ...engine.entity_graph_edit import EntityEditError, EntityFile
+
+    if not isinstance(light, dict) or not light or set(light) - set(_LIGHT_VALUES):
+        raise ContentError(f"{what}.light: keys are {sorted(_LIGHT_VALUES)}")
+    for key, v in light.items():
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 < v <= 200:
+            raise ContentError(f"{what}.light.{key}: a number, 0 .. 200")
+    vals: dict[str, float] = {}                 # component -> value
+    chain, at = [ref], {}                       # component -> nearest chain index
+    while True:
+        raw = _read(PC.entity_cooked_path(chain[-1]), f"light prop {chain[-1]}")
+        names = {c.name for c in EntityFile(raw, chain[-1]).graph().components}
+        for key, v in light.items():
+            if key in at:
+                continue
+            hit = next((c for c in _LIGHT_VALUES[key] if c in names), None)
+            if hit:
+                at[key] = hit, len(chain) - 1
+                vals[hit] = float(v)
+        if len(at) == len(light):
+            break
+        parents = [s for *_x, s in ES.list_strings(raw) if s.endswith(".entity.ot")]
+        if len(parents) != 1 or parents[0] in chain or len(chain) > 6:
+            raise ContentError(f"{what}: {ref} carries no tunable light "
+                               f"{sorted(set(light) - set(at))}")
+        chain.append(parents[0])
+    at = dict(at.values())
+    chain = chain[:max(at.values()) + 1]
+    tag = f"{map_id}_Light{k}"
+    new = {r: f"{r.rsplit(chr(92), 1)[0]}\\{tag}_{i}.entity.ot" for i, r in enumerate(chain)}
+    for i, r in enumerate(chain):
+        raw = _read(PC.entity_cooked_path(r), f"light prop {r}")
+        if i + 1 < len(chain):
+            raw = ES.replace_strings(raw, {chain[i + 1]: new[chain[i + 1]]})
+        here = {c: v for c, v in vals.items() if at[c] == i}
+        if here:
+            ef = EntityFile(raw, r)
+            try:
+                for comp, v in here.items():
+                    ef.set_value(comp, "value", v)
+            except EntityEditError as e:
+                raise ContentError(f"{what}.light: {e}") from e
+            raw = ef.to_bytes()
+        dest = out_dir / Path(*PC.entity_cooked_path(new[r]).split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PC.restamp_entity_guids(raw, new[r]))
+        written.append(dest)
+    return new[ref]
+
+
+def _own_camp(map_id: str, k: int, ref: str, camp, what: str, out_dir: Path,
+              written: list[Path]) -> tuple[str, list[str]]:
+    """A copy of enemy camp `ref` with its own spawn settings:
+    ``difficulty`` (one of :data:`CAMP_DIFFICULTIES`) and ``power = [min, max]``
+    (the selector's two power numbers; Dark Hills' wandering camps ship
+    100..200, a Ghouls camp 10..20). The copy is the camp's own file, or, for
+    a chapter camp that only names a shared parent, that parent's.
+    Returns the copy's ref and the cache lines its difficulty needs."""
+    from ...engine import entity_strings as ES
+    from ...engine.entity_graph_edit import EntityEditError, EntityFile
+
+    if not isinstance(camp, dict) or set(camp) - {"difficulty", "power"}:
+        raise ContentError(f"{what}.camp: keys are difficulty and power")
+    src = ref
+    for _ in range(4):
+        ef = EntityFile(_read(PC.entity_cooked_path(src), f"enemy camp {src}"), src)
+        if any(c.name == _CAMP_SELECTOR for c in ef.graph().components):
+            break
+        parents = [s for *_x, s in ES.list_strings(ef.to_bytes()) if s.endswith(".entity.ot")]
+        if len(ef.graph().components) or len(parents) != 1:
+            raise ContentError(f"{what}: {ref} is not an enemy camp whose spawn settings "
+                               "can be changed")
+        src = parents[0]
+    else:
+        raise ContentError(f"{what}: {ref} is not an enemy camp")
+    lines: list[str] = []
+    try:
+        if "power" in camp:
+            lo, hi = (float(v) for v in camp["power"])
+            if not 0 < lo <= hi <= 10000:
+                raise ContentError(f"{what}.camp.power: [min, max] with 0 < min <= max")
+            ef.set_value(_CAMP_SELECTOR, "value_4", lo)
+            ef.set_value(_CAMP_SELECTOR, "value_5", hi)
+        if "difficulty" in camp:
+            d = camp["difficulty"]
+            if d not in CAMP_DIFFICULTIES:
+                raise ContentError(f"{what}.camp.difficulty: one of {list(CAMP_DIFFICULTIES)}")
+            path = f"EnemyCampDifficulties\\{d}.enemycampdifficultydef.ot"
+            c, f, at = ef._field(_CAMP_SELECTOR, "bytes_3")
+            # A definition reference: u32 + "Definitions", u32 + path, u32 0.
+            new = b"".join(struct.pack("<I", len(x)) + x
+                           for x in (b"Definitions", path.encode())) + b"\0" * 4
+            ef._splice(c, at + f.offset, at + f.offset + f.size, new)
+            rel = f"Definitions/{path.replace(chr(92), '/')}.DtEnemyCampDifficultyDefinition.gen"
+            lines.append(RC.entry_for(rel))
+            cache = corpus.read(RC.cache_path_for(rel))
+            lines += RC.parse(cache) if cache else []
+        ent = ef.to_bytes()
+    except (EntityEditError, TypeError, ValueError) as e:
+        raise ContentError(f"{what}.camp: {e}") from e
+    tag = f"{map_id}_Camp{k}"
+    ent_ref = f"{src.rsplit(chr(92), 1)[0]}\\{tag}.entity.ot"
+    ent = PC.clone_prop_entity(ent, {}, ent_ref)
+    dest = out_dir / Path(*PC.entity_cooked_path(ent_ref).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(ent)
+    written.append(dest)
+    return ent_ref, lines
+
+
+def _own_collider(map_id: str, k: int, o: dict, what: str, out_dir: Path,
+                  written: list[Path]) -> str:
+    """A collision-only entity of the mod's: the collider donor with exactly
+    the object's boxes (walls block, ground can be stood on)."""
+    from ...engine import collision_volumes as CV
+    from . import poi as P
+
+    tag = f"{map_id}_Obj{k}"
+    donor = _read(PC.entity_cooked_path(_COLLIDER_DONOR), "the collider donor")
+    ent_ref = f"{P._asset_dir(_COLLIDER_DONOR)}/{tag}.entity.ot".replace("/", "\\")
+    ent = PC.clone_prop_entity(donor, {}, ent_ref)
+    try:
+        ent = CV.set_volumes(ent, CV.parse(o["collision"], f"{what}.collision"),
+                             name=tag, seed=tag)
+    except CV.CollisionError as e:
+        raise ContentError(str(e)) from e
+    dest = out_dir / Path(*PC.entity_cooked_path(ent_ref).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(ent)
+    written.append(dest)
+    return ent_ref
+
+
+def _chapter_of(base: str):
+    """``Dark_Hills`` -> the map editor's chapter (``DarkHills``)."""
+    for key, (b, _i) in ME.MAP_BASES.items():
+        if b == base:
+            return ME.find_chapter(key)
+    raise ContentError(f"map: {base} has no editable scenery")
+
+
+#: A scenery sublevel objects can be added to (it holds plain placements to
+#: copy a block from): ``Map_Dark_Hills_Scenery_NorthEast``, ``..._East``,
+#: Avalon's ``..._Scenery_01_Floor``.
+_OBJECT_LEVEL = re.compile(r"_Scenery_.+$")
+
+
+def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
+           folder: str, swaps: dict[str, str], blank: float | None = None,
+           objects: list[_Object] | None = None, scenery_edits: dict | None = None,
+           chapter=None, own_material: bool = False, own_gameplay: bool = False) -> dict:
+    """Lay `strokes` on the base terrain (flattened first for a `blank` map);
+    re-seat the recipe's slots on it.
+
+    Adds the terrain and scenery clones to `swaps` and returns their bytes. A
+    blank map also returns ``extra``: ``{old ref: (bytes, parent)}`` for each
+    emptied scenery / collision sublevel and re-seated gameplay level, where
+    ``parent`` names the level that lists it (``"scenery"`` or ``"root"``)."""
+    other = blank is not None or bool(objects) or bool(scenery_edits)
+    strokes = [] if strokes is None and other else strokes
+    if not isinstance(strokes, list) or not (strokes or other or own_material):
         raise ContentError(f"map {map_id}: 'terrain' is a list of brush strokes")
     terrain_refs = [r for r in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]
                     if r.endswith("_Terrain.level.ot")]
@@ -283,9 +777,21 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
     raw = _read(PC.level_cooked_path(terrain_ref), "the base map's terrain level")
     names = {st.get("layer", TR.HEIGHT) for st in strokes if isinstance(st, dict)} | {TR.HEIGHT}
     try:
-        t = TR.read(raw, names)
-        TR.apply_strokes(t, strokes)
-        painted = TR.write(raw, t)
+        src = raw
+        if blank is not None:
+            # Blank the ground first so the strokes paint on top of it.
+            t = TR.read(raw, {TR.HEIGHT})
+            _blank_ground(map_id, t, blank)
+            src = TR.write(raw, t)
+            have = set(TR.read(raw, set(_BLANK_ZERO)).layers)
+            for name in _BLANK_ZERO:
+                if name in have:
+                    src = TR.fill(src, name, 0.0)
+            src = _unpaint(src)
+        t = TR.read(src, names)
+        if strokes:
+            TR.apply_strokes(t, strokes)
+        painted = TR.write(src, t)
     except TR.TerrainError as e:
         raise ContentError(f"map {map_id}: {e}") from e
     for s in recipe.slots.values():
@@ -293,17 +799,200 @@ def _paint(map_id: str, tg: bytes, root: bytes, recipe: TG.TileGen, strokes,
             y = t.height_at(s.pos[0], s.pos[2])
             if abs(y - s.pos[1]) > 0.01:
                 s.pos = (s.pos[0], y, s.pos[2])
-    for old, tag in ((terrain_ref, "Terrain"), (scenery_ref, "Scenery")):
-        swaps[old] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
-        if corpus.exists(PC.level_cooked_path(swaps[old])):
-            raise ContentError(f"map {map_id}: the clone's level {swaps[old]} collides "
+    extra: dict[str, tuple[bytes, str]] = {}
+    if blank is not None:
+        old = TR.read(raw, {TR.HEIGHT})
+        try:
+            scenery = LP.sink_all(scenery)[0]
+            for parent, level in (("scenery", scenery), ("root", root)):
+                for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                    if not r.endswith(".level.ot") or r in extra:
+                        continue
+                    if _EMPTIED.search(_stem(r)):
+                        child = _read(PC.level_cooked_path(r), f"the base map's {_stem(r)}")
+                        extra[r] = (LP.sink_all(child)[0], parent)
+                    elif parent == "root" and _GAMEPLAY.search(_stem(r)):
+                        child = _read(PC.level_cooked_path(r), f"the base map's {_stem(r)}")
+                        moved = _reseat(child, old, t, _ENEMY_CAMP)
+                        if moved is not None:
+                            extra[r] = (moved, parent)
+        except LP.LevelPlacementError as e:
+            raise ContentError(f"map {map_id}: blank: {e}") from e
+    if own_gameplay:
+        # The minimap's pictures are named by the chapter's gameplay level.
+        gp = [r for r in PC._refs_doc("oCGameStream", root)[1]["asset_refs"]
+              if r.endswith(".level.ot") and _GAMEPLAY.search(_stem(r))]
+        if len(gp) != 1:
+            raise ContentError(f"map {map_id}: minimap: expected one gameplay level, found {gp}")
+        if gp[0] not in extra:
+            extra[gp[0]] = (_read(PC.level_cooked_path(gp[0]), "the base map's gameplay level"),
+                            "root")
+    if scenery_edits:
+        # The base's own objects, moved or sunk on the clone's copy of their level.
+        by_path = {}
+        for parent, level in (("scenery", scenery), ("root", root)):
+            for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                if r.endswith(".level.ot"):
+                    by_path.setdefault(PC.level_cooked_path(r), (r, parent))
+        scenery_dec = PC.level_cooked_path(scenery_ref)
+        for dec, e in sorted(scenery_edits.items()):
+            if not isinstance(e, dict) or set(e) - {"moves", "removes"}:
+                raise ContentError(f"map {map_id}: scenery.{dec}: moves and removes only "
+                                   f"(new objects go in 'objects')")
+            try:
+                if dec == scenery_dec:
+                    scenery = SE.apply(chapter, dec, e, scenery)[0]
+                    continue
+                if dec not in by_path:
+                    raise ContentError(f"map {map_id}: scenery: {dec} is not a level this "
+                                       f"map loads")
+                r, parent = by_path[dec]
+                blob = extra[r][0] if r in extra else _read(dec, f"the base map's {_stem(r)}")
+                extra[r] = (SE.apply(chapter, dec, e, blob)[0], parent)
+            except (SE.SceneryEditError, LP.LevelPlacementError) as err:
+                raise ContentError(f"map {map_id}: scenery {_stem(dec)}: {err}") from err
+    if objects:
+        target = None
+        for parent, level in (("scenery", scenery), ("root", root)):
+            for r in PC._refs_doc("oCGameStream", level)[1]["asset_refs"]:
+                if target is None and r.endswith(".level.ot") and _OBJECT_LEVEL.search(_stem(r)):
+                    target = (r, parent)
+        if target is None:
+            raise ContentError(f"map {map_id}: the base has no scenery level to stand objects in")
+        r, parent = target
+        blob = extra[r][0] if r in extra else _read(PC.level_cooked_path(r),
+                                                     f"the base map's {_stem(r)}")
+        try:
+            for ob in objects:
+                blob = LP.add_placement(blob, ob.ref, ob.pos, ob.quat, ob.scale)
+        except LP.LevelPlacementError as e:
+            raise ContentError(f"map {map_id}: objects: {e}") from e
+        extra[r] = (blob, parent)
+    tags = [(terrain_ref, "Terrain"), (scenery_ref, "Scenery")]
+    tags += [(r, (_EMPTIED.search(_stem(r)) or _GAMEPLAY.search(_stem(r))
+                  or _OBJECT_LEVEL.search(_stem(r))
+                  or re.search(r"_[^_]+$", _stem(r))).group(0).lstrip("_")) for r in extra]
+    for old_ref, tag in tags:
+        swaps[old_ref] = f"{folder}\\Map_{map_id}_{tag}.level.ot"
+        if corpus.exists(PC.level_cooked_path(swaps[old_ref])):
+            raise ContentError(f"map {map_id}: the clone's level {swaps[old_ref]} collides "
                                f"with a shipped level; pick another id.")
-    return {"refs": (terrain_ref, scenery_ref), "terrain": painted, "scenery": scenery}
+    return {"refs": (terrain_ref, scenery_ref), "terrain": painted, "scenery": scenery,
+            "extra": extra}
+
+
+def _minimap(map_id: str, gameplay: bytes, src_rel: str, out_dir: Path,
+             written: list[Path]) -> dict[str, str]:
+    """``minimap = "art/minimap.png"``: the mod's picture as the chapter's
+    minimap, both the corner map and the full-screen one (their masks stay).
+    The picture covers `level_placements.minimap_rect` of the gameplay level."""
+    from . import poi as P
+
+    refs = PC._refs_doc("oCGameStream", gameplay)[1]["asset_refs"]
+    pics = [r for r in refs if r.startswith("MiniMap\\")
+            and r.endswith(("_Mini_Map.png", "_Map_High.png"))]
+    if not pics:
+        raise ContentError(f"map {map_id}: minimap: the gameplay level names no minimap picture")
+    src = P._mod_source(out_dir, src_rel, map_id, "minimap")
+    if not src.name.lower().endswith(".png"):
+        raise ContentError(f"map {map_id}: minimap: give a .png")
+    cooked = PC.cook_texture(src.read_bytes())
+    swaps = {}
+    for old in pics:
+        kind = "Mini_Map" if old.endswith("_Mini_Map.png") else "Map_High"
+        new = f"MiniMap\\{map_id}_{kind}.png"
+        dest = out_dir / "Ui" / "MiniMap" / f"{map_id}_{kind}.png.Texture.dxt"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(cooked)
+        written.append(dest)
+        swaps[old] = new
+    return swaps
+
+
+_SURFACE_SLOTS = ("base", "R", "G", "B", "A")
+
+
+def _minimap_field(map_id: str, v) -> str | None:
+    if v is None:
+        return None
+    if not isinstance(v, str) or not v.lower().endswith(".png"):
+        raise ContentError(f"map {map_id}: 'minimap' is a .png in the mod, "
+                           f"e.g. \"art/minimap.png\"")
+    return v
+
+
+def _surfaces_field(map_id: str, v) -> dict[str, str] | None:
+    if v is None:
+        return None
+    if not isinstance(v, dict) or not v or not all(
+            k in _SURFACE_SLOTS and isinstance(p, str) and p for k, p in v.items()):
+        raise ContentError(f"map {map_id}: 'surfaces' maps a layer ({', '.join(_SURFACE_SLOTS)}) "
+                           f"to a .png in the mod, e.g. {{ R = \"art/moss.png\" }}")
+    return dict(v)
+
+
+def _tiling_field(map_id: str, v) -> dict[str, float] | None:
+    """``tiling = { base = 0.09, R = 0.2 }``: how often a terrain layer's
+    texture repeats per metre (the material's ``u_UV_<layer>_scale``; Dark
+    Hills ships 0.09 .. 0.14). Smaller = bigger, less repetitive ground."""
+    if v is None:
+        return None
+    if not isinstance(v, dict) or not v or not all(
+            k in _SURFACE_SLOTS and isinstance(x, (int, float)) and not isinstance(x, bool)
+            and 0.005 <= x <= 2.0 for k, x in v.items()):
+        raise ContentError(f"map {map_id}: 'tiling' maps a layer ({', '.join(_SURFACE_SLOTS)}) "
+                           f"to repeats per metre, 0.005 .. 2, e.g. {{ base = 0.06 }}")
+    return {k: float(x) for k, x in v.items()}
+
+
+def _surfaces(map_id: str, terrain: bytes, surfaces: dict[str, str], out_dir: Path,
+              written: list[Path], tiling: dict[str, float] | None = None) -> dict[str, str]:
+    """``surfaces = { R = "art/moss.png" }``: the mod's own picture as the
+    albedo of a terrain paint layer (``base`` = the unpainted ground, ``R`` ..
+    ``A`` = the four painted surfaces). The clone's terrain gets its own copy
+    of the chapter's terrain material with those textures repointed; returns
+    ``{old material: new}`` for the terrain level."""
+    from ...engine import terrain_look as TL
+    from . import poi as P
+
+    mat_ref = TL.terrain_material_ref(terrain)
+    if mat_ref is None:
+        raise ContentError(f"map {map_id}: surfaces: the terrain names no M_Terrain_ material")
+    mat = _read(PC.art_cooked_path(mat_ref), "the base map's terrain material")
+    have = TL.slot_albedos(mat)
+    art = P._asset_dir(mat_ref)
+    repoint: dict[str, str] = {}
+    for slot, src_rel in sorted(surfaces.items()):
+        if slot not in have:
+            raise ContentError(f"map {map_id}: surfaces.{slot}: the terrain has layers "
+                               f"{sorted(have)}")
+        tex_ref = f"{art}/T_{map_id}_{slot}_ALB.tga".replace("/", "\\")
+        src = P._mod_source(out_dir, src_rel, map_id, f"surfaces.{slot}")
+        if not src.name.lower().endswith(".png"):
+            raise ContentError(f"map {map_id}: surfaces.{slot}: give a .png")
+        dest = out_dir / Path(*PC.art_cooked_path(tex_ref).split("/"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(PC.cook_texture(src.read_bytes()))
+        written.append(dest)
+        repoint[have[slot]] = tex_ref
+    new_mat = f"{art}/M_Terrain_{map_id}.mat.ot".replace("/", "\\")
+    dest = out_dir / Path(*PC.art_cooked_path(new_mat).split("/"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mat = TL.set_float_params(mat, {f"u_UV_{k}_scale": v for k, v in (tiling or {}).items()})
+    except TL.LookError as e:
+        raise ContentError(f"map {map_id}: tiling: {e}") from e
+    dest.write_bytes(PC.clone_material(mat, repoint))
+    written.append(dest)
+    return {mat_ref: new_mat}
 
 
 def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                   written: list[Path], edits: dict | None = None, place=None,
-                  biome: str = "", strokes=None,
+                  biome: str = "", strokes=None, blank: float | None = None,
+                  objects: list[_Object] | None = None, scenery_edits: dict | None = None,
+                  surfaces: dict[str, str] | None = None, minimap: str | None = None,
+                  tiling: dict[str, float] | None = None,
                   ) -> tuple[dict[str, str], TG.TileGen | None, list[_Placed]]:
     """Give the clone its own root + tile-generation levels.
 
@@ -331,7 +1020,8 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     _h, doc = PC._refs_doc("oCGameStream", root)
     tilegen = [r for r in doc["asset_refs"] if r.endswith("_TileGeneration.level.ot")]
     if not tilegen:
-        if edits or place or strokes:
+        if (edits or place or strokes or blank is not None or objects or scenery_edits
+                or surfaces or minimap or tiling):
             raise ContentError(f"map {map_id}: the base is not tile-generated, "
                                f"so there is no recipe or terrain to edit")
         return {}, None, []
@@ -361,7 +1051,15 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
                                f"matches the base recipe")
         if place is not None:
             placed = _place_tiles(map_id, recipe, place, before, biome)
-        painted = _paint(map_id, tg, root, recipe, strokes, folder, swaps) if strokes else {}
+        if (surfaces or minimap or tiling) and strokes is None:
+            strokes = []                 # the terrain is cloned for its own material
+        painted = (_paint(map_id, tg, root, recipe, strokes, folder, swaps, blank, objects,
+                          scenery_edits, _chapter_of(biome) if scenery_edits else None,
+                          own_material=bool(surfaces or minimap or tiling),
+                          own_gameplay=bool(minimap))
+                   if strokes or blank is not None or objects or scenery_edits or surfaces
+                   or minimap or tiling
+                   else {})
         if edits or placed or painted:
             tg = TG.write(tg, recipe)
     except (ME.MapEditError, TG.TileGenError) as e:
@@ -372,12 +1070,24 @@ def _clone_levels(map_id: str, base_stem: str, root_ref: str, out_dir: Path,
     if painted:
         terrain_ref, scenery_ref = painted["refs"]
         tg_swaps[terrain_ref] = swaps[terrain_ref]
+        # Avalon's tile-generation level lists the scenery level too: left on
+        # the vanilla one it would load the vanilla terrain beside the clone's.
+        if scenery_ref in PC._refs_doc("oCGameStream", tg)[1]["asset_refs"]:
+            tg_swaps[scenery_ref] = swaps[scenery_ref]
         root_swaps[scenery_ref] = swaps[scenery_ref]
+        scenery_swaps = {terrain_ref: swaps[terrain_ref]}
+        for old, (blob, parent) in painted["extra"].items():
+            (scenery_swaps if parent == "scenery" else root_swaps)[old] = swaps[old]
+            pics = (_minimap(map_id, blob, minimap, out_dir, written)
+                    if minimap and _GAMEPLAY.search(_stem(old)) else {})
+            out[old] = PC.clone_tile_level(blob, old, swaps[old], pics)
+        mat_swaps = (_surfaces(map_id, painted["terrain"], surfaces or {}, out_dir, written,
+                               tiling)
+                     if surfaces or tiling else {})
         out[terrain_ref] = PC.clone_tile_level(painted["terrain"], terrain_ref,
-                                               swaps[terrain_ref], {})
+                                               swaps[terrain_ref], mat_swaps)
         out[scenery_ref] = PC.clone_tile_level(painted["scenery"], scenery_ref,
-                                               swaps[scenery_ref],
-                                               {terrain_ref: swaps[terrain_ref]})
+                                               swaps[scenery_ref], scenery_swaps)
     out[tg_ref] = PC.clone_tile_level(tg, tg_ref, swaps[tg_ref], tg_swaps)
     out[root_ref] = PC.clone_tile_level(root, root_ref, swaps[root_ref], root_swaps)
     for old, blob in out.items():
@@ -417,9 +1127,17 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     base_rel = f"{_MAPS}/{base_stem}{MC.MAP_GEN_SUFFIX}"
     base_bytes = _read(base_rel, f"base map {base!r}")
     root_ref = MC.read_mapdef(base_bytes)["level_ref"][1]
+    blank = _blank_height(defn.id, defn.fields.get("blank"))
+    objects, object_lines = _objects(
+        defn.id, defn.fields.get("objects") or [], out_dir, written,
+        RC.parse(_read(RC.cache_path_for(base_rel), f"{base!r}'s resource cache")))
     levels, recipe, placed = _clone_levels(defn.id, base_stem, root_ref, out_dir, written,
                                            edits, defn.fields.get("place"), base,
-                                           defn.fields.get("terrain"))
+                                           defn.fields.get("terrain"), blank, objects,
+                                           defn.fields.get("scenery"),
+                                           _surfaces_field(defn.id, defn.fields.get("surfaces")),
+                                           _minimap_field(defn.id, defn.fields.get("minimap")),
+                                           _tiling_field(defn.id, defn.fields.get("tiling")))
     clone = MC.clone_mapdef(base_bytes, tribe=tribe, level=levels.get(root_ref))
     added: list[str] = []
     removed: list[str] = []
@@ -477,6 +1195,13 @@ def emit(mod_id: str, defn: ContentDef, out_dir: Path) -> list[Path]:
     # The map cache lists its pool's tiledefs one for one: a pooled tile with
     # no line is never loaded, so never placed. An added tile's own cache
     # carries that line plus everything the tile reaches.
+    lines |= object_lines
+    # The mod's own terrain material and textures: preloaded with the map.
+    lines |= {RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith("3D/")
+              and (f"M_Terrain_{defn.id}." in p.name or f"T_{defn.id}_" in p.name)}
+    lines |= {RC.entry_for(p.relative_to(out_dir).as_posix()) for p in written
+              if p.relative_to(out_dir).as_posix().startswith(f"Ui/MiniMap/{defn.id}_")}
     for p in removed:
         lines.discard(RC.entry_for(_tile_rel(p)))
     for p in placed:

@@ -309,6 +309,13 @@ def mods_dir() -> Path:
     override = os.environ.get("RSMM_MODS_DIR", "").strip()
     if override:
         path = Path(os.path.expandvars(override)).expanduser().resolve()
+    elif getattr(sys, "frozen", False):
+        # Onefile: REPO_ROOT is _MEIPASS, wiped at exit, and every process
+        # gets its own -- a mod saved by one call is gone for the next. Use
+        # the desktop app's default profile folder (lib/rsmm.ts rsmmEnv).
+        root = ((os.environ.get("APPDATA") or os.path.expanduser("~\\AppData\\Roaming"))
+                if sys.platform == "win32" else os.path.expanduser("~/.local/share"))
+        path = Path(root) / "rsmm" / "mods" / "profiles" / "default"
     else:
         path = REPO_ROOT / "mods"
     path.mkdir(parents=True, exist_ok=True)
